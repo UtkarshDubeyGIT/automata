@@ -1,0 +1,2 @@
+-- Intentionally empty. New accounts receive their own workspace through
+-- private.handle_new_user(); production data must not be shared across tenants.
