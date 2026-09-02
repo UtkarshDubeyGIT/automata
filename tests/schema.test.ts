@@ -10,6 +10,12 @@ async function migrationSql(): Promise<string> {
   return readFile(new URL(name, directory), "utf8");
 }
 
+async function allMigrationSql(): Promise<string> {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const files = (await readdir(directory)).filter((file) => file.endsWith(".sql")).sort();
+  return (await Promise.all(files.map((file) => readFile(new URL(file, directory), "utf8")))).join("\n");
+}
+
 test("the MVP migration creates every workspace-scoped product table", async () => {
   const sql = await migrationSql();
   for (const table of [
@@ -53,4 +59,11 @@ test("workspace ownership cannot be self-promoted or leave a workspace ownerless
   assert.match(sql, /create or replace function private\.protect_workspace_roles/i);
   assert.match(sql, /Workspace must retain at least one owner/i);
   assert.match(sql, /Only an owner can assign or remove the owner role/i);
+});
+
+test("workflow drafts store an optimistic revision and free-form canvas positions", async () => {
+  const sql = await allMigrationSql();
+  assert.match(sql, /draft_graph jsonb/i);
+  assert.match(sql, /draft_positions jsonb/i);
+  assert.match(sql, /draft_revision bigint/i);
 });

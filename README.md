@@ -40,6 +40,8 @@ The migration enables RLS on every public table, uses explicit grants, creates a
 - **Schedules on Vercel:** `vercel.json` calls `/api/cron`; Vercel supplies `Authorization: Bearer $CRON_SECRET`.
 - **Schedules on a VM:** `docker compose up -d` runs both the web process and the durable schedule worker.
 
+For a production Droplet deployment, including IP-only access and automatic HTTPS with a hostname, see [Deploy to a DigitalOcean Droplet](docs/DEPLOY_DROPLET.md).
+
 Every module is journaled. Connected app and HTTP successes cost one credit; AI/image modules use measured provider credits; control-flow and failures cost zero. Idempotency keys prevent duplicate runs and ledger charges.
 
 ## Quality checks

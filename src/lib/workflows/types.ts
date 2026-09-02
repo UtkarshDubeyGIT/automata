@@ -37,6 +37,16 @@ export interface WorkflowGraph {
   steps: Record<string, WorkflowStep>;
 }
 
+export interface WorkflowPosition { x: number; y: number }
+
+export interface WorkflowEditorDraft {
+  graph: WorkflowGraph;
+  positions: Record<string, WorkflowPosition>;
+  revision: number;
+  updatedAt?: string;
+  updatedBy?: string | null;
+}
+
 export const TRIGGER_TYPES = new Set<StepType>([
   "manual_trigger",
   "schedule_trigger",

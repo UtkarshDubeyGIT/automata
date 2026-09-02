@@ -6,6 +6,8 @@ import { Topbar } from "@/components/app-shell/topbar";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+import "./product-shell.css";
+
 export default async function ProductLayout({ children }: { children: ReactNode }) {
   if (isSupabaseConfigured()) {
     const supabase = await createServerSupabaseClient();

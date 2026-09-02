@@ -7,6 +7,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { executeStoredRun } from "@/lib/workflows/run-service";
 import type { WorkflowGraph } from "@/lib/workflows/types";
+import { validateGraph } from "@/lib/workflows/validate";
+import { draftIssues } from "@/lib/workflows/editor";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -23,14 +25,17 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = await request.json().catch(() => ({})) as { triggerData?: unknown; idempotencyKey?: string };
   const idempotencyKey = body.idempotencyKey?.slice(0, 200) || `manual:${randomUUID()}`;
-  const { data: workflow, error: workflowError } = await supabase.from("workflows").select("id, workspace_id, draft_version_id, published_version_id").eq("id", id).single();
+  const { data: workflow, error: workflowError } = await supabase.from("workflows").select("id, workspace_id, draft_graph, draft_revision, published_version_id").eq("id", id).single();
   if (workflowError || !workflow) return NextResponse.json({ error: "Workflow not found in this workspace." }, { status: 404 });
   const { data: membership } = await supabase.from("workspace_members").select("role").eq("workspace_id", workflow.workspace_id).eq("user_id", userId).single();
   if (!membership || membership.role === "viewer") return NextResponse.json({ error: "Your workspace role cannot run workflows." }, { status: 403 });
-  const versionId = workflow.draft_version_id ?? workflow.published_version_id;
-  if (!versionId) return NextResponse.json({ error: "Save a workflow version before running it." }, { status: 409 });
-  const { data: version, error: versionError } = await supabase.from("workflow_versions").select("id, graph").eq("id", versionId).single();
-  if (versionError || !version) return NextResponse.json({ error: "Workflow version not found." }, { status: 404 });
+  const graph = workflow.draft_graph as WorkflowGraph | null;
+  if (!graph) return NextResponse.json({ error: "Save this draft before running it." }, { status: 409 });
+  const graphErrors = [...validateGraph(graph), ...draftIssues(graph).map((issue) => issue.message)];
+  if (graphErrors.length) return NextResponse.json({ error: "Finish setting up the draft before running it.", details: [...new Set(graphErrors)] }, { status: 409 });
+  const { data: latest } = await admin.from("workflow_versions").select("version").eq("workflow_id", id).order("version", { ascending: false }).limit(1).maybeSingle();
+  const { data: version, error: versionError } = await admin.from("workflow_versions").insert({ workflow_id: id, workspace_id: workflow.workspace_id, version: Number(latest?.version ?? 0) + 1, graph, change_summary: `Draft test r${workflow.draft_revision}`, created_by: userId }).select("id,graph").single();
+  if (versionError || !version) return NextResponse.json({ error: versionError?.message ?? "The draft test version could not be created." }, { status: 500 });
 
   const monthStart = new Date();
   monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
