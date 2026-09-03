@@ -1,76 +1,88 @@
-import { randomUUID } from "node:crypto";
-
+import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
-
-import { PLANS } from "@/lib/billing/plans";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { executeStoredRun } from "@/lib/workflows/run-service";
-import type { WorkflowGraph } from "@/lib/workflows/types";
-import { validateGraph } from "@/lib/workflows/validate";
+import { createAdminClient } from "@/lib/supabase/server";
+import { resolveRequestContext } from "@/lib/workspace";
+import { claimRun, manualKey, RUN_COST } from "@/lib/workflows/claim";
+import { getWorkflowRow } from "@/lib/workflows/store";
 import { draftIssues } from "@/lib/workflows/editor";
+import { repairRefs } from "@/lib/workflows/repair";
+import { setupGaps, validateGraph } from "@/lib/workflows/validate";
 
-type Params = { params: Promise<{ id: string }> };
+/**
+ * Run now — the Run button.
+ *
+ * This is the ONE path that still executes in-request: a human is watching it,
+ * and the button has to stay synchronous to be worth pressing. Everything
+ * unattended enqueues instead (see claim.ts). The charge, the idempotency key
+ * and the graph snapshot all live in claimRun, so this route is now only
+ * authentication plus a response shape.
+ *
+ * The key comes from the UI, which mints one per ATTEMPT and keeps re-sending
+ * it until this route actually answers (see lib/workflows/run-request.ts). That
+ * is what makes a retried fetch, a proxy 504 on a run that is still going, and
+ * the impatient second press that follows it one run and one charge rather than
+ * two of each. A press made after an answer arrived carries a new key, because
+ * by then a second run is genuinely what was asked for.
+ */
+export const maxDuration = 300;
 
-export const maxDuration = 60;
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  const rc = await resolveRequestContext();
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const supabase = await createServerSupabaseClient();
-  const admin = createSupabaseAdminClient();
-  if (!supabase || !admin) return NextResponse.json({ error: "Supabase server keys are not configured." }, { status: 503 });
-  const { data: claims } = await supabase.auth.getClaims();
-  const userId = claims?.claims?.sub;
-  if (!userId) return NextResponse.json({ error: "Sign in to run a workflow." }, { status: 401 });
-
-  const { id } = await params;
-  const body = await request.json().catch(() => ({})) as { triggerData?: unknown; idempotencyKey?: string };
-  const idempotencyKey = body.idempotencyKey?.slice(0, 200) || `manual:${randomUUID()}`;
-  const { data: workflow, error: workflowError } = await supabase.from("workflows").select("id, workspace_id, draft_graph, draft_revision, published_version_id").eq("id", id).single();
-  if (workflowError || !workflow) return NextResponse.json({ error: "Workflow not found in this workspace." }, { status: 404 });
-  const { data: membership } = await supabase.from("workspace_members").select("role").eq("workspace_id", workflow.workspace_id).eq("user_id", userId).single();
-  if (!membership || membership.role === "viewer") return NextResponse.json({ error: "Your workspace role cannot run workflows." }, { status: 403 });
-  const graph = workflow.draft_graph as WorkflowGraph | null;
-  if (!graph) return NextResponse.json({ error: "Save this draft before running it." }, { status: 409 });
-  const graphErrors = [...validateGraph(graph), ...draftIssues(graph).map((issue) => issue.message)];
-  if (graphErrors.length) return NextResponse.json({ error: "Finish setting up the draft before running it.", details: [...new Set(graphErrors)] }, { status: 409 });
-  const { data: latest } = await admin.from("workflow_versions").select("version").eq("workflow_id", id).order("version", { ascending: false }).limit(1).maybeSingle();
-  const { data: version, error: versionError } = await admin.from("workflow_versions").insert({ workflow_id: id, workspace_id: workflow.workspace_id, version: Number(latest?.version ?? 0) + 1, graph, change_summary: `Draft test r${workflow.draft_revision}`, created_by: userId }).select("id,graph").single();
-  if (versionError || !version) return NextResponse.json({ error: versionError?.message ?? "The draft test version could not be created." }, { status: 500 });
-
-  const monthStart = new Date();
-  monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-  const { data: workspace } = await admin.from("workspaces").select("plan").eq("id", workflow.workspace_id).single();
-  const { data: debits } = await admin.from("usage_ledger").select("credits").eq("workspace_id", workflow.workspace_id).eq("kind", "debit").gte("created_at", monthStart.toISOString());
-  const plan = PLANS[(workspace?.plan ?? "free") as keyof typeof PLANS] ?? PLANS.free;
-  const used = (debits ?? []).reduce((sum, row) => sum + Number(row.credits), 0);
-  if (used >= plan.monthlyCredits) return NextResponse.json({ error: "This workspace has used its monthly credits." }, { status: 402 });
-
-  const { data: created, error: createError } = await admin.from("workflow_runs").insert({
-    workspace_id: workflow.workspace_id,
-    workflow_id: workflow.id,
-    workflow_version_id: version.id,
-    idempotency_key: idempotencyKey,
-    trigger_kind: "manual",
-    trigger_payload: body.triggerData ?? {},
-    started_by: userId,
-  }).select("id").single();
-
-  if (createError?.code === "23505") {
-    const { data: existing } = await supabase.from("workflow_runs").select("id,status,credits_used,error_message,pending_approval_id").eq("workflow_id", workflow.id).eq("idempotency_key", idempotencyKey).single();
-    return NextResponse.json({ run: existing, replayed: true }, { status: 200 });
+  if (!rc.supabase || !rc.workspaceId) {
+    return NextResponse.json({ error: "Sign in to run automations" }, { status: 401 });
   }
-  if (createError || !created) return NextResponse.json({ error: createError?.message ?? "Run could not be created." }, { status: 500 });
 
+  const row = await getWorkflowRow(rc.supabase, id);
+  if (!row) {
+    return NextResponse.json({ error: "Automation not found" }, { status: 404 });
+  }
+  const candidate = row.draft_config?.graph ?? row.config?.graph;
+  if (!candidate?.start) {
+    return NextResponse.json({ error: "This automation has no runnable graph" }, { status: 400 });
+  }
+  const { graph } = repairRefs(candidate);
   try {
-    const result = await executeStoredRun(admin, {
-      id: created.id,
-      workspaceId: workflow.workspace_id,
-      graph: version.graph as WorkflowGraph,
-      triggerData: body.triggerData ?? {},
-    });
-    return NextResponse.json({ run: result }, { status: result.state === "failed" ? 502 : 200 });
+    validateGraph(graph);
   } catch (error) {
-    await admin.from("workflow_runs").update({ status: "failed", error_code: "runner_error", error_message: error instanceof Error ? error.message : "Runner failed", finished_at: new Date().toISOString() }).eq("id", created.id);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Runner failed", runId: created.id }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "The saved draft is not runnable" }, { status: 400 });
   }
+  const issues = draftIssues(graph);
+  const gaps = setupGaps(graph);
+  if (issues.length || Object.values(gaps).some((items) => items.length)) {
+    return NextResponse.json({ error: issues[0]?.message ?? "Finish configuring this draft before running it" }, { status: 400 });
+  }
+
+  // A missing nonce still gets a unique key: an old client that doesn't send
+  // one behaves exactly as it did before rather than colliding with itself.
+  const nonce = (req.headers.get("x-run-nonce") ?? "").trim().slice(0, 100) || randomUUID();
+
+  const claim = await claimRun({
+    admin: createAdminClient(),
+    workflowId: id,
+    workspaceId: rc.workspaceId,
+    graph,
+    idempotencyKey: manualKey(nonce),
+    mode: "execute",
+  });
+
+  if (claim.refused?.reason === "insufficient_credits") {
+    return NextResponse.json(
+      { error: "Not enough credits", balance: claim.refused.balance, cost: RUN_COST },
+      { status: 402 },
+    );
+  }
+  if (claim.refused) {
+    return NextResponse.json({ error: claim.error }, { status: 502 });
+  }
+
+  return NextResponse.json({
+    run: { runId: claim.runId, status: claim.status, error: claim.error },
+    // The same click arriving twice gets the first run back, not a second one.
+    duplicate: claim.duplicate,
+  });
 }

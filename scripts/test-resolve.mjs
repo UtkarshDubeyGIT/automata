@@ -5,9 +5,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".mjs", ".json"];
 
-function isFile(candidate) {
+function isFile(base) {
   try {
-    return statSync(candidate).isFile();
+    return statSync(base).isFile();
   } catch {
     return false;
   }
@@ -26,6 +26,14 @@ function locate(base) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "server-only") {
+    return {
+      url: "data:text/javascript,export default {};",
+      format: "module",
+      shortCircuit: true,
+    };
+  }
+
   let absolute = null;
   if (specifier.startsWith("@/")) {
     absolute = path.join(ROOT, "src", specifier.slice(2));

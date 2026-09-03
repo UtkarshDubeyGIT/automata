@@ -1,48 +1,82 @@
 import { NextResponse, type NextRequest } from "next/server";
-
-import { PLANS, type PlanId } from "@/lib/billing/plans";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { nextCronOccurrence } from "@/lib/workflows/schedule";
-import type { WorkflowGraph } from "@/lib/workflows/types";
-import { applySafetyDefaults } from "@/lib/workflows/safety";
-import { validateGraph } from "@/lib/workflows/validate";
+import { resolveRequestContext } from "@/lib/workspace";
+import { brandKnowsProduct, getBrandProfileForWorkspace } from "@/lib/brand";
+import { connectionsOf, needsBrandGrounding, requiredAppsOf, unconnected } from "@/lib/workflows/apps";
+import { socialProvider } from "@/lib/social/composio";
+import { deriveDisplay, scheduleText } from "@/lib/workflows/display";
 import { draftIssues } from "@/lib/workflows/editor";
+import { repairRefs } from "@/lib/workflows/repair";
+import { setupGaps, validateGraph } from "@/lib/workflows/validate";
+import type { WorkflowConfig } from "@/lib/workflows/types";
 
-type Params = { params: Promise<{ id: string }> };
+export async function POST(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  const rc = await resolveRequestContext();
+  if (!rc.supabase || !rc.workspaceId) {
+    return NextResponse.json({ error: "Sign in to publish automations" }, { status: 401 });
+  }
 
-export async function POST(_request: NextRequest, { params }: Params) {
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
-  const { data: claims } = await supabase.auth.getClaims();
-  const userId = claims?.claims?.sub;
-  if (!userId) return NextResponse.json({ error: "Sign in to publish a workflow." }, { status: 401 });
-  const { id } = await params;
-  const { data: workflow } = await supabase.from("workflows").select("id,workspace_id,draft_graph,draft_revision,state").eq("id", id).single();
-  if (!workflow?.draft_graph) return NextResponse.json({ error: "Save a valid draft before publishing." }, { status: 409 });
-  const { data: membership } = await supabase.from("workspace_members").select("role").eq("workspace_id", workflow.workspace_id).eq("user_id", userId).single();
-  if (!membership || membership.role === "viewer") return NextResponse.json({ error: "Your workspace role cannot publish workflows." }, { status: 403 });
-  const { data: workspace } = await supabase.from("workspaces").select("plan,timezone").eq("id", workflow.workspace_id).single();
-  const { count } = await supabase.from("workflows").select("id", { count: "exact", head: true }).eq("workspace_id", workflow.workspace_id).eq("state", "active").neq("id", id);
-  const limit = PLANS[(workspace?.plan ?? "free") as PlanId].activeWorkflowLimit;
-  if (workflow.state !== "active" && limit !== null && (count ?? 0) >= limit) return NextResponse.json({ error: `Your plan supports ${limit} active workflows.` }, { status: 402 });
-  const publishedAt = new Date().toISOString();
-  const graph = applySafetyDefaults(workflow.draft_graph as WorkflowGraph, { allowUnattendedWrites: false });
-  const errors = [...validateGraph(graph), ...draftIssues(graph).map((issue) => issue.message)];
-  if (errors.length) return NextResponse.json({ error: "Finish setting up the draft before publishing.", details: [...new Set(errors)] }, { status: 409 });
-  const schedule = graph ? Object.values(graph.steps).find((step) => step.type === "schedule_trigger") : undefined;
-  let nextRunAt: string | null = null;
-  if (schedule?.cron) {
-    try { nextRunAt = nextCronOccurrence(String(schedule.cron), String(schedule.timezone ?? workspace?.timezone ?? "UTC")).toISOString(); } catch { return NextResponse.json({ error: "The schedule has an invalid cron expression or timezone." }, { status: 400 }); }
+  const { data: row, error } = await rc.supabase
+    .from("workflows")
+    .select("id, config, draft_config, draft_revision")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 502 });
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const candidate = (row.draft_config as WorkflowConfig | null)?.graph;
+  if (!candidate) return NextResponse.json({ error: "This draft has no graph" }, { status: 400 });
+  const { graph } = repairRefs(candidate);
+  try {
+    validateGraph(graph);
+  } catch (cause) {
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : "This draft cannot be published" }, { status: 400 });
   }
-  const { data: versionId, error } = await supabase.rpc("publish_workflow_draft", {
-    p_workflow_id: id,
-    p_base_revision: workflow.draft_revision,
-    p_graph: graph,
-    p_next_run_at: nextRunAt,
-  });
-  if (error?.message.includes("revision_conflict") || error?.code === "40001") {
-    return NextResponse.json({ error: "revision_conflict", code: "revision_conflict" }, { status: 409 });
+  const issues = draftIssues(graph);
+  if (issues.length) return NextResponse.json({ error: issues[0].message, issues }, { status: 400 });
+  const gaps = setupGaps(graph);
+  if (Object.values(gaps).some((items) => items.length)) {
+    return NextResponse.json({ error: "Finish the required module fields before publishing", gaps }, { status: 400 });
   }
-  if (error || !versionId) return NextResponse.json({ error: error?.message ?? "The published version could not be created." }, { status: 500 });
-  return NextResponse.json({ published: true, versionId, publishedAt });
+
+  if (rc.entityId && socialProvider.live) {
+    try {
+      const connected = await socialProvider.listConnections(rc.entityId);
+      const missing = unconnected(connectionsOf(requiredAppsOf(graph), connected, true));
+      if (missing.length) {
+        return NextResponse.json({ error: `Connect ${missing.map((item) => item.label).join(" and ")} before publishing` }, { status: 409 });
+      }
+    } catch {
+      // Provider availability must not turn a valid draft into data loss.
+    }
+  }
+  if (needsBrandGrounding(graph)) {
+    try {
+      if (!brandKnowsProduct(await getBrandProfileForWorkspace(rc.workspaceId))) {
+        return NextResponse.json({ error: "Complete the Brand voice profile before publishing AI-generated output" }, { status: 409 });
+      }
+    } catch {
+      // Existing activation checks still protect unattended execution.
+    }
+  }
+
+  const config: WorkflowConfig = {
+    ...(row.draft_config as WorkflowConfig),
+    v: 1,
+    graph,
+    display: { groups: deriveDisplay(graph) },
+  };
+  const { data: saved, error: saveError } = await rc.supabase
+    .from("workflows")
+    .update({ config, schedule: scheduleText(config) })
+    .eq("id", id)
+    .eq("draft_revision", row.draft_revision)
+    .select("id")
+    .maybeSingle();
+  if (saveError) return NextResponse.json({ error: saveError.message }, { status: 502 });
+  if (!saved) return NextResponse.json({ error: "revision_conflict", code: "revision_conflict" }, { status: 409 });
+  return NextResponse.json({ ok: true, graph, revision: row.draft_revision });
 }

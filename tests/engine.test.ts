@@ -1,86 +1,198 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { strict as assert } from "node:assert";
+import { test } from "node:test";
+import { resumeRun, startRun, type RunStore } from "@/lib/workflows/engine";
+import { HANDLERS } from "@/lib/workflows/steps";
+import type { RunLog, RunStatus, StepType, WorkflowGraph } from "@/lib/workflows/types";
 
-import { executeWorkflow, type ExecutionAdapter } from "../src/lib/workflows/engine";
-import type { WorkflowGraph, WorkflowStep } from "../src/lib/workflows/types";
+/**
+ * The engine against a fake store. Every load and save round-trips through
+ * JSON, exactly as the jsonb column does, so a test can't pass by accident on
+ * a shared object reference.
+ */
+function fakeStore() {
+  const runs = new Map<string, { status: RunStatus; log: RunLog }>();
+  let n = 0;
+  const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const store: RunStore & { runs: typeof runs } = {
+    runs,
+    async createRun(_workflowId, log) {
+      const id = `run-${++n}`;
+      runs.set(id, { status: "running", log: clone(log) });
+      return id;
+    },
+    async loadRun(runId) {
+      const r = runs.get(runId);
+      return r ? { id: runId, status: r.status, log: clone(r.log) } : null;
+    },
+    async saveRun(runId, patch) {
+      const r = runs.get(runId);
+      if (!r) throw new Error(`no such run ${runId}`);
+      r.log = clone(patch.log);
+      if (patch.status) r.status = patch.status;
+    },
+  };
+  return store;
+}
 
-const graph: WorkflowGraph = {
-  start: "manual",
+/** Swap one handler for the duration of a test, then put it back. */
+async function withHandler(
+  type: StepType,
+  handler: (typeof HANDLERS)[StepType],
+  body: () => Promise<void>,
+) {
+  const original = HANDLERS[type];
+  HANDLERS[type] = handler;
+  try {
+    await body();
+  } finally {
+    HANDLERS[type] = original;
+  }
+}
+
+const linear: WorkflowGraph = {
+  start: "trigger",
   steps: {
-    manual: { id: "manual", name: "Run once", type: "manual_trigger", next: "draft" },
-    draft: { id: "draft", name: "Draft message", type: "ai", prompt: "Welcome {{trigger.customer.name}}", next: "approve" },
-    approve: { id: "approve", name: "Approve message", type: "approval", prompt: "Send {{steps.draft.text}}?", onApprove: "send", onReject: null },
-    send: { id: "send", name: "Send message", type: "app_action", app: "whatsapp", action: "send_message", operation: "write" },
+    trigger: { type: "manual_trigger_input", next: "one" },
+    one: { type: "log_action", label: "first", message: "a", next: "two" },
+    two: { type: "log_action", label: "second", message: "b", next: null },
   },
 };
 
-function adapter(events: Array<string>): ExecutionAdapter {
-  return {
-    async execute(step: WorkflowStep, input: unknown) {
-      events.push(`execute:${step.id}`);
-      if (step.type === "ai") return { outcome: "succeeded", output: { text: `Hello ${(input as { customer: { name: string } }).customer.name}` }, providerCredits: 2 };
-      if (step.type === "app_action") return { outcome: "succeeded", output: { messageId: "wa_123" } };
-      return { outcome: "succeeded", output: input };
+test("a run journals every step and completes", async () => {
+  const store = fakeStore();
+  const result = await startRun(store, { workflowId: "wf", graph: linear, entityId: "ws" });
+  assert.equal(result.status, "completed");
+  const log = store.runs.get(result.runId)!.log;
+  assert.deepEqual(log.journal.map((j) => j.stepId), ["trigger", "one", "two"]);
+});
+
+test("replay skips journaled steps rather than re-running them", async () => {
+  const store = fakeStore();
+  let executions = 0;
+  await withHandler(
+    "log_action",
+    async (ctx) => {
+      executions++;
+      return { performed: String(ctx.step.label), message: "x" };
     },
-    async journal(event) { events.push(`journal:${event.stepId}:${event.state}`); },
-  };
-}
+    async () => {
+      const first = await startRun(store, { workflowId: "wf", graph: linear, entityId: "ws" });
+      assert.equal(executions, 2);
+      const before = store.runs.get(first.runId)!.log.journal.map((j) => j.at);
 
-test("a real run executes modules, journals outcomes, and pauses before an approval", async () => {
-  const events: string[] = [];
-  const result = await executeWorkflow({ graph, triggerData: { customer: { name: "Ava" } }, adapter: adapter(events) });
-
-  assert.equal(result.state, "waiting_approval");
-  assert.equal(result.waiting?.stepId, "approve");
-  assert.equal(result.waiting?.prompt, "Send Hello Ava?");
-  assert.deepEqual(result.outputs.draft, { text: "Hello Ava" });
-  assert.equal(result.creditsUsed, 2);
-  assert.ok(!events.includes("execute:send"), "external action must not execute before approval");
-  assert.ok(events.includes("journal:draft:succeeded"));
-  assert.ok(events.includes("journal:approve:waiting"));
-});
-
-test("an approved run resumes at the external action and charges its successful module", async () => {
-  const events: string[] = [];
-  const result = await executeWorkflow({
-    graph,
-    triggerData: { customer: { name: "Ava" } },
-    existingOutputs: { draft: { text: "Hello Ava" } },
-    resume: { approvalStepId: "approve", decision: "approved" },
-    adapter: adapter(events),
-  });
-
-  assert.equal(result.state, "succeeded");
-  assert.deepEqual(result.outputs.send, { messageId: "wa_123" });
-  assert.equal(result.creditsUsed, 1);
-  assert.ok(events.includes("execute:send"));
-});
-
-test("a rejected run exits successfully without executing the protected action", async () => {
-  const events: string[] = [];
-  const result = await executeWorkflow({
-    graph,
-    triggerData: { customer: { name: "Ava" } },
-    resume: { approvalStepId: "approve", decision: "rejected" },
-    adapter: adapter(events),
-  });
-  assert.equal(result.state, "succeeded");
-  assert.ok(!events.includes("execute:send"));
-  assert.equal(result.creditsUsed, 0);
-});
-
-test("module failures stop the run, are journaled, and consume no credits", async () => {
-  const events: string[] = [];
-  const result = await executeWorkflow({
-    graph: { start: "manual", steps: { manual: graph.steps.manual, draft: { ...graph.steps.draft, next: null } } },
-    triggerData: { customer: { name: "Ava" } },
-    adapter: {
-      async execute() { return { outcome: "failed", error: "Provider unavailable" }; },
-      async journal(event) { events.push(`journal:${event.stepId}:${event.state}`); },
+      // Driving the same run again must repeat NO side effect. This is the
+      // whole exactly-once guarantee: the beat resumes runs freely because
+      // replay costs only the steps that never finished.
+      const again = await resumeRun(store, linear, first.runId, "ws");
+      assert.equal(again.status, "completed");
+      assert.equal(executions, 2, "a journaled step was executed twice");
+      assert.deepEqual(store.runs.get(first.runId)!.log.journal.map((j) => j.at), before);
     },
-  });
-  assert.equal(result.state, "failed");
-  assert.equal(result.error, "Provider unavailable");
-  assert.equal(result.creditsUsed, 0);
-  assert.ok(events.includes("journal:draft:failed"));
+  );
+});
+
+test("a thrown string fails cleanly and records which step stopped it", async () => {
+  const store = fakeStore();
+  await withHandler(
+    "log_action",
+    async () => {
+      // Anything can be thrown in JavaScript. `(err as Error).message.slice()`
+      // made the FAILURE HANDLER itself throw, leaving the run `running`
+      // forever and unrefunded.
+      throw "provider exploded";
+    },
+    async () => {
+      const result = await startRun(store, { workflowId: "wf", graph: linear, entityId: "ws" });
+      assert.equal(result.status, "failed");
+      const log = store.runs.get(result.runId)!.log;
+      assert.equal(log.error, "provider exploded");
+      // The data the canvas's red `x` reads. A failing step is never
+      // journaled, so nothing else can say where the run died.
+      assert.deepEqual(log.failed, { stepId: "one", message: "provider exploded" });
+      assert.equal(store.runs.get(result.runId)!.status, "failed");
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+const withApproval: WorkflowGraph = {
+  start: "trigger",
+  steps: {
+    trigger: { type: "manual_trigger_input", next: "review" },
+    review: {
+      type: "human_approval",
+      prompt: "Publish this?",
+      on_approve: "publish",
+      on_reject: null,
+    },
+    publish: { type: "log_action", label: "publish", message: "sent", next: null },
+  },
+};
+
+test("an approval step suspends, and resumes exactly once", async () => {
+  const store = fakeStore();
+  let published = 0;
+  await withHandler(
+    "log_action",
+    async () => {
+      published++;
+      return { performed: "publish", message: "sent" };
+    },
+    async () => {
+      const first = await startRun(store, {
+        workflowId: "wf",
+        graph: withApproval,
+        entityId: "ws",
+      });
+      // It used to auto-approve and publish, while the UI promised a review.
+      assert.equal(first.status, "waiting");
+      assert.equal(published, 0);
+      const run = store.runs.get(first.runId)!;
+      assert.equal(run.log.pending?.stepId, "review");
+      assert.equal(run.log.pending?.prompt, "Publish this?");
+
+      // Record the decision the way the decision route does.
+      run.log.context.decisions = {
+        review: { decision: "approve", at: new Date().toISOString() },
+      };
+
+      const second = await resumeRun(store, withApproval, first.runId, "ws");
+      assert.equal(second.status, "completed");
+      assert.equal(published, 1);
+      assert.equal(store.runs.get(first.runId)!.log.pending, undefined);
+
+      // Resuming again publishes nothing more.
+      await resumeRun(store, withApproval, first.runId, "ws");
+      assert.equal(published, 1, "an approved run published twice");
+    },
+  );
+});
+
+test("a rejection ends the run without publishing", async () => {
+  const store = fakeStore();
+  let published = 0;
+  await withHandler(
+    "log_action",
+    async () => {
+      published++;
+      return { performed: "publish", message: "sent" };
+    },
+    async () => {
+      const first = await startRun(store, {
+        workflowId: "wf",
+        graph: withApproval,
+        entityId: "ws",
+      });
+      const run = store.runs.get(first.runId)!;
+      run.log.context.decisions = {
+        review: { decision: "reject", at: new Date().toISOString() },
+      };
+      const second = await resumeRun(store, withApproval, first.runId, "ws");
+      assert.equal(second.status, "completed");
+      assert.equal(published, 0);
+    },
+  );
 });

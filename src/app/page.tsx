@@ -192,7 +192,7 @@ export default function LandingPage() {
             {TEMPLATES.slice(0, 8).map((template, index) => (
               <Link href={`/app/templates?template=${template.id}`} className="public-template-card" key={template.id}>
                 <div className="app-stack">
-                  {template.apps.map((slug) => {
+                  {(template.apps ?? (template.app ? [template.app] : [])).map((slug) => {
                     const app = INTEGRATIONS.find((item) => item.slug === slug);
                     return <ServiceIcon key={slug} slug={slug} label={app?.name} />;
                   })}
@@ -200,7 +200,7 @@ export default function LandingPage() {
                 </div>
                 <h3>{template.name}</h3>
                 <p>{template.description}</p>
-                <footer><span>{template.setupMinutes} min setup</span><ArrowRight size={15} /></footer>
+                <footer><span>{template.setupMinutes ?? 4} min setup</span><ArrowRight size={15} /></footer>
               </Link>
             ))}
           </div>

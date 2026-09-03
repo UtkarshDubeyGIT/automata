@@ -247,10 +247,10 @@ export function AutomationHub({
             <div className="automation-template-grid">
               {templates.slice(0, 6).map((template) => (
                 <button className="automation-template-card" key={template.id} onClick={() => void instantiateTemplate(template)} disabled={busy !== null}>
-                  <AppStack apps={template.apps} />
+                  <AppStack apps={template.apps ?? (template.app ? [template.app] : [])} />
                   <b>{template.name}</b>
                   <p>{template.description}</p>
-                  <span>{Object.keys(template.graph.steps).length} steps · {template.setupMinutes} min setup</span>
+                  <span>{Object.keys(template.graph.steps).length} steps · {template.setupMinutes ?? 4} min setup</span>
                   <em>{busy === template.id ? <><ProductIcon className="spin" name="loader" size={13} />Creating</> : <>Use this <ProductIcon name="arrow-right" size={13} /></>}</em>
                 </button>
               ))}

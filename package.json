@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=DeprecationWarning --import ./scripts/test-register.mjs \"tests/**/*.test.ts\"",
+    "test": "node --test --experimental-strip-types --experimental-test-module-mocks --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=DeprecationWarning --import ./scripts/test-register.mjs \"tests/**/*.test.ts\"",
     "worker": "node --experimental-strip-types --import ./scripts/test-register.mjs ./scripts/worker.ts"
   },
   "dependencies": {

@@ -1,16 +1,68 @@
+import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { createAdminClient } from "@/lib/supabase/server";
+import { env, supabaseConfigured } from "@/lib/env";
+import { secretMatches } from "@/lib/secret";
+import { claimJob } from "@/lib/jobs/lock";
+import { drainRuns, reclaimStuckRuns, resumeRenders } from "@/lib/workflows/drain";
+import { sweepTriggers } from "@/lib/workflows/sweep";
+import { kickWorkflowBuilds, type BuildJobDb } from "@/lib/workflows/build-jobs";
 
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { sweepDueSchedules } from "@/lib/workflows/schedule-runner";
-import { cleanupExpiredRuns } from "@/lib/workflows/retention";
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
-export async function POST(request: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected || request.headers.get("authorization") !== `Bearer ${expected}`) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const admin = createSupabaseAdminClient();
-  if (!admin) return NextResponse.json({ error: "Supabase server key is not configured." }, { status: 503 });
-  try { const [runs, removedRuns] = await Promise.all([sweepDueSchedules(admin), cleanupExpiredRuns(admin)]); return NextResponse.json({ runs, removedRuns }); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Schedule sweep failed." }, { status: 500 }); }
+export async function POST(req: NextRequest) {
+  if (!env.cronSecret) {
+    return NextResponse.json(
+      { error: "Cron is not configured. Set CRON_SECRET." },
+      { status: 503 },
+    );
+  }
+  const presented =
+    req.headers.get("x-cron-secret") ??
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    "";
+  if (!secretMatches(presented, env.cronSecret)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!supabaseConfigured) {
+    return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
+  }
+
+  const db = createAdminClient();
+
+  let workflowBuilds = { examined: 0, completed: 0, failed: 0, deferred: 0 };
+  try {
+    workflowBuilds = await kickWorkflowBuilds(db as unknown as BuildJobDb);
+  } catch (err) {
+    console.error("[cron] workflow build drain failed:", err);
+  }
+
+  let workflows: unknown = { swept: 0, checked: 0, fired: 0, deferred: 0 };
+  let workflowRuns: unknown = { examined: 0, driven: 0, completed: 0, failed: 0, waiting: 0, deferred: 0 };
+  let workflowResumes: unknown = { checked: 0, resumed: 0, completed: 0, failed: 0, stillWaiting: 0 };
+  let workflowReclaims: unknown = { examined: 0, settled: 0, refunded: 0 };
+
+  const beatClaim = await claimJob(db, "workflow-beat", 5 * 60_000, randomUUID());
+  if (beatClaim.ok) {
+    try {
+      workflows = await sweepTriggers(db, { deadline: Date.now() + 45_000 });
+      workflowResumes = await resumeRenders(db, { deadline: Date.now() + 30_000 });
+      workflowRuns = await drainRuns(db, { deadline: Date.now() + 60_000 });
+      workflowReclaims = await reclaimStuckRuns(db);
+    } catch (err) {
+      console.error("[cron] workflow beat failed:", err);
+    } finally {
+      await beatClaim.release();
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    workflowBuilds,
+    workflows,
+    workflowResumes,
+    workflowRuns,
+    workflowReclaims,
+  });
 }
-
-export const GET = POST;

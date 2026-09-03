@@ -1,163 +1,325 @@
-import { creditCost } from "./credits";
-import type { WorkflowGraph, WorkflowStep } from "./types";
-import { TRIGGER_TYPES } from "./types";
-import { validateGraph } from "./validate";
+import type {
+  JournalEntry,
+  RunContext,
+  RunLog,
+  RunResult,
+  RunStatus,
+  StepDef,
+  StepType,
+  WorkflowGraph,
+} from "./types";
+import { destinationOf } from "./destination";
+import { Await, HANDLERS, normalizeValue, Suspend, type StepCtx } from "./steps";
+import { buildApprovalPreview } from "./preview";
 
-export type ModuleOutcome =
-  | { outcome: "succeeded"; output: unknown; providerCredits?: number }
-  | { outcome: "failed"; error: string; output?: unknown };
+/**
+ * Durable workflow engine — TypeScript port of relay_poc/engine.py.
+ *
+ * Single-cursor graph interpreter: start at `graph.start`, execute the step,
+ * journal its output, merge it into the run context, route to the next step.
+ * The journal (one entry per completed step, persisted after EVERY step) is
+ * the source of truth: re-driving a run replays journaled steps without
+ * re-executing their side effects — exactly-once semantics on retry/resume.
+ *
+ * Nothing here is AI-specific: AI steps are just one handler among many.
+ */
 
-export interface JournalEvent {
-  stepId: string;
-  state: "started" | "succeeded" | "failed" | "waiting" | "approved" | "rejected";
-  input?: unknown;
-  output?: unknown;
-  error?: string;
-  credits?: number;
+export { Await, Suspend };
+
+/** Persistence seam — Supabase in production, in-memory in demo mode. */
+export interface RunStore {
+  createRun(workflowId: string, log: RunLog): Promise<string>;
+  loadRun(runId: string): Promise<{ id: string; status: RunStatus; log: RunLog } | null>;
+  saveRun(
+    runId: string,
+    patch: { status?: RunStatus; log: RunLog; finished?: boolean },
+  ): Promise<void>;
 }
 
-export interface ExecutionAdapter {
-  execute(step: WorkflowStep, input: unknown, context: ExecutionContext): Promise<ModuleOutcome>;
-  journal(event: JournalEvent): Promise<void>;
-}
-
-export interface ExecutionContext {
-  trigger: unknown;
-  steps: Record<string, unknown>;
-}
-
-export interface ExecutionResult {
-  state: "succeeded" | "failed" | "waiting_approval";
-  outputs: Record<string, unknown>;
-  creditsUsed: number;
-  error?: string;
-  waiting?: { stepId: string; prompt: string; approveNext: string | null; rejectNext: string | null };
-}
-
-interface ExecuteWorkflowOptions {
+export interface StartOptions {
+  workflowId: string;
   graph: WorkflowGraph;
-  triggerData: unknown;
-  adapter: ExecutionAdapter;
-  existingOutputs?: Record<string, unknown>;
-  resume?: { approvalStepId: string; decision: "approved" | "rejected" };
+  input?: Record<string, unknown>;
+  /** Composio entity (= workspace id) used by app_action / social_post. */
+  entityId: string;
 }
 
-const TOKEN = /\{\{\s*([^{}]+?)\s*\}\}/g;
-const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+const STEP_BUDGET = 50;
+const MAX_OUTPUT_BYTES = 20_000;
 
-function readPath(source: unknown, path: string): unknown {
-  return path.split(".").reduce<unknown>((value, key) => {
-    if (UNSAFE_KEYS.has(key) || value === null || typeof value !== "object") return undefined;
-    return (value as Record<string, unknown>)[key];
-  }, source);
+export async function startRun(store: RunStore, opts: StartOptions): Promise<RunResult> {
+  const log: RunLog = {
+    v: 1,
+    journal: [],
+    context: { steps: {}, input: opts.input ?? {} },
+  };
+  const runId = await store.createRun(opts.workflowId, log);
+  return drive(store, opts.graph, runId, opts.entityId);
 }
 
-function lookup(expression: string, context: ExecutionContext): unknown {
-  const parts = expression.trim().split(".");
-  if (parts[0] === "trigger") return readPath(context.trigger, parts.slice(1).join("."));
-  if (parts[0] === "steps" && parts[1]) return readPath(context.steps[parts[1]], parts.slice(2).join("."));
-  return undefined;
+/** Resume a waiting/interrupted run. Idempotent — replay-based. */
+export async function resumeRun(
+  store: RunStore,
+  graph: WorkflowGraph,
+  runId: string,
+  entityId: string,
+): Promise<RunResult> {
+  return drive(store, graph, runId, entityId);
 }
 
-export function resolveTemplates<T>(value: T, context: ExecutionContext): T {
-  if (typeof value === "string") {
-    const exact = value.match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
-    if (exact) return lookup(exact[1], context) as T;
-    return value.replace(TOKEN, (_token, expression: string) => {
-      const resolved = lookup(expression, context);
-      return resolved === undefined || resolved === null ? "" : String(resolved);
-    }) as T;
+async function drive(
+  store: RunStore,
+  graph: WorkflowGraph,
+  runId: string,
+  entityId: string,
+): Promise<RunResult> {
+  const run = await store.loadRun(runId);
+  if (!run) throw new Error(`Unknown run ${runId}`);
+  const log = run.log;
+  const journaled = new Map(log.journal.map((j) => [j.stepId, j.output]));
+
+  // REPLAY: fast-forward past already-completed steps by following the
+  // recorded routing decisions. Side effects are never repeated. The seen
+  // set guards against a journaled cycle spinning this loop forever.
+  let cursor: string | null = graph.start;
+  const replayed = new Set<string>();
+  while (cursor !== null && journaled.has(cursor) && !replayed.has(cursor)) {
+    replayed.add(cursor);
+    const step: StepDef | undefined = graph.steps[cursor];
+    if (!step) break;
+    cursor = route(step, journaled.get(cursor)!);
   }
-  if (Array.isArray(value)) return value.map((item) => resolveTemplates(item, context)) as T;
+
+  let budget = STEP_BUDGET;
+  while (cursor !== null) {
+    const step: StepDef | undefined = graph.steps[cursor];
+    if (!step) {
+      return fail(store, runId, log, `Unknown step '${cursor}' in graph`);
+    }
+    if (budget-- <= 0) {
+      return fail(store, runId, log, `Step budget exceeded (${STEP_BUDGET}) — possible loop`);
+    }
+
+    const handler = HANDLERS[step.type as StepType];
+    if (!handler) {
+      return fail(store, runId, log, `No handler for step type '${step.type}'`);
+    }
+
+    const ctx: StepCtx = {
+      runId,
+      stepId: cursor,
+      step,
+      data: log.context,
+      entityId,
+      reads: new Set<string>(),
+      // Only the step that is actually parked gets its wait back. Handing it
+      // to any other step would tell a fresh `generate_video` that a clip it
+      // never queued is already rendering.
+      awaiting: log.awaiting?.stepId === cursor ? log.awaiting : undefined,
+      /**
+       * Only the writing step is told where the words go, and only the engine
+       * can tell it: the graph lives here and nowhere else a handler can see.
+       * Computed per step rather than once per run because an approval or a
+       * second draft can sit between this step and whatever publishes it.
+       */
+      destination: step.type === "ai_step" ? (destinationOf(graph, cursor) ?? undefined) : undefined,
+    };
+
+    let output: Record<string, unknown>;
+    try {
+      output = await handler(ctx);
+    } catch (err) {
+      if (err instanceof Await) {
+        /**
+         * Parked on a machine, not a person.
+         *
+         * Same durable mechanism as an approval and deliberately a different
+         * field: `drain.ts` resumes this one by itself, the runs list calls it
+         * "Rendering", and "Needs your attention" leaves it alone — nobody has
+         * anything to decide while a video renders. `since` is preserved
+         * across re-parks so the step's own horizon measures the whole wait
+         * rather than restarting on every beat.
+         */
+        log.awaiting = {
+          kind: err.kind,
+          stepId: cursor,
+          ref: err.ref,
+          note: err.note,
+          since: log.awaiting?.stepId === cursor ? log.awaiting.since : new Date().toISOString(),
+        };
+        await store.saveRun(runId, { status: "waiting", log });
+        return { runId, status: "waiting" };
+      }
+      if (err instanceof Suspend) {
+        // Durable pause: persist and return; a later resume replays to here.
+        //
+        // The preview is captured HERE, with the graph this run is replaying
+        // against and the context it stopped with, because that is the only
+        // moment both are final — an edit saved while the run waits must not
+        // change what the approval card says is up for approval. It is
+        // best-effort by contract: a run must never fail over a preview it
+        // could not describe.
+        log.pending = { token: err.token, stepId: cursor, prompt: err.prompt };
+        try {
+          const preview = buildApprovalPreview(graph, cursor, log);
+          if (preview) log.pending.preview = preview;
+        } catch (previewErr) {
+          console.error("[workflows] could not describe the pending approval:", previewErr);
+        }
+        await store.saveRun(runId, { status: "waiting", log });
+        return { runId, status: "waiting" };
+      }
+      return fail(store, runId, log, errorMessage(err), cursor);
+    }
+
+    // SIMULATION TAINT (see steps.ts): a step is simulated if it says so, or if
+    // anything it read was. Applied here because this is the only place that
+    // sees both what the handler read and the accumulated context.
+    if (!output.sim && [...ctx.reads].some((id) => log.context.steps[id]?.sim === true)) {
+      output = { ...output, sim: true };
+    }
+
+    // Route on the FULL output, persist a clamped copy. Clamping first meant a
+    // large ai_step lost its whole `result` object, so `branch_on` found
+    // nothing and silently took `default` — a routing decision changed by the
+    // size of a string.
+    const stored = clampOutput(output);
+
+    // Journal + context in ONE atomic row write (relay journals first, then
+    // context — a single jsonb replacement is strictly stronger).
+    log.journal.push(entry(cursor, step, stored));
+    log.context.steps[cursor] = stored;
+    log.context.last = stored;
+    if (log.pending?.stepId === cursor) delete log.pending;
+    if (log.awaiting?.stepId === cursor) delete log.awaiting;
+    await store.saveRun(runId, { log });
+
+    cursor = route(step, output);
+  }
+
+  await store.saveRun(runId, { status: "completed", log, finished: true });
+  return { runId, status: "completed" };
+}
+
+/** Decide the next step id from the step's routing config + output. */
+export function route(step: StepDef, output: Record<string, unknown>): string | null {
+  // Guard: a filter that doesn't pass takes on_fail, or ends the run when the
+  // author left that path empty (the common "skip this one" case).
+  if (step.type === "filter") {
+    return (output?.passed === true ? step.next : step.on_fail) ?? null;
+  }
+  // Approval branch. Keyed off the step TYPE, plus a genuinely wired approve /
+  // reject edge on any other type. Mere key PRESENCE used to be enough, so a
+  // step carrying `on_reject: null` alongside a real `next` routed to null and
+  // ended the run — the `next` it plainly declares was never read.
+  if (step.type === "human_approval" || step.on_approve != null || step.on_reject != null) {
+    return (output?.decision === "approve" ? step.on_approve : step.on_reject) ?? null;
+  }
+  // Conditional branch. Cases are matched through the SAME normaliser `filter`
+  // uses, so a model answering "Positive" hits the "positive" case instead of
+  // falling through to `default`.
+  if (step.branch_on) {
+    const result = output?.result;
+    const value =
+      output?.[step.branch_on] ??
+      (result && typeof result === "object"
+        ? (result as Record<string, unknown>)[step.branch_on]
+        : undefined);
+    const cases = step.cases ?? {};
+    if (value !== undefined && value !== null) {
+      const wanted = normalizeValue(value);
+      for (const [caseValue, target] of Object.entries(cases)) {
+        if (normalizeValue(caseValue) === wanted) return target ?? null;
+      }
+    }
+    return step.default ?? null;
+  }
+  // Linear.
+  return step.next ?? null;
+}
+
+/**
+ * Anything can be thrown in JavaScript, including a string. `(err as Error)
+ * .message.slice(...)` threw a TypeError inside the failure handler itself,
+ * which left the run `running` forever and unrefunded — the failure path was
+ * the least robust code in the engine.
+ */
+export function errorMessage(err: unknown): string {
+  if (err instanceof Error && typeof err.message === "string") return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
+}
+
+async function fail(
+  store: RunStore,
+  runId: string,
+  log: RunLog,
+  message: string,
+  stepId?: string,
+): Promise<RunResult> {
+  log.error = String(message).slice(0, 2000);
+  // WHICH step stopped the run. A failing step is never journaled (it produced
+  // no output), so without this nothing downstream — the canvas replay above
+  // all — can say where the run actually died.
+  if (stepId) log.failed = { stepId, message: log.error };
+  await store.saveRun(runId, { status: "failed", log, finished: true });
+  return { runId, status: "failed", error: log.error };
+}
+
+function entry(stepId: string, step: StepDef, output: Record<string, unknown>): JournalEntry {
+  return {
+    stepId,
+    type: step.type,
+    title: typeof step.title === "string" ? step.title : stepId,
+    status: "done",
+    output,
+    at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Keep the jsonb row bounded WITHOUT changing the shape of the output.
+ *
+ * The old version rebuilt a flat object of scalars, so an oversized ai_step
+ * lost its entire `result` — every schema key with it. Downstream references
+ * and branches then read undefined from a step that had actually succeeded.
+ * This keeps every key at every depth and only shortens leaf strings.
+ */
+const MAX_STRING_CHARS = 4_000;
+const MAX_ARRAY_ITEMS = 100;
+
+export function clampOutput(output: Record<string, unknown>): Record<string, unknown> {
+  try {
+    if (JSON.stringify(output).length <= MAX_OUTPUT_BYTES) return output;
+  } catch {
+    // Circular or otherwise unserializable — nothing to journal but the fact.
+    return { truncated: true };
+  }
+  const clamped = clampValue(output) as Record<string, unknown>;
+  return { ...clamped, truncated: true };
+}
+
+function clampValue(value: unknown, depth = 0): unknown {
+  if (depth > 8) return null;
+  if (typeof value === "string") {
+    return value.length > MAX_STRING_CHARS ? value.slice(0, MAX_STRING_CHARS) : value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_ARRAY_ITEMS).map((v) => clampValue(v, depth + 1));
+  }
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => !UNSAFE_KEYS.has(key))
-        .map(([key, item]) => [key, resolveTemplates(item, context)]),
-    ) as T;
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        clampValue(v, depth + 1),
+      ]),
+    );
   }
   return value;
 }
 
-function initialStep(options: ExecuteWorkflowOptions): string | null {
-  if (!options.resume) return options.graph.start;
-  const approval = options.graph.steps[options.resume.approvalStepId];
-  if (!approval || approval.type !== "approval") throw new Error("Cannot resume: approval step does not exist.");
-  return options.resume.decision === "approved" ? (approval.onApprove ?? approval.next ?? null) : (approval.onReject ?? null);
-}
-
-export async function executeWorkflow(options: ExecuteWorkflowOptions): Promise<ExecutionResult> {
-  const graphErrors = validateGraph(options.graph);
-  if (graphErrors.length) throw new Error(graphErrors.join(" "));
-
-  const outputs = { ...(options.existingOutputs ?? {}) };
-  const context: ExecutionContext = { trigger: options.triggerData, steps: outputs };
-  let creditsUsed = 0;
-  let current = initialStep(options);
-  let previousOutput: unknown = options.triggerData;
-  let visited = 0;
-
-  if (options.resume) {
-    await options.adapter.journal({
-      stepId: options.resume.approvalStepId,
-      state: options.resume.decision === "approved" ? "approved" : "rejected",
-    });
-  }
-
-  while (current) {
-    visited += 1;
-    if (visited > Object.keys(options.graph.steps).length + 1) throw new Error("Execution exceeded the graph step limit.");
-    const authoredStep = options.graph.steps[current];
-    if (!authoredStep) throw new Error(`Execution cannot find step: ${current}.`);
-    const step = resolveTemplates(structuredClone(authoredStep), context);
-
-    if (TRIGGER_TYPES.has(step.type)) {
-      outputs[step.id] = options.triggerData;
-      await options.adapter.journal({ stepId: step.id, state: "succeeded", input: options.triggerData, output: options.triggerData, credits: 0 });
-      previousOutput = options.triggerData;
-      current = step.next ?? null;
-      continue;
-    }
-
-    if (step.type === "approval") {
-      const prompt = String(step.prompt ?? `Approve ${step.name}?`);
-      await options.adapter.journal({ stepId: step.id, state: "waiting", input: previousOutput });
-      return {
-        state: "waiting_approval",
-        outputs,
-        creditsUsed,
-        waiting: { stepId: step.id, prompt, approveNext: step.onApprove ?? step.next ?? null, rejectNext: step.onReject ?? null },
-      };
-    }
-
-    await options.adapter.journal({ stepId: step.id, state: "started", input: previousOutput });
-    let outcome: ModuleOutcome;
-    try {
-      outcome = await options.adapter.execute(step, previousOutput, context);
-    } catch (error) {
-      outcome = { outcome: "failed", error: error instanceof Error ? error.message : "Module execution failed." };
-    }
-
-    if (outcome.outcome === "failed") {
-      await options.adapter.journal({ stepId: step.id, state: "failed", input: previousOutput, output: outcome.output, error: outcome.error, credits: 0 });
-      return { state: "failed", outputs, creditsUsed, error: outcome.error };
-    }
-
-    const credits = creditCost({ type: step.type, outcome: "succeeded", providerCredits: outcome.providerCredits });
-    creditsUsed += credits;
-    outputs[step.id] = outcome.output;
-    previousOutput = outcome.output;
-    await options.adapter.journal({ stepId: step.id, state: "succeeded", output: outcome.output, credits });
-    if (step.type === "filter") {
-      const passed = Boolean((outcome.output as { passed?: unknown } | null)?.passed);
-      current = passed ? (step.next ?? null) : (step.onFalse ?? null);
-    } else if (step.type === "router") {
-      const route = String((outcome.output as { route?: unknown } | null)?.route ?? "");
-      current = step.cases?.[route] ?? step.next ?? null;
-    } else {
-      current = step.next ?? null;
-    }
-  }
-
-  return { state: "succeeded", outputs, creditsUsed };
-}
+export type { RunContext, RunLog, RunResult, RunStatus, WorkflowGraph };
