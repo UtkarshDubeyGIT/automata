@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authorize the droplet
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Pull and rebuild
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh "$TARGET" bash -euo pipefail <<'EOF'
+          cd /opt/automata
+          git fetch --prune origin main
+          git reset --hard origin/main
+          docker compose --env-file .env.local up -d --build
+          docker image prune -f
+          EOF
+
+      - name: Wait for health
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh "$TARGET" bash -euo pipefail <<'EOF'
+          cd /opt/automata
+          for i in $(seq 1 30); do
+            state=$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q web)")
+            [ "$state" = "healthy" ] && echo "web is healthy" && exit 0
+            [ "$state" = "unhealthy" ] && break
+            sleep 10
+          done
+          echo "web did not become healthy"
+          docker compose ps
+          docker compose logs --tail=100 web
+          exit 1
+          EOF
