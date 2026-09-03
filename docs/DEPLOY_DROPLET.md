@@ -119,6 +119,23 @@ curl -I "$NEXT_PUBLIC_APP_URL"
 
 ## 6. Deploy updates
 
+Every push to `main` runs `.github/workflows/deploy.yml`: lint, typecheck, and
+tests on a GitHub runner, then `git reset --hard origin/main` and a Compose
+rebuild over SSH, followed by a wait on the web container's healthcheck. It needs
+four repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (an
+ed25519 private key whose public half is in the Droplet's `authorized_keys`), and
+`DEPLOY_KNOWN_HOSTS` (`ssh-keyscan -H YOUR_DROPLET_IP`).
+
+`.env.local` is never in git, so CI leaves it untouched. Push secret changes from
+your machine:
+
+```bash
+scripts/sync-env.sh          # rsyncs .env.local, then rebuilds and restarts
+RESTART=0 scripts/sync-env.sh  # copy only
+```
+
+To deploy by hand:
+
 ```bash
 cd /opt/automata
 git pull --ff-only
