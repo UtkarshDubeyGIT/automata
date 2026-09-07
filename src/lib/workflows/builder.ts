@@ -1,14 +1,15 @@
 import { chat, openaiConfigured } from "@/lib/ai/openai";
 import { env } from "@/lib/env";
 import type { ResponseSegment, WorkflowGroup } from "@/lib/data/workflows";
-import { PLATFORMS } from "@/lib/social/composio";
+import { findToolSpec, PLATFORMS } from "@/lib/social/composio";
 import { needsBrandGrounding, requiredAppsOf, type RequiredApp } from "./apps";
 import { NODE_TYPES } from "./blocks";
 import { buildResponse, deriveDisplay } from "./display";
 import { repairRefs, repairSchedules, stripPlaceholders } from "./repair";
-import { TOOLS, toolsForPrompt, triggersForPrompt } from "./registry";
+import { getTool, toolsForPrompt, triggersForPrompt } from "./registry";
 import { BuildError, validateGraph } from "./validate";
 import type { StepDef, WorkflowConfig, WorkflowGraph } from "./types";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * Chat-to-build — TypeScript port of relay_poc/builder.py.
@@ -51,9 +52,11 @@ function providerError(err: unknown): ProviderError | null {
 
   if (status === 429 && /quota|billing|insufficient/i.test(message)) {
     return new ProviderError(
-      "The OpenAI account attached to this app has run out of quota, so the AI builder can't run. " +
-        "Add billing credit (or point OPENAI_API_KEY at a funded key) and it works again." +
-        byHand,
+      setupNotice(
+        "The AI builder has run out of capacity on our side, so it can't run right now.",
+        "The OpenAI account attached to this app has run out of quota, so the AI builder can't run. " +
+          "Add billing credit (or point OPENAI_API_KEY at a funded key) and it works again.",
+      ) + byHand,
     );
   }
   if (status === 429) {
@@ -61,13 +64,18 @@ function providerError(err: unknown): ProviderError | null {
   }
   if (status === 401 || status === 403) {
     return new ProviderError(
-      "OpenAI rejected the API key — check OPENAI_API_KEY in your environment." + byHand,
+      setupNotice(
+        "The AI builder can't reach the AI service right now.",
+        "OpenAI rejected the API key — check OPENAI_API_KEY in your environment.",
+      ) + byHand,
     );
   }
   if (status === 404) {
     return new ProviderError(
-      `This key has no access to the model “${env.openaiModel}” — set OPENAI_MODEL to one it can use.` +
-        byHand,
+      setupNotice(
+        "The AI builder can't use the model it is set up for right now.",
+        `This key has no access to the model “${env.openaiModel}” — set OPENAI_MODEL to one it can use.`,
+      ) + byHand,
     );
   }
   if (typeof status === "number" && status >= 500) {
@@ -112,7 +120,7 @@ function catalogForPrompt(): string {
 }
 
 function socialChannelsForPrompt(): string {
-  return PLATFORMS.filter((p) => p.id !== "youtube" && p.id !== "tiktok")
+  return PLATFORMS.filter((p) => p.id !== "tiktok")
     .map((p) => `  - ${p.id}: ${p.name} — ${p.description}`)
     .join("\n");
 }
@@ -129,7 +137,9 @@ ${triggersForPrompt()}
 AVAILABLE APP ACTIONS (use these exact tool slugs in app_action steps; do NOT invent slugs; READ actions produce data for later steps, WRITE actions perform an action; [external/visible] actions affect other people -> consider approval):
 ${toolsForPrompt()}
 
-SOCIAL CHANNELS for social_post (do NOT use youtube or tiktok — video publishing is not supported yet):
+IMPORTANT: Any angle-bracket label shown inside catalog documentation (for example <ai>, <trigger>, or <id>) is explanatory text, never a real step id. Do not copy it into the JSON. Choose a real snake_case id from the steps you create for every {{steps.…}} reference. Action argument examples intentionally use empty strings; fill them with a literal supplied by the user or a reference to an earlier step.
+
+SOCIAL CHANNELS for social_post (do NOT use tiktok — its publishing API is not available yet). A youtube post REQUIRES a video: pair it with a generate_video step earlier in the graph, or do not use youtube at all:
 ${socialChannelsForPrompt()}
 
 RULES:
@@ -210,14 +220,14 @@ RULES:
 12. CRITICAL DATA RULE: an ai_step can ONLY use data that an EARLIER step produced. An AI model CANNOT see the content of an external app on its own. If the user asks to summarize/rewrite content stored in an app, FIRST add an app_action READ step to fetch it, then have the ai_step reference "{{steps.<read_step_id>.text}}". NEVER write an ai_step that says "summarize the Notion page" without a preceding read step.
 13. Typical pattern for "summarize my Shopify orders and post to Slack after I approve":
     manual_trigger_input
-      -> app_action (SHOPIFY_GET_ORDER_LIST) [reads orders]
-      -> ai_step (output json, instruction references {{steps.<read>.text}}, schema {text})
+      -> app_action "shopify_orders" (SHOPIFY_GET_ORDER_LIST) [reads orders]
+      -> ai_step "draft_summary" (output json, instruction references {{steps.shopify_orders.text}}, schema {text})
       -> human_approval
-      -> social_post (platform "slack", text "{{steps.<ai>.result.text}}", options {"channel": "#general"})
+      -> social_post (platform "slack", text "{{steps.draft_summary.result.text}}", options {"channel": "#general"})
 13b. Typical event pattern for "reply to Google reviews automatically":
     app_event_trigger (event NEW_GOOGLE_REVIEW, title "New Google Review")
       -> ai_step "categorize_review" (output json, schema {"category": "positive | negative | neutral"},
-         instruction references {{steps.<trigger>.event.rating}} and {{steps.<trigger>.event.text}},
+         instruction references {{steps.new_google_review.event.rating}} and {{steps.new_google_review.event.text}},
          branch_on "category", cases {"positive": "draft_positive", "negative": "draft_negative",
          "neutral": "draft_neutral"}, default "draft_neutral")
       -> EACH branch gets its OWN pair: draft_positive (ai_step, output json, schema {reply})
@@ -233,15 +243,15 @@ RULES:
     "output": "json" produces ONLY {{steps.<id>.result}} / {{steps.<id>.result.<schema key>}}.
     Referencing .result on a text step (or .text on a json step) makes the workflow fail
     the moment it runs. Likewise a trigger's data is nested: {{steps.<trigger>.input.topic}},
-    {{steps.<trigger>.event.rating}}, {{steps.<trigger>.body.<field>}} — never
-    {{steps.<trigger>.topic}}.
+    {{steps.new_google_review.event.rating}}, {{steps.webhook.body.field}} — never
+    {{steps.new_google_review.topic}}.
 13d. AN INSTAGRAM POST NEEDS A PICTURE. Instagram will not accept text alone, so a
     social_post with "platform": "instagram" MUST take its "mediaUrl" from an earlier
-    generate_image step ("mediaUrl": "{{steps.<image>.url}}"). Add generate_image to any
+    generate_image step ("mediaUrl": "{{steps.product_image.url}}"). Add generate_image to any
     other post the user asks to illustrate; describe only the SUBJECT in its "prompt",
     since the brand palette, fonts and product photos are applied automatically.
 13e. A VIDEO IS A STEP, NOT AN EXCUSE. When the user asks for a video, a clip, a reel or
-    footage, use generate_video and carry it with "mediaUrl": "{{steps.<video>.url}}" —
+    footage, use generate_video and carry it with "mediaUrl": "{{steps.render_clip.url}}" —
     set "mediaKind": "video" for LinkedIn; an instagram social_post with a video mediaUrl
     publishes as a Reel. Never refuse a video, and never substitute an image for one that
     was asked for. Order matters: the
@@ -307,7 +317,7 @@ export async function buildWorkflow(
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     try {
-      const parsed = normalize(parseJson(raw));
+      const parsed = await normalize(parseJson(raw));
       // A deliberate refusal (unsupported request) — surface it as-is.
       if (typeof parsed.error === "string" && !parsed.steps) {
         throw new BuildRefusal(parsed.error);
@@ -394,7 +404,7 @@ function parseJson(raw: string): ParsedGraph {
 }
 
 /** Flatten LLM-nested config/routing wrappers into flat step keys (idempotent). */
-function normalize(parsed: ParsedGraph): ParsedGraph {
+async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
   for (const node of Object.values(parsed.steps ?? {})) {
     if (!node || typeof node !== "object") continue;
     for (const wrapper of ["config", "routing", "params", "settings"]) {
@@ -409,9 +419,22 @@ function normalize(parsed: ParsedGraph): ParsedGraph {
     // Models sometimes write the tool slug as the node TYPE
     // ({"type": "LINKEDIN_GET_MY_INFO"}). Rewrite to a proper app_action.
     const t = String(node.type ?? "");
-    if (!(t in NODE_TYPES) && t in TOOLS) {
-      node.tool = t;
-      node.type = "app_action";
+    if (!(t in NODE_TYPES)) {
+      const resolved = getTool(t, node.tool_spec) ?? (await findToolSpec(t));
+      if (resolved) {
+        node.tool = t;
+        node.type = "app_action";
+        node.tool_spec = resolved;
+        if (!node.toolkit) node.toolkit = resolved.app;
+      }
+    }
+    if (node.type === "app_action" && node.tool) {
+      const slug = String(node.tool);
+      const resolved = getTool(slug, node.tool_spec) ?? (await findToolSpec(slug));
+      if (resolved) {
+        node.tool_spec = resolved;
+        if (!node.toolkit) node.toolkit = resolved.app;
+      }
     }
   }
   return parsed;
@@ -498,7 +521,7 @@ export async function editWorkflow(
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     try {
-      const parsed = normalize(parseJson(raw));
+      const parsed = await normalize(parseJson(raw));
       if (typeof parsed.error === "string" && !parsed.steps) {
         throw new BuildRefusal(parsed.error);
       }

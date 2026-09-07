@@ -9,6 +9,7 @@ import {
 } from "@/lib/social/composio-triggers";
 import { getTrigger, SIMULATED_APPS, watchValues } from "./registry";
 import type { TriggerState, WorkflowConfig } from "./types";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * Turning a real-time watch on and off with the automation's own switch.
@@ -77,7 +78,12 @@ async function enable(
     return poll("Simulated app — nothing to subscribe to.");
   }
   if (!composioRealtimeConfigured) {
-    return poll("Set COMPOSIO_WEBHOOK_SECRET to receive events the moment they happen.");
+    return poll(
+      setupNotice(
+        "Real-time delivery is not switched on, so this is checked on a schedule.",
+        "Set COMPOSIO_WEBHOOK_SECRET to receive events the moment they happen.",
+      ),
+    );
   }
 
   try {

@@ -53,6 +53,7 @@ import {
 } from "@/lib/workflows/layout";
 import type { WorkflowPositions } from "@/lib/workflows/editor";
 import type { StepDef, WorkflowGraph } from "@/lib/workflows/types";
+import { WhatsAppNodeAlert } from "./whatsapp-node-status";
 
 /**
  * The flow canvas — the visual half of the builder, as an infinite whiteboard.
@@ -512,6 +513,9 @@ function StepNode({ id, dragging }: NodeProps) {
           <span className="mt-0.5 rounded-full bg-brand-subtle px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-brand">
             Trigger
           </span>
+        )}
+        {step.type === "whatsapp_reminder" && (
+          <WhatsAppNodeAlert onClick={() => ctx.onSelect(id)} />
         )}
       </div>
 

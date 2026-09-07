@@ -45,20 +45,43 @@ test("every kind of step contributes the account it needs", () => {
   assert.equal(labels.linkedin, "LinkedIn");
 });
 
-test("an app with no toolkit is demo mode, never 'connected'", () => {
+test("Google Business Profile is demo mode until the server says otherwise", () => {
   /*
-   * `POST /api/integrations/connect` writes a cached `connected` row for an
-   * app with no Composio toolkit, so the row really does say connected — and
-   * every call against it is still a fabrication. The status is derived from
-   * the app, not from the row, so that row cannot make the UI claim otherwise.
+   * This app has no Composio toolkit — the OAuth client and the tokens are
+   * ours — so Composio's connection listing can never speak for it and the
+   * ROW is the only signal. Which is exactly why the row had to stop being
+   * fabricated: `POST /api/integrations/connect` used to write a cached
+   * `connected` row the moment anyone pressed the button, so "there is a row"
+   * and "someone authorized Google" were not the same statement.
+   *
+   * They are now. The connect endpoint writes nothing for a simulated app, the
+   * callback writes the row only after a real token exchange, and
+   * `readCachedIntegrations` drops any connected row that cannot name an
+   * account — which retroactively kills the fabricated ones already on disk.
    */
   const [gbp] = requiredAppsOf(GRAPH).filter((a) => a.app === "googlebusinessprofile");
   assert.equal(gbp.simulated, true);
+
+  // No row: the deployment has no Google client, so nothing real can happen.
+  assert.equal(statusOf(gbp, [], true), "simulated");
+  // Configured but unconnected — the server states this explicitly, because an
+  // absent row would read as demo mode and never offer a Connect button.
+  assert.equal(statusOf(gbp, [{ platform: "googlebusinessprofile", status: "none" }], true), "none");
+  // A real grant.
   assert.equal(
     statusOf(gbp, [{ platform: "googlebusinessprofile", status: "connected" }], true),
-    "simulated",
+    "connected",
   );
-  // And it is never something the user can be asked to go and fix.
+
+  // Composio being absent says nothing about this app either way: it does not
+  // use Composio at all, so a missing COMPOSIO_API_KEY must not demote a real
+  // Google connection to demo mode.
+  assert.equal(
+    statusOf(gbp, [{ platform: "googlebusinessprofile", status: "connected" }], false),
+    "connected",
+  );
+
+  // While it IS demo mode, it is never something the user can be asked to fix.
   assert.deepEqual(unconnected(connectionsOf([gbp], [], true)), []);
 });
 

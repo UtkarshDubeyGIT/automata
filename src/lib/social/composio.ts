@@ -1,4 +1,5 @@
 import { env, composioConfigured } from "@/lib/env";
+import { normalizeComposioTool, TOOLS, type ToolSpec } from "@/lib/workflows/registry";
 import { oauthAppCredentials } from "@/lib/social/oauth-apps";
 import {
   captionWithWebsiteLink,
@@ -7,6 +8,7 @@ import {
   type WebsiteLink,
 } from "@/lib/social/post-media";
 import { linkedinConnectedAccountId } from "@/lib/social/linkedin-document";
+import { uploadToYouTube, videoUrlOf } from "@/lib/social/youtube-upload";
 import { publishLinkedInNativePost } from "@/lib/social/linkedin-media";
 import {
   parseGoogleSheetTabs,
@@ -95,6 +97,10 @@ export interface ApiOptions {
    * out may well have succeeded at the provider, and retrying it posts twice.
    */
   retries?: number;
+  /**
+   * Pinned version of tool/action to execute. Defaults to "latest".
+   */
+  version?: string;
 }
 
 export async function composioApi<T>(
@@ -212,9 +218,11 @@ export function connectMethodOf(input: {
 interface RawToolkit {
   name: string;
   slug: string;
-  no_auth: boolean;
+  /** Absent on the single-toolkit endpoint; derived from the modes there. */
+  no_auth?: boolean;
   auth_schemes?: string[];
-  composio_managed_auth_schemes: string[];
+  auth_config_details?: { mode: string }[];
+  composio_managed_auth_schemes?: string[];
   meta?: {
     description?: string;
     tools_count?: number;
@@ -252,27 +260,238 @@ export async function listToolkits(params: {
   }>(`/toolkits?${qs}`);
 
   return {
-    items: res.items.map((t) => {
-      const managed = t.composio_managed_auth_schemes.length > 0;
-      return {
-        slug: t.slug,
-        name: t.name,
-        description: t.meta?.description ?? "",
-        categories: (t.meta?.categories ?? []).map((c) => c.name),
-        managed,
-        noAuth: t.no_auth,
-        toolsCount: t.meta?.tools_count ?? 0,
-        connectVia: connectMethodOf({
-          managed,
-          noAuth: t.no_auth,
-          schemes: t.auth_schemes ?? [],
-          ownApp: hasOwnOAuthApp(t.slug),
-        }),
-      };
-    }),
+    items: res.items.map(toSummary),
     nextCursor: res.next_cursor,
     total: res.total_items,
   };
+}
+
+/** One catalog row, from whichever endpoint the toolkit came back on. */
+function toSummary(t: RawToolkit): ToolkitSummary {
+  const managed = (t.composio_managed_auth_schemes ?? []).length > 0;
+  // The list endpoint states `auth_schemes` outright; the single-toolkit
+  // endpoint omits it and spells the same thing out one level down, as the
+  // mode of each auth_config_details entry.
+  const schemes = t.auth_schemes ?? (t.auth_config_details ?? []).map((d) => d.mode);
+  const noAuth = t.no_auth ?? schemes.includes("NO_AUTH");
+  return {
+    slug: t.slug,
+    name: t.name,
+    description: t.meta?.description ?? "",
+    categories: (t.meta?.categories ?? []).map((c) => c.name),
+    managed,
+    noAuth,
+    toolsCount: t.meta?.tools_count ?? 0,
+    connectVia: connectMethodOf({
+      managed,
+      noAuth,
+      schemes,
+      ownApp: hasOwnOAuthApp(t.slug),
+    }),
+  };
+}
+
+/**
+ * Catalog rows for named toolkits, whatever their popularity.
+ *
+ * `listToolkits` pages Composio's popularity order 24 at a time, and the
+ * Integrations grid can only rank what it has fetched — so a workspace's own
+ * connected app fell off the page entirely unless it happened to be in the
+ * top 24, and "connected first" quietly meant "connected first, among the
+ * popular". Shopify sits outside that page, so a live, ACTIVE connection was
+ * invisible until the user searched for it by name.
+ *
+ * There is no slug filter on the list endpoint (unknown query params are
+ * ignored, so asking for one silently returns page 1), hence one read per
+ * slug. Callers pass a workspace's connected apps — a handful, not a crowd.
+ * A toolkit that fails to load is dropped rather than failing the grid.
+ */
+export async function listToolkitsBySlug(slugs: string[]): Promise<ToolkitSummary[]> {
+  if (!composioConfigured || slugs.length === 0) return [];
+  const results = await Promise.all(
+    slugs.map((slug) =>
+      api<RawToolkit>(`/toolkits/${encodeURIComponent(slug)}`)
+        .then((raw) => toSummary({ ...raw, slug: raw.slug || slug }))
+        .catch(() => null),
+    ),
+  );
+  return results.filter((row): row is ToolkitSummary => row !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic tool listing & search
+// ---------------------------------------------------------------------------
+
+const toolCache = new Map<string, { at: number; tools: Array<{ slug: string; spec: ToolSpec }> }>();
+const TOOL_CACHE_TTL_MS = 60 * 60 * 1000;
+const TOOL_CACHE_MAX_ENTRIES = 200;
+
+function extractRawItems(body: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(body)) return body.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null);
+  if (!body || typeof body !== "object") return [];
+  const record = body as Record<string, unknown>;
+  for (const key of ["items", "data", "results", "tools", "toolkits"]) {
+    if (Array.isArray(record[key])) {
+      return (record[key] as unknown[]).filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null);
+    }
+  }
+  for (const v of Object.values(record)) {
+    if (Array.isArray(v) && v.every((x) => typeof x === "object" && x !== null)) {
+      return v as Array<Record<string, unknown>>;
+    }
+  }
+  return [];
+}
+
+export async function listToolsForToolkit(
+  toolkitSlug: string,
+  options?: { version?: string; search?: string; limit?: number },
+): Promise<Array<{ slug: string; spec: ToolSpec }>> {
+  const normalizedSlug = toolkitSlug.trim().toLowerCase();
+  const search = options?.search?.trim() || "";
+  const version = options?.version || "latest";
+  const limit = options?.limit ?? 100;
+
+  const cacheKey = `${normalizedSlug}|${search}|${version}|${limit}`;
+  const hit = toolCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < TOOL_CACHE_TTL_MS) {
+    return hit.tools;
+  }
+
+  // Curated tools matching this toolkit
+  const curatedMatches: Array<{ slug: string; spec: ToolSpec }> = [];
+  for (const [slug, spec] of Object.entries(TOOLS)) {
+    if (spec.app.toLowerCase() === normalizedSlug) {
+      if (!search || `${slug} ${spec.desc}`.toLowerCase().includes(search.toLowerCase())) {
+        curatedMatches.push({ slug, spec });
+      }
+    }
+  }
+
+  if (!composioConfigured) {
+    return curatedMatches;
+  }
+
+  try {
+    const qs = new URLSearchParams({
+      toolkit_slug: normalizedSlug,
+      toolkit_versions: version,
+      limit: String(limit),
+    });
+    if (search) qs.set("search", search);
+
+    const body = await api<unknown>(`/tools?${qs}`, undefined, { retries: 1 });
+    const rawList = extractRawItems(body);
+
+    const bySlug = new Map<string, { slug: string; spec: ToolSpec }>();
+
+    for (const raw of rawList) {
+      const normalized = normalizeComposioTool(raw);
+      if (normalized) {
+        bySlug.set(normalized.slug, normalized);
+      }
+    }
+
+    // Curated tools overlay live tools if any were missed or need curated overrides
+    for (const item of curatedMatches) {
+      const live = bySlug.get(item.slug);
+      bySlug.set(item.slug, {
+        slug: item.slug,
+        spec: {
+          ...item.spec,
+          ...(live?.spec.version ? { version: live.spec.version } : {}),
+          ...(live?.spec.inputSchema ? { inputSchema: live.spec.inputSchema } : {}),
+          ...(live?.spec.outputSchema ? { outputSchema: live.spec.outputSchema } : {}),
+        },
+      });
+    }
+
+    const tools = [...bySlug.values()];
+
+    if (toolCache.size >= TOOL_CACHE_MAX_ENTRIES) {
+      const oldest = toolCache.keys().next().value;
+      if (oldest !== undefined) toolCache.delete(oldest);
+    }
+    toolCache.set(cacheKey, { at: Date.now(), tools });
+
+    return tools;
+  } catch (err) {
+    console.error(`[composio] failed to list tools for toolkit ${toolkitSlug}:`, err);
+    return curatedMatches;
+  }
+}
+
+export async function searchDynamicTools(
+  query: string,
+  options?: { toolkit?: string; limit?: number },
+): Promise<Array<{ slug: string; spec: ToolSpec }>> {
+  const q = query.trim();
+  const toolkit = options?.toolkit?.trim().toLowerCase();
+  const limit = options?.limit ?? 100;
+
+  if (toolkit) {
+    return listToolsForToolkit(toolkit, { search: q, limit });
+  }
+
+  const curatedMatches: Array<{ slug: string; spec: ToolSpec }> = [];
+  for (const [slug, spec] of Object.entries(TOOLS)) {
+    if (!q || `${slug} ${spec.app} ${spec.desc}`.toLowerCase().includes(q.toLowerCase())) {
+      curatedMatches.push({ slug, spec });
+    }
+  }
+
+  if (!composioConfigured) return curatedMatches.slice(0, limit);
+
+  try {
+    const qs = new URLSearchParams({
+      search: q,
+      toolkit_versions: "latest",
+      limit: String(limit),
+    });
+    const body = await api<unknown>(`/tools?${qs}`, undefined, { retries: 1 });
+    const rawList = extractRawItems(body);
+
+    const bySlug = new Map<string, { slug: string; spec: ToolSpec }>();
+    for (const raw of rawList) {
+      const normalized = normalizeComposioTool(raw);
+      if (normalized) bySlug.set(normalized.slug, normalized);
+    }
+    for (const item of curatedMatches) {
+      const live = bySlug.get(item.slug);
+      bySlug.set(item.slug, {
+        slug: item.slug,
+        spec: {
+          ...item.spec,
+          ...(live?.spec.version ? { version: live.spec.version } : {}),
+          ...(live?.spec.inputSchema ? { inputSchema: live.spec.inputSchema } : {}),
+          ...(live?.spec.outputSchema ? { outputSchema: live.spec.outputSchema } : {}),
+        },
+      });
+    }
+
+    return [...bySlug.values()].slice(0, limit);
+  } catch (err) {
+    console.error("[composio] searchDynamicTools failed:", err);
+    return curatedMatches.slice(0, limit);
+  }
+}
+
+export async function findToolSpec(
+  slug: string,
+  options?: { toolkit?: string; version?: string },
+): Promise<ToolSpec | null> {
+  const curated = TOOLS[slug];
+  if (curated) return curated;
+  if (!composioConfigured) return null;
+
+  try {
+    const version = options?.version ?? "latest";
+    const res = await api<unknown>(`/tools/${encodeURIComponent(slug)}?version=${encodeURIComponent(version)}`, undefined, { retries: 1 });
+    const normalized = normalizeComposioTool(res);
+    return normalized?.spec ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +686,50 @@ async function ensureAuthConfig(
   );
 }
 
+/**
+ * The non-OAuth config for a toolkit — used ONLY when we already hold a working
+ * credential and there is nothing left to authorize.
+ *
+ * Deliberately not `ensureAuthConfig(slug, { allowKey: true })`. That function
+ * ranks OAuth first by design, and rightly so: for a user pressing Connect, an
+ * OAuth screen beats a form asking for a secret. But a Shopify App Store
+ * install has ALREADY finished OAuth on our own routes, so returning the OAuth
+ * config there would start a second consent round-trip for access the merchant
+ * just granted. This is the one caller that wants the key-shaped config, and
+ * asking for it explicitly keeps `ensureAuthConfig`'s ordering intact.
+ */
+async function ensureAdoptableAuthConfig(slug: string): Promise<AuthConfigInfo> {
+  const cacheKey = `${slug}:adopt`;
+  const cached = authConfigCache.get(cacheKey);
+  if (cached) return cached;
+  const remember = (info: AuthConfigInfo) => {
+    authConfigCache.set(cacheKey, info);
+    return info;
+  };
+
+  const existing = await api<{
+    items: { id: string; name: string; status: string; auth_scheme: string }[];
+  }>(`/auth_configs?toolkit_slug=${encodeURIComponent(slug)}`);
+  const usable = existing.items.filter((c) => c.status === "ENABLED" && !isOAuth(c.auth_scheme));
+
+  // Our own key config first, then any a human made. Both accept a credential;
+  // preferring ours keeps repeated installs on one config rather than fanning
+  // connections across whichever one happened to sort first.
+  const ours = usable.find((c) => c.name === keyConfigName(slug));
+  const chosen = ours ?? usable[0];
+  if (chosen) return remember({ id: chosen.id, scheme: chosen.auth_scheme });
+
+  const toolkit = await toolkitAuth(slug);
+  const mode = selfServeMode(toolkit);
+  if (!mode) {
+    throw new ComposioError(
+      `${toolkit.name} publishes no credential-based way to connect, so a token we already hold cannot be handed over.`,
+      400,
+    );
+  }
+  return remember(await createSelfServeConfig(slug, mode.mode));
+}
+
 // ---------------------------------------------------------------------------
 // Hosted-page skip — auto-submit defaulted connect-time fields
 // ---------------------------------------------------------------------------
@@ -629,30 +892,46 @@ async function initiationFields(slug: string, scheme: string): Promise<Initiatio
 }
 
 /**
- * Submit a connect link's fields server-side — the same call the hosted page's
- * "Connect Account" button makes (undocumented, so callers must fall back to
- * the hosted page on failure). Returns the provider's OAuth URL for OAuth
- * schemes, or null when the account went straight to ACTIVE.
+ * Create a connected account directly, supplying the connect-time fields
+ * ourselves — the documented v3 route, and the way to skip Composio's hosted
+ * form when there is nothing for a human to type on it.
+ *
+ * This replaces a call to `dashboard.composio.dev/api/trpc/link.submitLink`,
+ * the private endpoint the hosted page's own button used. Composio removed
+ * that procedure (it answers "No procedure found on path"), so the skip had
+ * quietly stopped working and every toolkit went through the extra page.
+ *
+ * Returns the provider's OAuth URL when consent is still needed, or null when
+ * the account went straight to ACTIVE (nothing to authorize).
  */
-async function submitLink(
-  token: string,
-  input: Record<string, string>,
-): Promise<{ redirectUrl: string | null; active: boolean }> {
-  const res = await fetch("https://dashboard.composio.dev/api/trpc/link.submitLink", {
+async function createConnection(
+  authConfigId: string,
+  entityId: string,
+  callbackUrl: string,
+  data: Record<string, string>,
+): Promise<{ accountId: string; redirectUrl: string | null; active: boolean }> {
+  const res = await api<{
+    id: string;
+    status?: string;
+    redirect_url?: string | null;
+  }>(`/connected_accounts`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ json: { token, input } }),
+    body: JSON.stringify({
+      auth_config: { id: authConfigId },
+      connection: { user_id: entityId, callback_url: callbackUrl, data },
+    }),
   });
-  if (!res.ok) throw new ComposioError(`submitLink ${res.status}`, res.status);
-  const body = (await res.json()) as {
-    result?: { data?: { json?: { status?: string; redirect_url?: string } } };
-  };
-  const data = body.result?.data?.json;
-  if (data?.status === "INITIATED" && data.redirect_url) {
-    return { redirectUrl: data.redirect_url, active: false };
+
+  if (res.status === "ACTIVE") {
+    return { accountId: res.id, redirectUrl: null, active: true };
   }
-  if (data?.status === "ACTIVE") return { redirectUrl: null, active: true };
-  throw new ComposioError(`submitLink returned status ${data?.status ?? "unknown"}`, 502);
+  if (res.redirect_url) {
+    return { accountId: res.id, redirectUrl: res.redirect_url, active: false };
+  }
+  throw new ComposioError(
+    `connected_accounts returned status ${res.status ?? "unknown"} with no redirect`,
+    502,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -686,10 +965,8 @@ async function execute(
 ): Promise<ExecuteResponse> {
   return api<ExecuteResponse>(`/tools/execute/${slug}`, {
     method: "POST",
-    // Pin the newest tool implementation — Composio's default snapshot can lag
-    // behind provider API versioning (e.g. LinkedIn sunsets versions yearly,
-    // and the stale default fails with NONEXISTENT_VERSION).
-    body: JSON.stringify({ user_id: entityId, arguments: args, version: "latest" }),
+    // Pin the newest tool implementation unless a specific version is requested.
+    body: JSON.stringify({ user_id: entityId, arguments: args, version: opts?.version ?? "latest" }),
   }, opts);
 }
 
@@ -1235,6 +1512,32 @@ class ComposioProvider {
     try {
       const normalized = normalizeSlug(slug);
       const authConfig = await ensureAuthConfig(normalized, opts);
+
+      // When every connect-time field either has a default or doesn't exist,
+      // supply them ourselves and send the user straight to the provider's
+      // OAuth screen instead of Composio's hosted form. Fields without
+      // defaults are values only the user has — Shopify's store subdomain, an
+      // API key — so those keep the hosted page that asks for them.
+      //
+      // The account is created ONLY on the branch that uses it. Creating one
+      // up front and then taking the other path left an orphan INITIALIZING
+      // row on the workspace for every connect.
+      try {
+        const fields = await initiationFields(normalized, authConfig.scheme);
+        if (fields.every((f) => f.default != null)) {
+          const data = Object.fromEntries(fields.map((f) => [f.name, f.default as string]));
+          const created = await createConnection(authConfig.id, entityId, callbackUrl, data);
+          if (created.active) return { connected: true, accountId: created.accountId };
+          return {
+            connected: false,
+            redirectUrl: created.redirectUrl ?? undefined,
+            accountId: created.accountId,
+          };
+        }
+      } catch {
+        // Any hiccup falls back to the hosted page, which can always finish.
+      }
+
       const link = await api<{
         link_token: string;
         redirect_url: string;
@@ -1247,28 +1550,6 @@ class ComposioProvider {
           callback_url: callbackUrl,
         }),
       });
-
-      // When every connect-time field either has a default or doesn't exist,
-      // submit them ourselves and send the user straight to the provider's
-      // OAuth screen instead of Composio's hosted form. Fields without
-      // defaults (real secrets like API keys) keep the hosted page.
-      try {
-        const fields = await initiationFields(normalized, authConfig.scheme);
-        if (fields.every((f) => f.default != null)) {
-          const input = Object.fromEntries(fields.map((f) => [f.name, f.default as string]));
-          const submitted = await submitLink(link.link_token, input);
-          if (submitted.active) {
-            return { connected: true, accountId: link.connected_account_id };
-          }
-          return {
-            connected: false,
-            redirectUrl: submitted.redirectUrl ?? link.redirect_url,
-            accountId: link.connected_account_id,
-          };
-        }
-      } catch {
-        // Undocumented endpoint — any hiccup falls back to the hosted page.
-      }
 
       return {
         connected: false,
@@ -1356,6 +1637,76 @@ class ComposioProvider {
     await Promise.all(
       accounts.map((a) => api(`/connected_accounts/${a.id}`, { method: "DELETE" })),
     );
+  }
+
+  /**
+   * Register a credential WE obtained as a Composio connected account, with no
+   * user-facing round-trip.
+   *
+   * This is the bridge that keeps one integration out of two halves. ZidaneAI
+   * performs Shopify's OAuth itself, because an App Store install starts on
+   * Shopify's side and never reaches Composio's redirect URL (see
+   * `src/lib/shopify/oauth.ts`). Without this, that install would produce a
+   * token sitting in our database that none of the Shopify tools in
+   * `workflows/registry.ts` can see — the store would look connected and every
+   * workflow would still say "not connected".
+   *
+   * The field names are NOT hardcoded. Composio declares its own connect-time
+   * fields per toolkit and has renamed them before, so the caller receives the
+   * live list and maps its values onto it. `fill` returning null means the
+   * caller did not recognise what Composio is asking for, and that refuses
+   * loudly with the actual names rather than posting a guess that would
+   * "succeed" into a connection that cannot execute a single tool.
+   */
+  async adoptConnection(
+    entityId: string,
+    slug: string,
+    fill: (fields: string[]) => Record<string, string> | null,
+  ): Promise<{ accountId: string; simulated?: boolean }> {
+    if (!this.live) return { accountId: `sim_${slug}`, simulated: true };
+
+    const normalized = normalizeSlug(slug);
+    const authConfig = await ensureAdoptableAuthConfig(normalized);
+    const declared = await initiationFields(normalized, authConfig.scheme);
+    const names = declared.map((f) => f.name);
+
+    const filled = fill(names);
+    if (!filled) {
+      throw new ComposioError(
+        `Composio's ${normalized} connection asks for ${names.join(", ") || "no fields"}, ` +
+          `which this code does not know how to fill. Check the toolkit's ` +
+          `connected_account_initiation schema and update the mapping.`,
+        502,
+      );
+    }
+
+    // Anything declared but unfilled falls back to Composio's own default.
+    // A field with neither is left out entirely so Composio names it in the
+    // error rather than receiving an empty string it would accept.
+    const data: Record<string, string> = {};
+    for (const field of declared) {
+      const value = filled[field.name] ?? field.default;
+      if (value != null) data[field.name] = value;
+    }
+    for (const [key, value] of Object.entries(filled)) data[key] ??= value;
+
+    const created = await createConnection(
+      authConfig.id,
+      entityId,
+      `${env.appUrl}/integrations`,
+      data,
+    );
+
+    // A credential-based connection has nothing to redirect to. Anything other
+    // than ACTIVE means Composio did not accept what we sent, and reporting
+    // success on it would hand the user a store that fails on first use.
+    if (!created.active) {
+      throw new ComposioError(
+        `Composio did not activate the ${normalized} connection from the credential we supplied.`,
+        502,
+      );
+    }
+    return { accountId: created.accountId };
   }
 
   /** Publish to a connected social platform. */
@@ -1469,10 +1820,33 @@ class ComposioProvider {
       case "slack":
         return execute("SLACK_SEND_MESSAGE", entityId, {
           channel: slackTarget(options),
-          text,
+          markdown_text: text,
         });
 
-      case "youtube":
+      case "youtube": {
+        const videoUrl = videoUrlOf(media, mediaUrl);
+        if (!videoUrl) {
+          return {
+            successful: false,
+            error: "YouTube needs a video — attach one to the step, or generate it earlier in the workflow.",
+          };
+        }
+        try {
+          const uploaded = await uploadToYouTube({
+            entityId,
+            text,
+            videoUrl,
+            title: options?.title,
+          });
+          return { successful: true, data: { id: uploaded.videoId, url: uploaded.url } };
+        } catch (err) {
+          // A failed upload is reported, never retried here: a resumable
+          // session that got as far as accepting bytes may have published the
+          // video even though the response never reached us.
+          return { successful: false, error: (err as Error).message };
+        }
+      }
+
       case "tiktok":
         return {
           successful: false,

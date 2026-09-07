@@ -26,6 +26,7 @@ const UNIQUE: Record<string, string[][]> = {
   workflow_builds: [["workspace_id", "request_key"]],
   credit_ledger: [["workspace_id", "idem_key"]],
   job_locks: [["name"]],
+  message_deliveries: [["idempotency_key"], ["twilio_message_sid"]],
 };
 
 function violates(table: string, rows: Row[], candidate: Row): boolean {
@@ -124,8 +125,19 @@ function parseComparison(term: string): Predicate {
 class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
   private readonly db: FakeDb;
   private readonly table: string;
-  private readonly op: "select" | "insert" | "update" | "delete";
+  private readonly op: "select" | "insert" | "update" | "delete" | "upsert";
   private readonly payload: Row | Row[] | undefined;
+  /**
+   * `onConflict` columns and whether a clash keeps the existing row.
+   *
+   * Real PostgREST resolves the conflict against a unique index; here the
+   * caller names the columns, which is the same information and avoids the fake
+   * having to know every index in the schema. `ignoreDuplicates: true` is
+   * `ON CONFLICT DO NOTHING` — the ORIGINAL row survives, which is the whole
+   * reason production code passes it (a lead who has since replied must not be
+   * reset to `new` by a second lead search finding them again).
+   */
+  private readonly conflict: { columns: string[]; ignoreDuplicates: boolean } | null = null;
   private predicates: Predicate[] = [];
   private sort: { column: string; ascending: boolean } | null = null;
   private max: number | null = null;
@@ -134,13 +146,15 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
   constructor(
     db: FakeDb,
     table: string,
-    op: "select" | "insert" | "update" | "delete",
+    op: "select" | "insert" | "update" | "delete" | "upsert",
     payload?: Row | Row[],
+    conflict?: { columns: string[]; ignoreDuplicates: boolean } | null,
   ) {
     this.db = db;
     this.table = table;
     this.op = op;
     this.payload = payload;
+    this.conflict = conflict ?? null;
   }
 
   eq(column: string, value: unknown) {
@@ -225,6 +239,39 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
         rows.push(withDefaults);
         affected.push(withDefaults);
       }
+    } else if (this.op === "upsert") {
+      const incoming = Array.isArray(this.payload) ? this.payload : [this.payload ?? {}];
+      const keys = this.conflict?.columns ?? ["id"];
+      for (const row of incoming) {
+        // Postgres unique indexes on these tables are case-folded on text
+        // (leads is `lower(email)`), and a conflict key that matched
+        // case-sensitively here would let the fake accept a duplicate the real
+        // database rejects — the exact class of lie this helper exists to avoid.
+        const same = (a: unknown, b: unknown) =>
+          typeof a === "string" && typeof b === "string"
+            ? a.toLowerCase() === b.toLowerCase()
+            : a === b;
+        const existing = rows.find((r) => keys.every((k) => same(r[k], row[k])));
+        if (existing) {
+          // DO NOTHING keeps the original and reports nothing written, which is
+          // what `.select()` after an ignoreDuplicates upsert returns for real.
+          if (!this.conflict?.ignoreDuplicates) {
+            Object.assign(existing, row);
+            affected.push(existing);
+          }
+          continue;
+        }
+        const withDefaults: Row = {
+          id: randomUUID(),
+          created_at: new Date().toISOString(),
+          ...row,
+        };
+        if (violates(this.table, rows, withDefaults)) {
+          return { data: null, error: DUPLICATE };
+        }
+        rows.push(withDefaults);
+        affected.push(withDefaults);
+      }
     } else if (this.op === "update") {
       affected = this.matching();
       for (const row of affected) Object.assign(row, this.payload as Row);
@@ -289,6 +336,14 @@ export class FakeDb {
     return {
       select: () => new Query(db, name, "select"),
       insert: (payload: Row | Row[]) => new Query(db, name, "insert", payload),
+      upsert: (
+        payload: Row | Row[],
+        options?: { onConflict?: string; ignoreDuplicates?: boolean },
+      ) =>
+        new Query(db, name, "upsert", payload, {
+          columns: (options?.onConflict ?? "id").split(",").map((c) => c.trim()),
+          ignoreDuplicates: options?.ignoreDuplicates ?? false,
+        }),
       update: (payload: Row) => new Query(db, name, "update", payload),
       delete: () => new Query(db, name, "delete"),
     };

@@ -40,6 +40,7 @@ import { BrandGap, useBrandReadiness } from "@/components/brand-readiness";
 import { needsBrandGrounding } from "@/lib/workflows/apps";
 import type { WorkflowGraph } from "@/lib/workflows/types";
 import {
+  adoptableAfterSave,
   connectSteps,
   diffWorkflowGraphs,
   draftIssues,
@@ -128,6 +129,8 @@ export default function WorkflowDetailPage() {
   const [revision, setRevision] = useState(0);
   const [publishedGraph, setPublishedGraph] = useState<WorkflowGraph | null>(null);
   const [saveConflict, setSaveConflict] = useState(false);
+  /** A setup/provider save failure pauses auto-save without pretending it is a conflict. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   /** Last persisted name. `dirty` was graph-only, so a rename could never be saved. */
   const [savedName, setSavedName] = useState<string>("");
   // Read inside `refresh`, which must not re-create itself on every keystroke.
@@ -137,11 +140,37 @@ export default function WorkflowDetailPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [picker, setPicker] = useState<{ mode: "trigger" | "step"; edge?: EdgeRef } | null>(null);
   const [saving, setSaving] = useState(false);
+  /** Only a save the user asked for spins the Save button. Auto-save must be invisible. */
+  const [manualSaving, setManualSaving] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
   const [chatOpen, setChatOpen] = useState(searchParams.get("chat") === "1");
   const [modulesOpen, setModulesOpen] = useState(true);
   const [replay, setReplay] = useState<Record<string, "done" | "failed"> | undefined>();
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * The editor state as it is RIGHT NOW, readable from an async callback.
+   *
+   * Auto-save snapshots the draft, waits on the network, and then has to
+   * decide whether its answer is still relevant. Reading `graph` out of the
+   * closure would hand it the value from when the request started — which is
+   * exactly the value it must not trust.
+   */
+  const graphRef = useRef<WorkflowGraph | null>(null);
+  const positionsRef = useRef<WorkflowPositions>({});
+  const nameRef = useRef<string>("");
+  const revisionRef = useRef(0);
+  /** Guards against two saves overlapping without making `save` re-create itself. */
+  const savingRef = useRef(false);
+  /**
+   * Saves run one at a time, in order.
+   *
+   * Pressing Save or Publish a fraction of a second after the auto-save timer
+   * fired used to be swallowed by the "already saving" guard: the button did
+   * nothing, and Publish quietly gave up. Queueing behind the request in
+   * flight means the click always lands.
+   */
+  const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
 
   /**
    * Load (or reload) the automation. `keepEdits` leaves the canvas alone so a
@@ -192,6 +221,7 @@ export default function WorkflowDetailPage() {
           setRevision(data.revision ?? 0);
           setPublishedGraph(data.publishedGraph ?? data.graph);
           setSaveConflict(false);
+          setSaveError(null);
           if (!keepEdits) {
             setGraph(data.graph);
             setPositions(fetchedPositions);
@@ -213,6 +243,15 @@ export default function WorkflowDetailPage() {
   useEffect(() => {
     savedNameRef.current = savedName;
   }, [savedName]);
+
+  // Keep the "latest value" refs in step with state. They exist so an async
+  // save can tell what changed while its request was in flight.
+  useEffect(() => {
+    graphRef.current = graph;
+    positionsRef.current = positions;
+    nameRef.current = wf?.name ?? "";
+    revisionRef.current = revision;
+  }, [graph, positions, wf?.name, revision]);
 
   useEffect(() => {
     let alive = true;
@@ -329,15 +368,25 @@ export default function WorkflowDetailPage() {
   const genericDrafts = needsBrandGrounding(graph ?? { start: "", steps: {} });
 
   // ---- mutations ----------------------------------------------------------
+  /**
+   * Replace the draft graph.
+   *
+   * The history push and the position re-layout used to happen INSIDE the
+   * `setGraph` updater. React is allowed to run an updater more than once for
+   * the same change, so every edit could be recorded twice and the layout
+   * recomputed twice — one keystroke, two undo steps. Reading the current
+   * value from a ref keeps the whole edit as one plain, once-only update.
+   */
   const apply = useCallback((next: WorkflowGraph) => {
-    setGraph((current) => {
-      if (!current || next === current) return current;
-      setHistory((h) => [...h.slice(-49), { graph: current, positions }]);
-      setFuture([]);
-      setPositions((placed) => positionsAfterGraphChange(current, next, placed));
-      return next;
-    });
-  }, [positions]);
+    const current = graphRef.current;
+    if (!current || next === current) return;
+    const placed = positionsRef.current;
+    setSaveError(null);
+    setHistory((h) => [...h.slice(-49), { graph: current, positions: placed }]);
+    setFuture([]);
+    setPositions(positionsAfterGraphChange(current, next, placed));
+    setGraph(next);
+  }, []);
 
   const applyPositions = useCallback((next: WorkflowPositions) => {
     if (!graph || JSON.stringify(next) === JSON.stringify(positions)) return;
@@ -448,15 +497,37 @@ export default function WorkflowDetailPage() {
   }
 
   // ---- persistence --------------------------------------------------------
-  const save = useCallback(async () => {
-    const current = graph;
-    if (!current || saving) return false;
+  /**
+   * Persist the draft.
+   *
+   * `silent` marks the one-second auto-save, which has to be invisible: a
+   * toast on every pause in typing, a spinner blinking on the Save button and
+   * an undo stack wiped on a timer are none of them things somebody asked for
+   * by typing a character.
+   */
+  const runSave = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const current = graphRef.current;
+    if (!current || savingRef.current) return false;
+    // What this request is about to send. Everything typed after this line is
+    // newer than the server's answer will be.
+    const sent = { graph: current, positions: positionsRef.current, name: nameRef.current };
+    const sentGraph = JSON.stringify(current);
+    const sentPositions = JSON.stringify(sent.positions);
+    const sentName = sent.name;
+    savingRef.current = true;
     setSaving(true);
+    if (!silent) setManualSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/workflows/${workflowId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ graph: current, positions, baseRevision: revision, name: wf?.name }),
+        body: JSON.stringify({
+          graph: current,
+          positions: positionsRef.current,
+          baseRevision: revisionRef.current,
+          name: sentName,
+        }),
       });
       const data = (await res.json()) as {
         workflow?: WorkflowDetail;
@@ -464,18 +535,38 @@ export default function WorkflowDetailPage() {
           positions?: WorkflowPositions;
           revision?: number;
           error?: string;
+          code?: string;
         };
-      if (res.status === 409) {
+      if (res.status === 409 && data.code === "revision_conflict") {
         setSaveConflict(true);
         toast({ title: "Newer changes exist", description: "Reload them or save this draft as a copy.", tone: "warning" });
         return false;
       }
-      if (!res.ok || !data.workflow) {
+      const savedWorkflow = data.workflow;
+      if (!res.ok || !savedWorkflow) {
+        setSaveError(data.error ?? "Couldn't save the workflow.");
         toast({ title: "Couldn't save", description: data.error, tone: "danger" });
         return false;
       }
-      setWf(data.workflow);
-      setSavedName(data.workflow.name);
+
+      // Take the server's answer only where the user has not moved on — see
+      // `adoptableAfterSave`. Auto-save fires while somebody is still typing,
+      // and writing the response straight back over the editor threw away
+      // every keystroke made during the round trip: the field visibly
+      // reverted and the caret jumped to the end. That is the "glitch while
+      // editing".
+      const adopt = adoptableAfterSave(sent, {
+        graph: graphRef.current ?? current,
+        positions: positionsRef.current,
+        name: nameRef.current,
+      });
+
+      setWf((currentWf) =>
+        !adopt.name && currentWf
+          ? { ...currentWf, ...savedWorkflow, name: currentWf.name }
+          : savedWorkflow,
+      );
+      setSavedName(savedWorkflow.name);
       // APPLY the graph the server stored, don't just remember it.
       //
       // The server repairs references on save, so what comes back is usually
@@ -484,33 +575,52 @@ export default function WorkflowDetailPage() {
       // forever: "Unsaved changes" latched on, beforeunload fired on every
       // navigation, and Run refused with "Save first" permanently.
       if (data.graph) {
-        setGraph(data.graph);
         setSavedGraph(JSON.stringify(data.graph));
+        if (adopt.graph) setGraph(data.graph);
       } else {
-        setSavedGraph(JSON.stringify(current));
+        setSavedGraph(sentGraph);
       }
-      const storedPositions = data.positions ?? positions;
-      setPositions(storedPositions);
+      const storedPositions = data.positions ?? (JSON.parse(sentPositions) as WorkflowPositions);
       setSavedPositions(JSON.stringify(storedPositions));
-      setRevision(data.revision ?? revision + 1);
+      if (adopt.positions) setPositions(storedPositions);
+      setRevision(data.revision ?? revisionRef.current + 1);
       setSaveConflict(false);
-      setHistory([]);
-      setFuture([]);
-      toast({ title: "Draft saved", description: "Published behavior is unchanged." });
+      setSaveError(null);
+      if (!silent) {
+        setHistory([]);
+        setFuture([]);
+        toast({ title: "Draft saved", description: "Published behavior is unchanged." });
+      }
       return true;
     } catch {
+      setSaveError("Please try again.");
       toast({ title: "Couldn't save", description: "Please try again.", tone: "danger" });
       return false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
+      setManualSaving(false);
     }
-  }, [graph, positions, revision, saving, workflowId, wf, toast]);
+  }, [workflowId, toast]);
 
+  const save = useCallback(
+    (options: { silent?: boolean } = {}) => {
+      const next = saveQueue.current.then(() => runSave(options));
+      saveQueue.current = next.catch(() => false);
+      return next;
+    },
+    [runSave],
+  );
+
+  // Auto-save one second after the last edit. `positions` and the name are in
+  // the dependency list so that dragging or renaming restarts the timer too —
+  // otherwise the first keystroke of a rename scheduled a save into the middle
+  // of the word.
   useEffect(() => {
-    if (!dirty || saving || saveConflict || !graph) return;
-    const timer = window.setTimeout(() => void save(), 1000);
+    if (!dirty || saving || saveConflict || saveError || !graph) return;
+    const timer = window.setTimeout(() => void save({ silent: true }), 1000);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, saveConflict, graph, save]);
+  }, [dirty, saving, saveConflict, saveError, graph, positions, wf?.name, save]);
 
   const publish = useCallback(async () => {
     if (!graph || !publishedGraph) return;
@@ -846,7 +956,7 @@ export default function WorkflowDetailPage() {
         connectedTools={connections.every((connection) => connection.status === "connected") ? connections : []}
         active={active}
         dirty={dirty}
-        saving={saving}
+        saving={manualSaving}
         runningNow={runningNow}
         blocking={publishBlocks}
         chatOpen={chatOpen}
@@ -854,6 +964,7 @@ export default function WorkflowDetailPage() {
         togglingActive={togglingActive}
         canUndo={history.length > 0}
         conflict={saveConflict}
+        saveError={saveError}
         onBack={() => router.push("/workflows")}
         onRename={(name) => setWf((w) => (w ? { ...w, name } : w))}
         onToggleActive={toggleActive}
@@ -952,7 +1063,7 @@ export default function WorkflowDetailPage() {
           onConnect={connect}
           note={
             unconnectedApps.length
-              ? `Connect ${appList(unconnectedApps)} before switching this on — runs stop at the first step that needs it.`
+              ? `Connect ${appList(unconnectedApps)} before switching this on. We'll return you here after setup; runs stop until the connection is ready.`
               : undefined
           }
         />
@@ -1196,6 +1307,7 @@ function Header({
   togglingActive,
   canUndo,
   conflict,
+  saveError,
   onBack,
   onRename,
   onToggleActive,
@@ -1221,6 +1333,7 @@ function Header({
   togglingActive: boolean;
   canUndo: boolean;
   conflict: boolean;
+  saveError: string | null;
   onBack: () => void;
   onRename: (name: string) => void;
   onToggleActive: (next: boolean) => void;
@@ -1271,6 +1384,10 @@ function Header({
               Revision conflict
               <button onClick={onReload} className="hover:underline">Reload</button>
               <button onClick={onSaveAsCopy} className="hover:underline">Save as copy</button>
+            </span>
+          ) : saveError ? (
+            <span className="max-w-[300px] truncate text-[12px] font-semibold text-danger" title={saveError}>
+              Save blocked — {saveError}
             </span>
           ) : dirty && (
             <span className="whitespace-nowrap text-[12px] font-medium text-warning">

@@ -218,7 +218,7 @@ function socialAction(stepId: string, step: StepDef, context: RunContext): Previ
 
 function appAction(stepId: string, step: StepDef, context: RunContext): PreviewAction {
   const tool = str(step.tool);
-  const spec = getTool(tool);
+  const spec = getTool(tool, step.tool_spec);
   const args = (step.arguments as Record<string, unknown>) ?? {};
 
   // A read fetches; it neither sends nor changes anything, so it is named but

@@ -41,14 +41,15 @@ export interface RunEntry {
     preview?: ApprovalPreviewData | null;
   } | null;
   /**
-   * Set while the run is parked on a machine — today, a video render.
+   * Set while the run is parked on machine work, such as a video render or
+   * Firecrawl research job.
    *
    * The sibling of `pending` and deliberately not merged with it: this one
    * offers no buttons, because there is nothing to decide. It exists so a run
    * sitting at "waiting" for eight minutes explains itself instead of looking
    * stuck.
    */
-  awaiting?: { kind: string; note: string; since: string } | null;
+  awaiting?: { kind: string; operation?: string; note: string; since: string } | null;
   journal?: JournalEntryView[];
 }
 
@@ -117,7 +118,7 @@ export function Runs({
               <div className="flex items-start gap-2 border-t border-line bg-inset/60 px-4 py-3">
                 <Icon name="hourglass" size={15} className="mt-0.5 flex-none text-brand" />
                 <p className="text-[12.5px] leading-relaxed text-ink-muted">
-                  {run.awaiting.note} The run picks itself back up when the video is ready —
+                  {run.awaiting.note} The run picks itself back up when {run.awaiting.kind === "firecrawl" ? "Firecrawl finishes" : "the video is ready"} —
                   nothing to do here.
                 </p>
               </div>

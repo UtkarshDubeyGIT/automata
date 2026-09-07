@@ -73,7 +73,7 @@ const CHANNEL_BRIEF: Record<string, string> = {
 function isDelivery(step: StepDef): boolean {
   if (step.type === "social_post") return true;
   if (step.type !== "app_action") return false;
-  return getTool(String(step.tool ?? ""))?.kind !== "read";
+  return getTool(String(step.tool ?? ""), step.tool_spec)?.kind !== "read";
 }
 
 export function destinationOf(
@@ -127,7 +127,7 @@ function describe(step: StepDef): Destination | null {
 
   // An app action that sends. The tool registry already describes it in the
   // words the compiler uses, which is exactly the sentence wanted here.
-  const spec = getTool(String(step.tool ?? ""));
+  const spec = getTool(String(step.tool ?? ""), step.tool_spec);
   if (!spec) return null;
   const email = /email|mail/i.test(spec.app) || /email/i.test(spec.desc);
   return {

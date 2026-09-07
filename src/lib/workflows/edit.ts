@@ -492,15 +492,39 @@ export type FlowItem =
   | { kind: "end"; inbound: EdgeRef };
 
 /**
- * Turn the graph into the tree the canvas draws: a spine of steps, with each
- * fan-out rendered as labelled, indented lanes. A path that converges back
- * onto an already-drawn step becomes a "join" chip rather than duplicating it,
- * so a diamond-shaped graph still renders as a finite tree.
+ * Turn the graph into the lanes the canvas draws. The first lane is the spine
+ * — steps reachable from the trigger, with each fan-out rendered as labelled,
+ * indented sub-lanes. A path that converges back onto an already-drawn step
+ * becomes a "join" chip rather than duplicating it, so a diamond-shaped graph
+ * still renders as a finite tree.
+ *
+ * Every lane AFTER the first holds steps the trigger cannot reach. Walking
+ * only the spine used to drop those on the floor, while `draftIssues()` counts
+ * the very same steps and blocks publishing — a dead end, because the canvas
+ * showed a complete workflow next to an error with no node to act on. Drawing
+ * them gives the block something to point at: select it, wire it up or delete
+ * it. `draftIssues()` stays the judge of what's publishable; this only decides
+ * what is VISIBLE, and nothing may be invisible.
+ *
+ * A stray lane starts at a stray no other stray points to, so an orphaned
+ * chain draws as a chain rather than a scatter of dots. A stray cycle has no
+ * such head, so the sorted pass afterwards picks it up instead of hiding it.
  */
-export function buildFlow(graph: WorkflowGraph): FlowItem[] {
+export function buildFlows(graph: WorkflowGraph): FlowItem[][] {
   const drawn = new Set<string>();
-  const spine = walk({ from: "", slot: "next" }, graph.start, graph, drawn);
-  return spine;
+  const lanes = [walk({ from: "", slot: "next" }, graph.start, graph, drawn)];
+
+  const strays = Object.keys(graph.steps).filter((id) => !drawn.has(id)).sort();
+  const pointedAt = new Set<string>();
+  for (const id of strays) {
+    for (const target of outEdges(graph.steps[id])) if (!drawn.has(target)) pointedAt.add(target);
+  }
+  // Heads first, then anything still undrawn — the second pass is what keeps a
+  // stray that only points at itself from vanishing.
+  for (const id of [...strays.filter((id) => !pointedAt.has(id)), ...strays]) {
+    if (!drawn.has(id)) lanes.push(walk({ from: "", slot: "next" }, id, graph, drawn));
+  }
+  return lanes;
 }
 
 function walk(

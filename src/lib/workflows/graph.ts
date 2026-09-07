@@ -132,6 +132,11 @@ export function ancestors(graph: WorkflowGraph, target: string): Set<string> {
 /**
  * The first routing cycle reachable from the start, as the path that closes it
  * (["draft", "review", "draft"]), or null when the graph is acyclic.
+ *
+ * `hasTerminal` is not this check and never was: it passes as soon as ANY path
+ * ends, so a graph whose branch loops back validated clean and only revealed
+ * itself at run time — after up to STEP_BUDGET real steps, which for a
+ * publishing workflow means up to 50 real posts.
  */
 export function findCycle(graph: WorkflowGraph): string[] | null {
   const state = new Map<string, "open" | "closed">();
@@ -140,7 +145,7 @@ export function findCycle(graph: WorkflowGraph): string[] | null {
   const walk = (id: string): string[] | null => {
     if (state.get(id) === "closed") return null;
     if (state.get(id) === "open") return [...path.slice(path.indexOf(id)), id];
-    if (!graph.steps[id]) return null;
+    if (!graph.steps[id]) return null; // dangling edge — reported separately
     state.set(id, "open");
     path.push(id);
     for (const next of outEdges(graph.steps[id])) {
@@ -165,7 +170,7 @@ export function hasTerminal(graph: WorkflowGraph): boolean {
     if (seen.has(cur)) continue;
     seen.add(cur);
     const step = graph.steps[cur];
-    if (!step) return true;
+    if (!step) return true; // dangling edge — reported separately by validation
     const nexts = [
       step.next,
       step.on_approve,
@@ -197,7 +202,9 @@ export function refsIn(value: unknown): Set<string> {
 
 /**
  * Every {{steps.<id>.<path>}} reference inside `value`, split into the step it
- * points at and the field path within that step's output.
+ * points at and the field path within that step's output. `refsIn` answers
+ * "which steps does this depend on"; this answers "and does that step actually
+ * produce what is being asked for".
  */
 export interface StepRef {
   stepId: string;

@@ -179,3 +179,29 @@ export function diffWorkflowGraphs(before: WorkflowGraph, after: WorkflowGraph):
     changed: Object.keys(after.steps).filter((id) => before.steps[id] && JSON.stringify(before.steps[id]) !== JSON.stringify(after.steps[id])).map((id) => name(after, id)),
   };
 }
+
+export interface DraftSnapshot { graph: WorkflowGraph; positions: WorkflowPositions; name: string }
+/** Per field: may the server's answer be written back into the editor? */
+export interface SaveAdoption { graph: boolean; positions: boolean; name: boolean }
+
+/**
+ * Decide which parts of a finished save are safe to write back on screen.
+ *
+ * Auto-save snapshots the draft, waits a few hundred milliseconds on the
+ * network, and answers with the graph the server actually stored — which the
+ * server may have repaired, so it is worth adopting. But the answer describes
+ * the draft as it was when the request LEFT. Anything typed while it was in
+ * flight is newer, and putting the answer back over it wipes those keystrokes:
+ * the field reverts and the caret jumps to the end mid-word.
+ *
+ * So each field is adopted only where the editor has not moved on since the
+ * snapshot. What the server stored is still recorded as "saved" either way, so
+ * the next auto-save carries the newer text.
+ */
+export function adoptableAfterSave(sent: DraftSnapshot, latest: DraftSnapshot): SaveAdoption {
+  return {
+    graph: JSON.stringify(sent.graph) === JSON.stringify(latest.graph),
+    positions: JSON.stringify(sent.positions) === JSON.stringify(latest.positions),
+    name: sent.name === latest.name,
+  };
+}

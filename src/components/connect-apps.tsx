@@ -155,7 +155,7 @@ export function useAppConnections(apps: RequiredApp[]) {
       const data = event.data;
       if (
         !data ||
-        data.type !== "zidaneai:integration-complete" ||
+        (data.type !== "automata:integration-complete" && data.type !== "zidaneai:integration-complete") ||
         typeof data.platform !== "string" ||
         !apps.some((app) => app.app === data.platform)
       ) {

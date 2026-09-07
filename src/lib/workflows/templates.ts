@@ -30,6 +30,76 @@ export interface WorkflowTemplate {
 
 export const TEMPLATES: WorkflowTemplate[] = [
   {
+    id: "meeting-whatsapp-summary",
+    name: "Meeting brief on WhatsApp",
+    description:
+      "Summarize a completed meeting, add related Gmail and Calendar context, and send one concise WhatsApp brief.",
+    icon: "message-circle",
+    app: "whatsapp",
+    apps: ["whatsapp", "gmail", "googlecalendar"],
+    category: "Communication",
+    risk: "external_write",
+    setupMinutes: 5,
+    tags: ["Meeting", "Gmail", "Calendar", "WhatsApp"],
+    graph: {
+      start: "meeting_complete",
+      steps: {
+        meeting_complete: {
+          type: "webhook_trigger",
+          title: "When the meeting transcript is ready",
+          stage: "Trigger",
+          secret: "",
+          next: "meeting_summary",
+        },
+        meeting_summary: {
+          type: "meeting_summary",
+          title: "Summarize the meeting",
+          stage: "Summarize",
+          transcript_field: "transcript",
+          next: "related_email",
+        },
+        related_email: {
+          type: "app_action",
+          title: "Find related emails",
+          stage: "Context",
+          toolkit: "gmail",
+          tool: "GMAIL_FETCH_EMAILS",
+          arguments: { query: "{{steps.meeting_complete.body.email_query}}", verbose: true, ids_only: false },
+          next: "calendar_tasks",
+        },
+        calendar_tasks: {
+          type: "app_action",
+          title: "Read related calendar tasks",
+          stage: "Context",
+          toolkit: "googlecalendar",
+          tool: "GOOGLECALENDAR_EVENTS_LIST",
+          arguments: {
+            q: "{{steps.meeting_complete.body.calendar_query}}",
+            timeMin: "{{steps.meeting_complete.body.time_min}}",
+            timeMax: "{{steps.meeting_complete.body.time_max}}",
+          },
+          next: "compose_brief",
+        },
+        compose_brief: {
+          type: "ai_step",
+          title: "Compose the WhatsApp brief",
+          stage: "Synthesize",
+          instruction:
+            "Create a concise operational WhatsApp brief from the meeting summary, related emails, and calendar items below. Lead with decisions, then action items with owners and dates. Include only facts present in the inputs. Plain text, under 700 characters, no secrets or quoted email bodies.\n\nMeeting:\n{{steps.meeting_summary.text}}\n\nRelated email context:\n{{steps.related_email.text}}\n\nCalendar context:\n{{steps.calendar_tasks.text}}",
+          output: "text",
+          next: "send_whatsapp",
+        },
+        send_whatsapp: {
+          type: "whatsapp_reminder",
+          title: "Send the brief on WhatsApp",
+          stage: "Notify",
+          message: "{{steps.compose_brief.text}}\n\nOpen the workflow run in Automata for details.",
+          next: null,
+        },
+      },
+    },
+  },
+  {
     id: "google-review-replies",
     name: "Reply to Google reviews",
     description:

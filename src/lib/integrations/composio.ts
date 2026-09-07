@@ -1,4 +1,5 @@
 import "server-only";
+import { setupNotice } from "@/lib/setup-notice";
 
 const BASE_URL = "https://backend.composio.dev/api/v3";
 
@@ -6,7 +7,14 @@ type ComposioErrorBody = { error?: { message?: string } | string; message?: stri
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const key = process.env.COMPOSIO_API_KEY;
-  if (!key) throw new Error("COMPOSIO_API_KEY is not configured.");
+  if (!key) {
+    throw new Error(
+      setupNotice(
+        "The integration service is not configured.",
+        "COMPOSIO_API_KEY is not configured.",
+      ),
+    );
+  }
   const response = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: { "content-type": "application/json", "x-api-key": key, ...init?.headers },

@@ -7,6 +7,8 @@ import { claimJob } from "@/lib/jobs/lock";
 import { drainRuns, reclaimStuckRuns, resumeRenders } from "@/lib/workflows/drain";
 import { sweepTriggers } from "@/lib/workflows/sweep";
 import { kickWorkflowBuilds, type BuildJobDb } from "@/lib/workflows/build-jobs";
+import { drainWhatsAppDeliveries } from "@/lib/whatsapp/service";
+import { setupNotice } from "@/lib/setup-notice";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -14,7 +16,12 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   if (!env.cronSecret) {
     return NextResponse.json(
-      { error: "Cron is not configured. Set CRON_SECRET." },
+      {
+        error: setupNotice(
+          "Scheduled runs are not available.",
+          "Cron is not configured. Set CRON_SECRET.",
+        ),
+      },
       { status: 503 },
     );
   }
@@ -42,6 +49,7 @@ export async function POST(req: NextRequest) {
   let workflowRuns: unknown = { examined: 0, driven: 0, completed: 0, failed: 0, waiting: 0, deferred: 0 };
   let workflowResumes: unknown = { checked: 0, resumed: 0, completed: 0, failed: 0, stillWaiting: 0 };
   let workflowReclaims: unknown = { examined: 0, settled: 0, refunded: 0 };
+  let whatsapp: unknown = { examined: 0, sent: 0, failed: 0, retried: 0 };
 
   const beatClaim = await claimJob(db, "workflow-beat", 5 * 60_000, randomUUID());
   if (beatClaim.ok) {
@@ -50,6 +58,7 @@ export async function POST(req: NextRequest) {
       workflowResumes = await resumeRenders(db, { deadline: Date.now() + 30_000 });
       workflowRuns = await drainRuns(db, { deadline: Date.now() + 60_000 });
       workflowReclaims = await reclaimStuckRuns(db);
+      whatsapp = await drainWhatsAppDeliveries();
     } catch (err) {
       console.error("[cron] workflow beat failed:", err);
     } finally {
@@ -64,5 +73,6 @@ export async function POST(req: NextRequest) {
     workflowResumes,
     workflowRuns,
     workflowReclaims,
+    whatsapp,
   });
 }

@@ -1,0 +1,51 @@
+# Phase 3 Task List: Replicate GrowthOS Workflow Automation in Automata
+
+- [x] **1. Environment Configuration** <!-- id: 1 -->
+  - [x] Copy all relevant ENV keys from `growthos/.env.local` to `automata/.env.local` <!-- id: 1.1 -->
+  - [x] Update `automata/.env.example` with documented defaults <!-- id: 1.2 -->
+  - [x] Update `automata/src/lib/env.ts` with all integration configs and booleans <!-- id: 1.3 -->
+- [x] **2. Core Integration Libraries & Credentials** <!-- id: 2 -->
+  - [x] Port `src/lib/credentials.ts` (AES-256-GCM encryption/decryption) <!-- id: 2.1 -->
+  - [x] Port `src/lib/setup-notice.ts` <!-- id: 2.2 -->
+  - [x] Port `src/lib/integrations/firecrawl.ts` <!-- id: 2.3 -->
+  - [x] Port `src/lib/google/business-profile.ts` <!-- id: 2.4 -->
+  - [x] Port `src/lib/shopify/` (`connect.ts`, `installs.ts`, `oauth.ts`, `webhooks.ts`, `AGENTS.md`) <!-- id: 2.5 -->
+  - [x] Port `src/lib/whatsapp/` (`core.ts`, `twilio.ts`, `service.ts`) <!-- id: 2.6 -->
+  - [x] Port any missing analytics dependencies (`src/lib/analytics/` or `analytics-external.ts`) <!-- id: 2.7 -->
+- [x] **3. Workflow Engine & Subsystems** <!-- id: 3 -->
+  - [x] Port `src/lib/workflows/native-tools.ts` <!-- id: 3.1 -->
+  - [x] Update `src/lib/workflows/types.ts` (`AwaitingState`, `TriggerState`, `RunContext`) <!-- id: 3.2 -->
+  - [x] Update `src/lib/workflows/blocks.ts` (register `firecrawl` and `whatsapp_reminder`) <!-- id: 3.3 -->
+  - [x] Update `src/lib/workflows/steps.ts` (firecrawl, whatsapp, native-tools, tool_spec, 12k context) <!-- id: 3.4 -->
+  - [x] Update `src/lib/workflows/runtime.ts` (`kickRun`, `pollFirecrawlJob`, whatsapp notifications) <!-- id: 3.5 -->
+  - [x] Update `src/lib/workflows/sweep.ts` (Google Business Profile native reviews poll) <!-- id: 3.6 -->
+  - [x] Update `src/lib/workflows/registry.ts` (GSC, GA, Ads, YouTube, Firecrawl tools, dynamic tool spec) <!-- id: 3.7 -->
+  - [x] Update `src/lib/workflows/builder.ts` (YouTube rules, grounding, prompt updates) <!-- id: 3.8 -->
+  - [x] Update `src/lib/workflows/templates.ts` (`meeting-whatsapp-summary` & rich template metadata) <!-- id: 3.9 -->
+  - [x] Update `src/lib/workflows/edit.ts` and `src/lib/workflows/layout.ts` (`buildFlows` stray nodes) <!-- id: 3.10 -->
+  - [x] Update `src/lib/workflows/webhook-receiver.ts` (`kickRun` and token in sample) <!-- id: 3.11 -->
+  - [x] Update `src/lib/workflows/interpolate.ts` (numeric records flattening) <!-- id: 3.12 -->
+- [x] **4. API Routes** <!-- id: 4 -->
+  - [x] Port `src/app/api/integrations/firecrawl/route.ts` <!-- id: 4.1 -->
+  - [x] Port `src/app/api/integrations/catalog/tools/route.ts` <!-- id: 4.2 -->
+  - [x] Port `src/app/api/integrations/google-business/route.ts` and `callback/route.ts` <!-- id: 4.3 -->
+  - [x] Port `src/app/api/shopify/` (`install`, `callback`, `webhooks/compliance`, `claim`) <!-- id: 4.4 -->
+  - [x] Port `src/app/api/whatsapp/` (`test`, `verify/start`, `verify/check`, `status`, `profile`) <!-- id: 4.5 -->
+- [x] **5. Workflow UI Canvas & Editor Components** <!-- id: 5 -->
+  - [x] Add `whatsapp-node-status.tsx` <!-- id: 5.1 -->
+  - [x] Update `canvas.tsx` with WhatsApp alert badge and stray node rendering <!-- id: 5.2 -->
+  - [x] Update `inspector.tsx` with WhatsApp status, Firecrawl inputs, dynamic `tool_spec` <!-- id: 5.3 -->
+  - [x] Update `page.tsx` with auto-save queue (`saveQueue`, `adoptableAfterSave`, `savingRef`) <!-- id: 5.4 -->
+  - [x] Synchronize `src/app/app/workflows` with `src/app/(app)/workflows` <!-- id: 5.5 -->
+- [x] **6. Database Migrations** <!-- id: 6 -->
+  - [x] Add `20260903100000_whatsapp_workflow_reminders.sql` <!-- id: 6.1 -->
+  - [x] Add `20260903120000_workspace_provider_credentials.sql` <!-- id: 6.2 -->
+  - [x] Add `20260905130000_shopify_installs.sql` <!-- id: 6.3 -->
+- [x] **7. Automated Test Suite Port & Verification** <!-- id: 7 -->
+  - [x] Port all workflow/automation tests from GrowthOS <!-- id: 7.1 -->
+  - [x] Run `npm test` and verify all tests pass (418/418) <!-- id: 7.2 -->
+  - [x] Run `npm run typecheck` and verify zero errors <!-- id: 7.3 -->
+  - [x] Run `npm run build` and verify successful production build <!-- id: 7.4 -->
+- [x] **8. Documentation & Devlog Archival** <!-- id: 8 -->
+  - [x] Copy plan, task list, and walkthrough to `doubtbuddy/devlog/` and `automata/devlog/` <!-- id: 8.1 -->
+  - [x] Update `automata/README.md` <!-- id: 8.2 -->

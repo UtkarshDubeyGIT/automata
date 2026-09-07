@@ -54,6 +54,12 @@ export interface AppConnection extends RequiredApp {
   status: ConnectionStatus;
 }
 
+/**
+ * Apps connected through us rather than through Composio, so their status
+ * comes from our own server rather than a Composio connection listing.
+ */
+export const SERVER_OWNED_APPS = new Set(["firecrawl", "googlebusinessprofile"]);
+
 /** One row of `GET /api/integrations/connect`. */
 export interface IntegrationRow {
   platform: string;
@@ -68,11 +74,14 @@ export function requiredAppsOf(graph: WorkflowGraph): RequiredApp[] {
       const spec = getTrigger(String(step.event ?? ""));
       if (spec) slugs.add(spec.app);
     } else if (step.type === "app_action") {
-      const spec = getTool(String(step.tool ?? ""));
-      if (spec) slugs.add(spec.app);
+      const spec = getTool(String(step.tool ?? ""), step.tool_spec);
+      const app = spec?.app ?? (typeof step.toolkit === "string" ? step.toolkit : null);
+      if (app) slugs.add(app);
     } else if (step.type === "social_post") {
       const platform = String(step.platform ?? "");
       if (platform) slugs.add(platform);
+    } else if (step.type === "firecrawl") {
+      slugs.add("firecrawl");
     }
   }
   return [...slugs].map(appOf);
@@ -120,6 +129,26 @@ export function statusOf(
   rows: IntegrationRow[] | null,
   live: boolean,
 ): ConnectionStatus {
+  // Apps whose status OUR server decides, not Composio:
+  //
+  //   firecrawl              on when the server holds a Firecrawl key.
+  //   googlebusinessprofile  Composio has no toolkit for it at all, so the
+  //                          OAuth handshake and the tokens are ours. It is
+  //                          simulated only while GOOGLE_CLIENT_ID is absent.
+  //
+  // For both, `live` is a fact about Composio and must not drag them into
+  // "Demo mode": the connect endpoint has already folded the server's own
+  // answer into a row, so this pure mapper reads it like any other.
+  if (SERVER_OWNED_APPS.has(app.app)) {
+    if (!rows) return "unknown";
+    const row = rows.find((r) => r.platform === app.app);
+    if (row?.status === "connected") return "connected";
+    if (row?.status === "pending") return "pending";
+    // No row at all means the server never offered it — for Business Profile
+    // that is the unconfigured deployment, which is genuinely a demo.
+    if (!row) return app.simulated ? "simulated" : "none";
+    return row.status === "simulated" ? "simulated" : "none";
+  }
   if (app.simulated || !live) return "simulated";
   if (!rows) return "unknown";
   const row = rows.find((r) => r.platform === app.app);

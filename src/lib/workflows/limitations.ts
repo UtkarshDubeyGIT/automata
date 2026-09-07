@@ -127,7 +127,7 @@ function simulatedLimits(graph: WorkflowGraph): Limitation[] {
   }
   for (const [id, step] of Object.entries(graph.steps)) {
     if (step.type !== "app_action") continue;
-    const spec = getTool(String(step.tool ?? ""));
+    const spec = getTool(String(step.tool ?? ""), step.tool_spec);
     if (!spec || !SIMULATED_APPS.has(spec.app)) continue;
     entry(spec.app).steps.push({ id, title: title(step, id) });
   }
@@ -312,7 +312,7 @@ function stepLimits(graph: WorkflowGraph, id: string, step: StepDef): Limitation
   }
   if (step.type !== "app_action") return [];
   const slug = String(step.tool ?? "");
-  const spec = getTool(slug);
+  const spec = getTool(slug, step.tool_spec);
   if (!spec) return [];
   const out: Limitation[] = [];
   const name = title(step, id);

@@ -1,5 +1,5 @@
 import { outputKeys, primaryOutputPath } from "./blocks";
-import { cloneGraph, configEntries } from "./graph";
+import { ancestors, cloneGraph, configEntries } from "./graph";
 import { getTool, isPlaceholder } from "./registry";
 import type { StepDef, WorkflowGraph } from "./types";
 
@@ -29,7 +29,38 @@ export interface RefFix {
   to: string;
 }
 
-const REF_RE = /\{\{\s*steps\.([A-Za-z0-9_]+)\.([A-Za-z0-9_.]+?)\s*\}\}/g;
+const REF_RE = /\{\{\s*steps\.([A-Za-z0-9_]+|<(?:ai|trigger|read|image|video)>)\.([A-Za-z0-9_.]+?)\s*\}\}/g;
+
+/**
+ * Older catalog examples used labels such as <ai> as if they were step ids.
+ * They are safe to repair only when the target has exactly one matching
+ * upstream step; guessing between branches would be worse than a clear build
+ * error. New prompts no longer contain these examples, but this keeps saved
+ * or cached model responses from failing unnecessarily.
+ */
+function resolvePlaceholderStep(
+  graph: WorkflowGraph,
+  targetId: string,
+  placeholder: string,
+): string | null {
+  const kind = placeholder.slice(1, -1);
+  const upstream = ancestors(graph, targetId);
+  if (kind === "trigger") return upstream.has(graph.start) ? graph.start : null;
+
+  const candidates = [...upstream].filter((id) => {
+    const step = graph.steps[id];
+    if (!step) return false;
+    if (kind === "ai") return step.type === "ai_step";
+    if (kind === "image") return step.type === "generate_image";
+    if (kind === "video") return step.type === "generate_video";
+    if (kind === "read") {
+      if (step.type !== "app_action") return false;
+      return getTool(String(step.tool ?? ""), step.tool_spec)?.kind === "read";
+    }
+    return false;
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
 
 /** Triggers whose payload is nested under one container key. */
 const CONTAINER_KEY: Partial<Record<string, string>> = {
@@ -77,17 +108,22 @@ export function repairRefs(graph: WorkflowGraph): { graph: WorkflowGraph; fixes:
 
   const rewrite = (nodeId: string, value: unknown): unknown => {
     if (typeof value === "string") {
-      return value.replace(REF_RE, (match, refId: string, path: string) => {
+      return value.replace(REF_RE, (match, rawRefId: string, path: string) => {
+        const placeholderId = rawRefId.startsWith("<")
+          ? resolvePlaceholderStep(repaired, nodeId, rawRefId)
+          : null;
+        const refId = placeholderId ?? rawRefId;
         const source = repaired.steps[refId];
         if (!source) return match; // dangling ref — validation reports it
         const fixed = canonicalPath(source, path);
-        if (!fixed || fixed === path) return match;
+        if (!placeholderId && (!fixed || fixed === path)) return match;
+        const to = `{{steps.${refId}.${fixed ?? path}}}`;
         fixes.push({
           stepId: nodeId,
-          from: `{{steps.${refId}.${path}}}`,
-          to: `{{steps.${refId}.${fixed}}}`,
+          from: match,
+          to,
         });
-        return `{{steps.${refId}.${fixed}}}`;
+        return to;
       });
     }
     if (Array.isArray(value)) return value.map((v) => rewrite(nodeId, v));
@@ -193,7 +229,7 @@ export function stripPlaceholders(
     // Required action arguments — the ones argHint spells out by name, and so
     // the ones a model copies verbatim.
     if (step.type === "app_action") {
-      const spec = getTool(String(step.tool ?? ""));
+      const spec = getTool(String(step.tool ?? ""), step.tool_spec);
       const args = step.arguments;
       if (spec && args && typeof args === "object" && !Array.isArray(args)) {
         const record = args as Record<string, unknown>;

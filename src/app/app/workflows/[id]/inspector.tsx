@@ -29,10 +29,11 @@ import {
   webhookRotationNeedsConfirmation,
   webhookSampleForSecret,
 } from "@/lib/workflows/webhook-fields";
-import { TOOLS, TRIGGERS, appLabel, getTool } from "@/lib/workflows/registry";
+import { TOOLS, TRIGGERS, appLabel, getTool, type ToolSpec } from "@/lib/workflows/registry";
 import type { EdgeRef } from "@/lib/workflows/graph";
 import type { StepDef, WorkflowGraph } from "@/lib/workflows/types";
 import { StepTile } from "./canvas";
+import { WhatsAppNodeStatus } from "./whatsapp-node-status";
 
 /**
  * Step inspector — the right-hand panel of the visual builder.
@@ -106,17 +107,21 @@ export function Inspector(props: InspectorProps) {
           </div>
         )}
 
+        {step.type === "whatsapp_reminder" && <WhatsAppNodeStatus />}
+
         {spec.trigger && (
           <div className="rounded-card border border-brand-border bg-brand-subtle px-3 py-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-              <Icon name="zap" size={16} className="flex-none text-brand sm:mt-1" />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-semibold text-ink">This starts your automation</div>
-                <p className="mt-1 text-[12px] leading-snug text-ink-subtle">
-                  {step.type === "webhook_trigger"
-                    ? "Your app sends a POST request to the webhook URL below."
-                    : "Choose how this automation should begin."}
-                </p>
+            <div className="flex flex-col gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <Icon name="zap" size={16} className="mt-0.5 flex-none text-brand" />
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-ink">This starts your automation</div>
+                  <p className="mt-1 text-[12px] leading-snug text-ink-subtle">
+                    {step.type === "webhook_trigger"
+                      ? "Your app sends a POST request to the webhook URL below."
+                      : "Choose how this automation should begin."}
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {step.type !== "webhook_trigger" && (
@@ -201,11 +206,17 @@ export function Inspector(props: InspectorProps) {
                     graph={graph}
                     stepId={stepId}
                     value={(step as Record<string, unknown>)[f.key]}
+                    toolSpec={step.tool_spec}
                     hiddenKeys={hiddenKeys.length > 0 ? hiddenKeys : undefined}
-                    onChange={(v) => {
+                    onChange={(v, extra) => {
                       if (step.type === "app_action" && f.key === "tool") {
-                        const nextTool = getTool(String(v));
-                        props.onPatch({ tool: v, ...(nextTool ? { title: toolHeadline(nextTool.desc) } : {}) });
+                        const nextTool = (extra as ToolSpec | undefined) ?? getTool(String(v), step.tool_spec);
+                        props.onPatch({
+                          tool: v,
+                          toolkit: nextTool?.app ?? step.toolkit,
+                          tool_spec: nextTool,
+                          ...(nextTool ? { title: toolHeadline(nextTool.desc) } : {}),
+                        });
                         return;
                       }
                       props.onPatch({ [f.key]: v });
@@ -283,6 +294,7 @@ function StepField({
   graph,
   stepId,
   value,
+  toolSpec,
   hiddenKeys,
   onChange,
 }: {
@@ -290,9 +302,10 @@ function StepField({
   graph: WorkflowGraph;
   stepId: string;
   value: unknown;
+  toolSpec?: unknown;
   /** keyvalue only: entries another control already owns, so they aren't editable twice. */
   hiddenKeys?: readonly string[];
-  onChange: (value: unknown) => void;
+  onChange: (value: unknown, extra?: unknown) => void;
 }) {
   // Every control gets a real id so its <label> actually labels it — the
   // inspector is otherwise a wall of unnamed inputs to a screen reader.
@@ -356,7 +369,8 @@ function StepField({
           <ToolPickerField
             field={field}
             value={current}
-            onChange={(next) => onChange(next)}
+            toolSpec={toolSpec}
+            onChange={(next, spec) => onChange(next, spec)}
           />
         );
       }
@@ -422,30 +436,68 @@ const MAX_ACTION_RESULTS = 72;
 function ToolPickerField({
   field,
   value,
+  toolSpec,
   onChange,
 }: {
   field: FieldSpec;
   value: string;
-  onChange: (value: string) => void;
+  toolSpec?: unknown;
+  onChange: (value: string, spec?: ToolSpec) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ToolFilter>("all");
+  const [dynamicTools, setDynamicTools] = useState<Record<string, ToolSpec>>({});
   const searchRef = useRef<HTMLInputElement | null>(null);
   const fieldId = useId();
-  const selected = value ? TOOLS[value] : undefined;
+  const selected = value ? getTool(value, toolSpec) : undefined;
+
+  const allTools = useMemo(() => {
+    return { ...TOOLS, ...dynamicTools };
+  }, [dynamicTools]);
 
   const apps = useMemo(
     () =>
-      [...new Set(Object.values(TOOLS).map((tool) => tool.app))].sort((a, b) =>
+      [...new Set(Object.values(allTools).map((tool) => tool.app))].sort((a, b) =>
         appLabel(a).localeCompare(appLabel(b)),
       ),
-    [],
+    [allTools],
   );
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const toolkit = filter.startsWith("app:") ? filter.slice(4) : undefined;
+    const q = query.trim();
+
+    if (toolkit || q) {
+      const params = new URLSearchParams();
+      if (toolkit) params.set("toolkit", toolkit);
+      if (q) params.set("search", q);
+
+      fetch(`/api/integrations/catalog/tools?${params}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { tools?: Array<{ slug: string; spec: ToolSpec }> } | null) => {
+          if (cancelled || !data?.tools) return;
+          setDynamicTools((prev) => {
+            const next = { ...prev };
+            for (const { slug, spec } of data.tools!) {
+              next[slug] = spec;
+            }
+            return next;
+          });
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, filter, query]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const matching = Object.entries(TOOLS).filter(([slug, tool]) => {
+    const matching = Object.entries(allTools).filter(([slug, tool]) => {
       if (filter === "read" && tool.kind !== "read") return false;
       if (filter === "write" && tool.kind !== "write") return false;
       if (filter.startsWith("app:") && tool.app !== filter.slice(4)) return false;
@@ -457,7 +509,7 @@ function ToolPickerField({
     // complete catalog. The selected action stays visible when filtering.
     matching.sort(([a], [b]) => Number(b === value) - Number(a === value));
     return matching.slice(0, MAX_ACTION_RESULTS);
-  }, [filter, query, value]);
+  }, [allTools, filter, query, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -482,7 +534,8 @@ function ToolPickerField({
   }
 
   function pick(slug: string) {
-    onChange(slug);
+    const chosen = allTools[slug];
+    onChange(slug, chosen);
     setOpen(false);
   }
 
@@ -1911,7 +1964,7 @@ function ActionArgumentsField({
   hiddenKeys: readonly string[];
   onChange: (value: Record<string, unknown>) => void;
 }) {
-  const tool = getTool(String(step.tool ?? ""));
+  const tool = getTool(String(step.tool ?? ""), step.tool_spec);
   const value = (step.arguments as Record<string, unknown>) ?? {};
   if (!tool) return null;
   const examples = argumentExamples(tool.argHint);
@@ -2490,7 +2543,7 @@ function WebhookPanel({
     const check = async () => {
       try {
         const res = await fetch(`/api/workflows/${workflowId}`);
-        const data = (await res.json()) as { triggerSample?: { secret?: string; fields?: string[]; receivedAt?: string } | null };
+        const data = await res.json() as { triggerSample?: unknown };
         const nextSample = webhookSampleForSecret(data.triggerSample, endpoint.secret);
         if (alive) {
           setSample(nextSample);

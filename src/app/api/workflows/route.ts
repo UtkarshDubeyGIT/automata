@@ -8,6 +8,8 @@ import { deriveDisplay, leadLogo, scheduleText, toWorkflowView } from "@/lib/wor
 import { insertWorkflowOnce, listWorkflowRows, OPEN_STATUSES } from "@/lib/workflows/store";
 import { getTemplate } from "@/lib/workflows/templates";
 import type { RunStatus, WorkflowConfig } from "@/lib/workflows/types";
+import { firecrawlConfigured } from "@/lib/env";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * GET  — list the workspace's automations, enriched with run history
@@ -21,7 +23,7 @@ interface RunSlice {
   workflow_id: string;
   status: string;
   started_at: string;
-  /** Non-null while the run is parked on a machine (a render), not a person. */
+  /** Non-null while the run is parked on machine work, not a person. */
   awaiting?: unknown;
 }
 
@@ -88,7 +90,7 @@ export async function GET() {
         // Runs blocked on a PERSON. Distinct from openRuns because nothing will
         // ever move these on its own — they are the one thing on this page that
         // is genuinely waiting for the user rather than for a machine. A run
-        // parked on a video render is `waiting` in the same column and is
+        // parked on machine work is `waiting` in the same column and is
         // excluded here for exactly that reason: it moves on its own, and
         // counting it would badge the tab with work nobody can do.
         waitingRuns: runs.filter((r) => r.status === "waiting" && !r.awaiting).length,
@@ -173,6 +175,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
+  // Web research runs on the app's own Firecrawl key. Nothing a workspace can
+  // connect changes this, so an unset server key is the only failure mode.
+  if (hasFirecrawlStep(config.graph) && !firecrawlConfigured) {
+    return NextResponse.json(
+      {
+        error: setupNotice(
+          "Web research isn't available yet, so this automation can't be saved. Please try again later.",
+          "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
+        ),
+        code: "firecrawl_unavailable",
+      },
+      { status: 409 },
+    );
+  }
+
   const { row, duplicate } = await insertWorkflowOnce(ctx.supabase, {
     workspaceId: ctx.workspaceId,
     name,
@@ -190,4 +207,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not save the workflow" }, { status: 502 });
   }
   return NextResponse.json({ workflow: toWorkflowView(row), duplicate });
+}
+
+function hasFirecrawlStep(config: WorkflowConfig["graph"]): boolean {
+  return Object.values(config.steps).some((step) => step.type === "firecrawl");
 }

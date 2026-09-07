@@ -22,6 +22,8 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { gapCount, setupGaps } from "@/lib/workflows/validate";
 import { validateDraftEnvelope, type WorkflowPositions } from "@/lib/workflows/editor";
 import type { RunStatus, WorkflowGraph } from "@/lib/workflows/types";
+import { firecrawlConfigured } from "@/lib/env";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * One automation.
@@ -251,6 +253,18 @@ export async function PUT(
     graph,
     display: { groups: deriveDisplay(graph) },
   };
+  if (hasFirecrawlStep(graph) && !firecrawlConfigured) {
+    return NextResponse.json(
+      {
+        error: setupNotice(
+          "Web research isn't available yet, so this automation can't be saved. Please try again later.",
+          "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
+        ),
+        code: "firecrawl_unavailable",
+      },
+      { status: 409 },
+    );
+  }
   const nextRevision = Number(body.baseRevision) + 1;
   const { data: saved, error } = await rc.supabase
     .from("workflows")
@@ -289,13 +303,24 @@ export async function PUT(
  * fails with the same sentence if they aren't.
  */
 async function unconnectedApps(entityId: string | null, graph?: WorkflowGraph) {
-  if (!graph || !entityId || !socialProvider.live) return [];
+  if (!graph || !entityId) return [];
+  const required = requiredAppsOf(graph);
+  // Web research is server-owned: its status is the app's own key, not
+  // anything this workspace connected.
+  const native = { platform: "firecrawl", status: firecrawlConfigured ? "connected" : "none" };
+  if (!socialProvider.live) {
+    return unconnected(connectionsOf(required, [native], false));
+  }
   try {
     const rows = await socialProvider.listConnections(entityId);
-    return unconnected(connectionsOf(requiredAppsOf(graph), rows, true));
+    return unconnected(connectionsOf(required, [...rows, native], true));
   } catch {
-    return [];
+    return unconnected(connectionsOf(required, [native], false));
   }
+}
+
+function hasFirecrawlStep(graph: WorkflowGraph): boolean {
+  return Object.values(graph.steps).some((step) => step.type === "firecrawl");
 }
 
 /**

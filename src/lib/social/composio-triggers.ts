@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { composioApi } from "./composio";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * Composio real-time triggers — the push half of "when a GitHub issue is
@@ -257,7 +258,12 @@ export function verifyWebhook(
   secret: string,
   now = Date.now(),
 ): { ok: true } | { ok: false; reason: string } {
-  if (!secret) return { ok: false, reason: "COMPOSIO_WEBHOOK_SECRET is not set" };
+  if (!secret) {
+    return {
+      ok: false,
+      reason: setupNotice("webhook signing is not enabled", "COMPOSIO_WEBHOOK_SECRET is not set"),
+    };
+  }
   if (!headers.id || !headers.timestamp || !headers.signature) {
     return { ok: false, reason: "missing webhook headers" };
   }

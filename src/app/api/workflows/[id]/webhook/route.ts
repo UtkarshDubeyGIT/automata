@@ -1,7 +1,14 @@
 import type { NextRequest } from "next/server";
 import { receiveWorkflowWebhook } from "@/lib/workflows/webhook-receiver";
 
-export const maxDuration = 60;
+/**
+ * 60 covered a receive-and-enqueue. The 202 now starts the run in an
+ * `after(...)` continuation, which runs under the route's max duration, so
+ * this is sized to a workflow run like `workflows/[id]/run` is. A hint only on
+ * this self-hosted droplet (see src/app/api/AGENTS.md) -- the beat still
+ * recovers anything the continuation does not finish.
+ */
+export const maxDuration = 300;
 
 /** Legacy endpoint retained for existing configured senders. */
 export async function POST(

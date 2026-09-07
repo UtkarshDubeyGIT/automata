@@ -144,6 +144,7 @@ async function drive(
           kind: err.kind,
           stepId: cursor,
           ref: err.ref,
+          ...(err.operation ? { operation: err.operation } : {}),
           note: err.note,
           since: log.awaiting?.stepId === cursor ? log.awaiting.since : new Date().toISOString(),
         };

@@ -3,11 +3,27 @@ import type { RunContext } from "./types";
 /**
  * The pure half of the step library: template resolution and response shaping.
  *
+ * These were the tail of `steps.ts`, which is a problem of dependencies rather
+ * than of length. `steps.ts` statically imports the OpenAI client, the Composio
+ * client, the image generator, the credit ledger and the Supabase admin client,
+ * because its handlers genuinely need them — so ANY module that wanted one of
+ * these six functions inherited all of that. `preview.ts` wanted exactly one
+ * (`interpolate`) and paid the whole bill; `src/lib/workflows/AGENTS.md` records
+ * the same shape under `apps.ts` as the trap that "breaks the production build
+ * while `tsc --noEmit` stays green", because a client component importing such
+ * a module type-checks fine and fails at bundle time.
+ *
  * Nothing here touches the network, the database or a provider. It is a pure
  * function of its arguments, which is also what makes it directly testable
  * without the module mocks every handler test needs.
+ *
+ * `steps.ts` re-exports all six, so existing importers are unaffected — this is
+ * a move, not a rename.
  */
 
+/** What `resolveDeep` needs of a step context: the data, and where to record
+ *  what it read. Structural, so a full `StepCtx` satisfies it without this
+ *  module having to know the handler-side type (and its provider imports). */
 export interface ResolveScope {
   data: RunContext;
   reads?: Set<string>;
@@ -16,7 +32,10 @@ export interface ResolveScope {
 /**
  * Replace {{steps.x.y}} references with values from the run context.
  *
- * `reads` collects the step ids actually RESOLVED (not merely mentioned).
+ * `reads` collects the step ids actually RESOLVED (not merely mentioned) — this
+ * is the one place in the system that can see a dataflow edge at run time, so
+ * it is where the simulation taint rule gets its input. An unresolved
+ * reference contributes nothing: no value crossed, so nothing was inherited.
  */
 export function interpolate(template: string, data: RunContext, reads?: Set<string>): string {
   return (template ?? "").replace(/\{\{(.*?)\}\}/g, (match, path: string) => {
@@ -46,7 +65,9 @@ export function interpolate(template: string, data: RunContext, reads?: Set<stri
 
 /**
  * Interpolate every string inside a value, however deeply nested, recording
- * what was read.
+ * what was read. `arguments` and `options` are author-supplied jsonb and can
+ * legitimately hold objects and arrays, so a top-level-strings-only pass left
+ * references inside them untouched.
  */
 export function resolveDeep(value: unknown, ctx: ResolveScope, depth = 0): unknown {
   if (depth > 8) return value;
@@ -85,6 +106,11 @@ export function assertResolved(value: unknown, label: string, depth = 0): void {
 
 /**
  * The one way a step value is turned into a comparable string.
+ *
+ * `filter` lower-cased and trimmed; the engine's `route()` used a bare
+ * `String(value)`. So a branch on an AI-produced "Positive" fell through to
+ * `default` while the equivalent filter matched — the same data, two answers,
+ * depending only on which node type the author happened to pick.
  */
 export function normalizeValue(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
@@ -165,6 +191,10 @@ export function flattenRecordsToText(data: unknown, limit = 50): string {
     let line = `- ${title || "(untitled)"}`;
     if (meta.length) line += `  [${meta.join(", ")}]`;
     if (desc) line += `\n    ${desc.slice(0, 200).replace(/\n/g, " ")}`;
+    // A metrics row is all numbers — no title, no status, no body. Meta Ads
+    // insights are exactly that shape, and without this the whole record
+    // flattened to "- (untitled)" and the AI step downstream was handed a
+    // report with no numbers in it.
     if (!title && !desc && !meta.length) {
       const scalars = Object.entries(rec)
         .filter(([, v]) => v != null && ["string", "number", "boolean"].includes(typeof v))

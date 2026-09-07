@@ -3,6 +3,8 @@ import { resolveRequestContext } from "@/lib/workspace";
 import { deriveDisplay, scheduleText } from "@/lib/workflows/display";
 import { validateDraftEnvelope, type WorkflowPositions } from "@/lib/workflows/editor";
 import type { WorkflowConfig, WorkflowGraph } from "@/lib/workflows/types";
+import { firecrawlConfigured } from "@/lib/env";
+import { setupNotice } from "@/lib/setup-notice";
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -12,6 +14,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!body?.graph) return NextResponse.json({ error: "Missing workflow graph" }, { status: 400 });
   const errors = validateDraftEnvelope(body.graph, body.positions ?? {});
   if (errors.length) return NextResponse.json({ error: errors[0] }, { status: 400 });
+  if (Object.values(body.graph.steps).some((step) => step.type === "firecrawl") && !firecrawlConfigured) {
+    return NextResponse.json(
+      {
+        error: setupNotice(
+          "Web research isn't available yet, so this automation can't be saved. Please try again later.",
+          "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
+        ),
+        code: "firecrawl_unavailable",
+      },
+      { status: 409 },
+    );
+  }
   const { data: source } = await rc.supabase.from("workflows").select("config, name, description").eq("id", id).maybeSingle();
   if (!source) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const draft: WorkflowConfig = { v: 1, graph: body.graph, display: { groups: deriveDisplay(body.graph) } };

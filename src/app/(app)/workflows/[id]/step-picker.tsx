@@ -9,9 +9,11 @@ import { toolkitLogo } from "@/lib/social/platforms";
 import {
   CATEGORY_LABELS,
   palette,
+  toolBlock,
   type BlockCategory,
   type PaletteBlock,
 } from "@/lib/workflows/blocks";
+import type { ToolSpec } from "@/lib/workflows/registry";
 
 /**
  * The "add a step" picker — the visual builder's library of blocks, generated
@@ -22,7 +24,7 @@ import {
 
 const ALL_BLOCKS = palette();
 
-const ORDER: BlockCategory[] = ["trigger", "ai", "logic", "human", "app", "social", "output"];
+const ORDER: BlockCategory[] = ["trigger", "ai", "logic", "human", "app", "social", "notification", "output"];
 
 /** Mounted only while picking — closing unmounts it, which resets the search. */
 export function StepPicker({
@@ -37,7 +39,31 @@ export function StepPicker({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<BlockCategory | "all">("all");
+  const [dynamicBlocks, setDynamicBlocks] = useState<PaletteBlock[]>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q && category !== "app") return;
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (q) params.set("search", q);
+
+    fetch(`/api/integrations/catalog/tools?${params}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { tools?: Array<{ slug: string; spec: ToolSpec }> } | null) => {
+        if (cancelled) return;
+        const blocks = data?.tools ? data.tools.map((t) => toolBlock(t.slug, t.spec)) : [];
+        setDynamicBlocks(blocks);
+      })
+      .catch(() => {
+        if (!cancelled) setDynamicBlocks([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [query, category]);
 
   useEffect(() => {
     const t = setTimeout(() => searchRef.current?.focus(), 40);
@@ -52,10 +78,14 @@ export function StepPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const pool = useMemo(
-    () => ALL_BLOCKS.filter((b) => (mode === "trigger" ? b.category === "trigger" : b.category !== "trigger")),
-    [mode],
-  );
+  const pool = useMemo(() => {
+    const base = ALL_BLOCKS.filter((b) => (mode === "trigger" ? b.category === "trigger" : b.category !== "trigger"));
+    const active = query.trim() || category === "app" ? dynamicBlocks : [];
+    if (!active.length || mode === "trigger") return base;
+    const existingIds = new Set(base.map((b) => b.id));
+    const extra = active.filter((b) => !existingIds.has(b.id));
+    return [...base, ...extra];
+  }, [mode, query, category, dynamicBlocks]);
 
   const categories = useMemo(() => {
     const present = new Set(pool.map((b) => b.category));

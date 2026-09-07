@@ -51,18 +51,8 @@ export async function signUp(formData: FormData) {
   redirect("/app");
 }
 
-export async function signInWithGoogle() {
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) redirect("/app");
-
-  const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: `${origin}/auth/callback` },
-  });
-  if (error || !data.url) authError("/login", error?.message ?? "Google sign-in could not start.");
-  redirect(data.url as Route);
+export async function signInWithGoogle(): Promise<never> {
+  authError("/login", "Google sign-in is not enabled for internal Automata. Please sign in with your email.");
 }
 
 export async function signOut() {

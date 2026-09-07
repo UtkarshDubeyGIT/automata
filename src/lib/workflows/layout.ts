@@ -1,4 +1,4 @@
-import { buildFlow, slotLabel, type FlowItem } from "./edit";
+import { buildFlows, slotLabel, type FlowItem } from "./edit";
 import type { EdgeRef, EdgeSlot } from "./graph";
 import type { StepDef, WorkflowGraph } from "./types";
 
@@ -10,9 +10,15 @@ import type { StepDef, WorkflowGraph } from "./types";
  * an AI edit, an undo or a hand edit can never leave a stale layout behind and
  * there is no second copy of the workflow's shape to disagree with the graph.
  *
- * It reads the same tree the old card canvas drew — `buildFlow()` already
+ * It reads the same tree the old card canvas drew — `buildFlows()` already
  * resolves the spine, the labelled fan-out lanes, the open ends and the paths
  * that rejoin an earlier step — and only decides where each of those lands.
+ *
+ * `buildFlows()` returns the spine first and then one lane per run of steps
+ * the trigger cannot reach; those stack below the spine, separated by a blank
+ * row. Drawing them is not decoration: `draftIssues()` blocks publishing on
+ * exactly those steps, so leaving them off the canvas left the error with
+ * nothing to point at.
  *
  * The layout is a classic tidy tree running LEFT TO RIGHT: the spine advances
  * one column per step, a lane is a horizontal band, a fan-out splits its band
@@ -34,6 +40,8 @@ export const END_H = 30;
 /** The grid the tree is laid out on: a column per step, a row per lane. */
 export const COL_W = 196;
 export const ROW_H = 140;
+/** Blank rows between the spine and each lane of trigger-less strays below it. */
+export const STRAY_GAP_ROWS = 1;
 
 export interface LaidOutNode {
   id: string;
@@ -84,7 +92,14 @@ export function edgeIdFor(edge: EdgeRef): string {
 
 export function layoutGraph(graph: WorkflowGraph): Layout {
   const out: Layout = { nodes: [], ends: [], edges: [] };
-  place(buildFlow(graph), 0, 0, 0, out);
+  let top = 0;
+  for (const lane of buildFlows(graph)) {
+    place(lane, top, 0, 0, out);
+    // A blank row under each lane separates the spine from the stray lanes
+    // below it, so "not part of the flow" reads as a gap rather than as
+    // another branch of the same tree.
+    top += measure(lane) + STRAY_GAP_ROWS;
+  }
   return out;
 }
 

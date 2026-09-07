@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { secretMatches } from "@/lib/secret";
 import { drainRuns, reclaimStuckRuns } from "@/lib/workflows/drain";
 import { sweepTriggers } from "@/lib/workflows/sweep";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * Trigger poller — the standalone entry point for an external cron (Vercel
@@ -30,7 +31,14 @@ export async function POST(req: Request) {
     "";
   if (!secretMatches(presented, env.cronSecret)) {
     return NextResponse.json(
-      { error: env.cronSecret ? "Unauthorized" : "Cron is not configured. Set CRON_SECRET." },
+      {
+        error: env.cronSecret
+          ? "Unauthorized"
+          : setupNotice(
+              "Scheduled runs are not available.",
+              "Cron is not configured. Set CRON_SECRET.",
+            ),
+      },
       { status: env.cronSecret ? 401 : 503 },
     );
   }

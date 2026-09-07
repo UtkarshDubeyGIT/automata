@@ -1,7 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { secretMatches } from "@/lib/secret";
-import { claimRun, webhookKey } from "./claim";
+import { claimRun, kickRun, webhookKey } from "./runtime";
 import type { TriggerState, WorkflowConfig } from "./types";
 import { payloadFields } from "./webhook-fields";
 
@@ -59,10 +59,19 @@ export async function receiveWorkflowWebhook(req: NextRequest, id: string, token
     await admin.from("workflows").update({
       trigger_state: {
         ...(row.trigger_state ?? {}),
-        sample: { payload, fields, receivedAt },
+        sample: { secret: token, payload, fields, receivedAt },
       },
     }).eq("id", id);
-    return NextResponse.json({ accepted: true, sample: true, fields }, { status: 202 });
+    return NextResponse.json(
+      {
+        accepted: true,
+        status: "sample",
+        sample: true,
+        fields,
+        message: "This automation is paused, so the payload was saved as a sample and no run was started. Switch it on to run it.",
+      },
+      { status: 202 },
+    );
   }
 
   const stamp = Number(req.headers.get("x-webhook-timestamp"));
@@ -88,8 +97,26 @@ export async function receiveWorkflowWebhook(req: NextRequest, id: string, token
     return NextResponse.json({ error: "Not enough credits" }, { status: 402 });
   }
   if (claim.refused) return NextResponse.json({ error: claim.error }, { status: 502 });
+
+  // A queued run would otherwise wait for the next fifteen-minute beat. Start
+  // it once the 202 is on the wire; cron remains the recovery path, so a kick
+  // that never lands costs nothing but the wait it was trying to save.
+  // Duplicates are left alone: the delivery they collapse into was kicked
+  // already, and re-driving a finished run is not what the sender asked for.
+  if (!claim.duplicate) after(() => kickRun(admin, claim.runId, row.workspace_id));
+
   return NextResponse.json(
-    { accepted: true, run_id: claim.runId, duplicate: claim.duplicate },
+    {
+      accepted: true,
+      // Three outcomes used to share one bare 202, so a delivery that did
+      // nothing looked exactly like one that started work.
+      status: claim.duplicate ? "duplicate" : "queued",
+      run_id: claim.runId,
+      duplicate: claim.duplicate,
+      message: claim.duplicate
+        ? "This delivery was already received, so it reuses the run it started the first time."
+        : "The run has started.",
+    },
     { status: 202 },
   );
 }

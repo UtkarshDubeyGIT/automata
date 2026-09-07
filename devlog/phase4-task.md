@@ -1,0 +1,36 @@
+# Phase 4 Task List: Decouple Credentials & Complete Workflow Migration
+
+- [x] **1. Environment Configuration & Decoupling** <!-- id: 1 -->
+  - [x] Exclude GrowthOS Google credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) from `automata/.env.local` <!-- id: 1.1 -->
+  - [x] Update email sender domains to `automata.internal` in `automata/.env.local` <!-- id: 1.2 -->
+  - [x] Generate independent `CREDENTIAL_ENCRYPTION_KEY` and `CRON_SECRET` for Automata <!-- id: 1.3 -->
+  - [x] Add Automata-specific keys (`AUTOMATA_SECRET_KEY`, `AUTOMATA_WEBHOOK_KEY`, `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_SUPPORT_EMAIL`) <!-- id: 1.4 -->
+  - [x] Update `automata/.env.example` with Automata-specific documentation <!-- id: 1.5 -->
+  - [x] Update `automata/src/lib/env.ts` with typed accessors for new Automata keys <!-- id: 1.6 -->
+- [x] **2. Exclude Google Login Credentials from Auth UI & Handlers** <!-- id: 2 -->
+  - [x] Remove Google sign-in button from `src/app/(auth)/login/page.tsx` <!-- id: 2.1 -->
+  - [x] Remove Google sign-in button from `src/app/(auth)/signup/page.tsx` <!-- id: 2.2 -->
+  - [x] Safeguard `signInWithGoogle` in `src/app/(auth)/actions.ts` to cleanly reject or handle unconfigured OAuth <!-- id: 2.3 -->
+- [x] **3. Inbound Webhook Execution Route** <!-- id: 3 -->
+  - [x] Implement `src/app/hooks/[token]/route.ts` supporting `/hooks/[workflowId].[secret]` <!-- id: 3.1 -->
+  - [x] Add unit test verifying token parsing and forwarding to `receiveWorkflowWebhook` <!-- id: 3.2 -->
+- [x] **4. Core Integrations & OAuth Return Route Synchronization** <!-- id: 4 -->
+  - [x] Update `src/lib/social/oauth-return.ts` with `automata:integration-return` and brand text <!-- id: 4.1 -->
+  - [x] Update `src/components/connect-apps.tsx` with BroadcastChannel compatibility <!-- id: 4.2 -->
+  - [x] Update `src/app/api/integrations/callback/route.ts` to use `completeOAuthReturn` <!-- id: 4.3 -->
+  - [x] Update `src/app/api/integrations/connect/route.ts` with Google Business Profile authorize/disconnect & native app merging <!-- id: 4.4 -->
+  - [x] Update `src/app/api/integrations/catalog/route.ts` with `?slugs=...` support via `listToolkitsBySlug` <!-- id: 4.5 -->
+- [x] **5. Workflow UI & Integrations Screen Sync** <!-- id: 5 -->
+  - [x] Update `src/app/app/workflows/page.tsx` and `src/app/(app)/workflows/page.tsx` with `operation?: string` awaiting support <!-- id: 5.1 -->
+  - [x] Update `src/app/(app)/integrations/page.tsx` with connected card prioritization (`cardRank`) <!-- id: 5.2 -->
+- [x] **6. Architecture Documentation & Developer Tooling** <!-- id: 6 -->
+  - [x] Port `src/lib/workflows/AGENTS.md` <!-- id: 6.1 -->
+  - [x] Port `scripts/composio-tools.mjs` <!-- id: 6.2 -->
+  - [x] Port `scripts/beat.mjs` <!-- id: 6.3 -->
+  - [x] Port `docs/SERVICES-AND-TRIGGERS.md` & `docs/AUTOMATION-PRODUCTION-REQUIREMENTS.md` <!-- id: 6.4 -->
+- [x] **7. Verification & Testing** <!-- id: 7 -->
+  - [x] Run `npm test` in Automata (420/420 pass) <!-- id: 7.1 -->
+  - [x] Run `npm run typecheck` in Automata (0 type errors) <!-- id: 7.2 -->
+  - [x] Run `npm run build` in Automata (all routes compiled cleanly) <!-- id: 7.3 -->
+- [x] **8. Devlog Archival** <!-- id: 8 -->
+  - [x] Copy `phase4-implementation_plan.md`, `phase4-task.md`, and `phase4-walkthrough.md` to `doubtbuddy/devlog/` and `automata/devlog/` <!-- id: 8.1 -->

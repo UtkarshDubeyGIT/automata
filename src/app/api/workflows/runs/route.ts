@@ -118,7 +118,11 @@ export async function GET(req: NextRequest) {
         workflowName: parent?.name ?? "Automation",
         logo: parent?.logo ?? null,
         status,
-        label: log.awaiting ? "Rendering" : (RUN_LABEL[status] ?? run.status),
+        label: log.awaiting
+          ? log.awaiting.kind === "firecrawl"
+            ? "Researching"
+            : "Rendering"
+          : (RUN_LABEL[status] ?? run.status),
         startedAt: run.started_at,
         time: relTime(run.started_at),
         took: took(run.started_at, run.finished_at),
@@ -140,7 +144,12 @@ export async function GET(req: NextRequest) {
         // reports it as work in progress and keeps it out of the list of
         // things demanding attention.
         awaiting: log.awaiting
-          ? { kind: log.awaiting.kind, note: log.awaiting.note, since: log.awaiting.since }
+          ? {
+              kind: log.awaiting.kind,
+              operation: log.awaiting.operation,
+              note: log.awaiting.note,
+              since: log.awaiting.since,
+            }
           : null,
       };
     }),

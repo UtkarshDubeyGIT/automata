@@ -34,13 +34,16 @@ export function webhookRotationNeedsConfirmation(active: boolean, publishedSecre
 }
 
 export function webhookSampleForSecret(
-  sample: { secret?: string; fields?: string[]; receivedAt?: string } | null | undefined,
-  displayedSecret: string,
+  sample: unknown,
+  secret: string,
 ): { fields: string[]; receivedAt: string } | null {
-  if (!sample || !sample.fields || !sample.receivedAt) return null;
-  if (sample.secret !== displayedSecret) return null;
+  if (!sample || typeof sample !== "object") return null;
+  const value = sample as { secret?: unknown; fields?: unknown; receivedAt?: unknown };
+  if (value.secret !== secret || typeof value.receivedAt !== "string" || !Array.isArray(value.fields)) {
+    return null;
+  }
   return {
-    fields: sample.fields,
-    receivedAt: sample.receivedAt,
+    fields: value.fields.filter((field): field is string => typeof field === "string"),
+    receivedAt: value.receivedAt,
   };
 }

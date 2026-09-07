@@ -83,10 +83,15 @@ answer not a blip).
      for an API key.
    - **The cache is keyed by `<slug>` vs `<slug>:key`.** The two questions can resolve to
      different configs and one must never be served for the other.
-3. `connected_accounts/link` returns a hosted Composio connect URL. If every connect-time
-   field the toolkit declares (`connected_account_initiation`) has a default, `submitLink()`
-   (an undocumented Composio tRPC endpoint, so any failure falls back silently to the
-   hosted page) submits them server-side and skips straight to the provider's OAuth screen.
+3. If every connect-time field the toolkit declares (`connected_account_initiation`) has a
+   default, `createConnection()` POSTs `connected_accounts` with those values and the user
+   lands straight on the provider's OAuth screen. Otherwise — a Shopify subdomain, an API
+   key, anything only the user holds — `connected_accounts/link` returns Composio's hosted
+   form, which is also the fallback whenever the direct create fails.
+   This used to call `dashboard.composio.dev/.../link.submitLink`, a private endpoint
+   Composio has since removed; the skip had silently stopped working. Only the branch that
+   is actually used creates an account, so a connect no longer leaves an orphan
+   INITIALIZING row behind.
 4. Provider redirects to `GET /api/integrations/callback?platform=&return=` (`callback/route.ts`).
    Query params are attacker-forgeable, so nothing here trusts `status=` from the URL —
    it re-reads connection state from Composio for the signed-in user's own entity and only

@@ -2,6 +2,7 @@ import { executeTool, socialProvider } from "@/lib/social/composio";
 import { dueSlot, safeTimeZone } from "./blocks";
 import { appEventKey, claimRun, scheduleKey } from "./claim";
 import { getTrigger, missingWatch, SIMULATED_APPS, watchValues } from "./registry";
+import { executeNativeTool, runsNatively as nativePoll } from "./native-tools";
 import type { StepDef, TriggerState, WorkflowConfig } from "./types";
 
 /**
@@ -190,17 +191,35 @@ export async function sweepTriggers(
       // pre-existing issue. Clearing it here repairs those rows in place, with
       // no migration, and only for triggers that provably never polled.
       cursor = undefined;
-    } else if (spec.pollTool && !SIMULATED_APPS.has(spec.app) && socialProvider.live) {
+    } else if (
+      spec.pollTool &&
+      // Native apps poll regardless of Composio: Google Business Profile has no
+      // toolkit there, so gating it on `socialProvider.live` would leave the one
+      // trigger that needs no Composio key switched off without one.
+      (nativePoll(spec.app) || (!SIMULATED_APPS.has(spec.app) && socialProvider.live))
+    ) {
       try {
-        const connections = await socialProvider.listConnections(row.workspace_id);
-        const connected = connections.some(
-          (c) => c.platform === spec.app && c.status === "connected",
-        );
+        const native = nativePoll(spec.app);
+        // Composio's connection listing cannot answer for an app it does not
+        // host. `executeNativeTool` reports the same thing more precisely — it
+        // knows the difference between never connected, no location, and a
+        // grant that expired — so the pre-check is simply skipped there and the
+        // real message comes back from the call itself.
+        const connected =
+          native ||
+          (await socialProvider.listConnections(row.workspace_id)).some(
+            (c) => c.platform === spec.app && c.status === "connected",
+          );
         if (!connected) {
           lastError = `${spec.app} isn't connected — connect it on the Integrations page.`;
         } else {
           const args = spec.pollArgs ? spec.pollArgs(watchValues(start)) : {};
-          const res = await executeTool(spec.pollTool, row.workspace_id, args, { retries: 1 });
+          const res = native
+            ? ((await executeNativeTool(spec.pollTool, row.workspace_id, args)) ?? {
+                successful: false,
+                error: `${spec.pollTool} has no native implementation`,
+              })
+            : await executeTool(spec.pollTool, row.workspace_id, args, { retries: 1 });
           if (!res.successful) {
             lastError = `Couldn't check for new items: ${String(res.error ?? "the app rejected the request").slice(0, 200)}`;
             // And STOP. A failed poll used to fall through this block with

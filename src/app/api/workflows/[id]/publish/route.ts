@@ -8,6 +8,18 @@ import { draftIssues } from "@/lib/workflows/editor";
 import { repairRefs } from "@/lib/workflows/repair";
 import { setupGaps, validateGraph } from "@/lib/workflows/validate";
 import type { WorkflowConfig } from "@/lib/workflows/types";
+import { firecrawlConfigured } from "@/lib/env";
+import { setupNotice } from "@/lib/setup-notice";
+
+const FIRECRAWL_UNAVAILABLE = setupNotice(
+  "Web research isn't available yet, so this automation can't be published. Please try again later.",
+  "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
+);
+
+/** Firecrawl is server-owned, so its row is derived, never fetched. */
+function firecrawlRows() {
+  return [{ platform: "firecrawl", status: firecrawlConfigured ? "connected" : "none" }];
+}
 
 export async function POST(
   _req: NextRequest,
@@ -42,15 +54,20 @@ export async function POST(
     return NextResponse.json({ error: "Finish the required module fields before publishing", gaps }, { status: 400 });
   }
 
+  // Web research has no per-workspace connection: it is on when the server
+  // holds a Firecrawl key and off otherwise.
+  if (requiredAppsOf(graph).some((item) => item.app === "firecrawl") && !firecrawlConfigured) {
+    return NextResponse.json({ error: FIRECRAWL_UNAVAILABLE }, { status: 409 });
+  }
   if (rc.entityId && socialProvider.live) {
     try {
       const connected = await socialProvider.listConnections(rc.entityId);
-      const missing = unconnected(connectionsOf(requiredAppsOf(graph), connected, true));
+      const missing = unconnected(connectionsOf(requiredAppsOf(graph), [...connected, ...firecrawlRows()], true));
       if (missing.length) {
         return NextResponse.json({ error: `Connect ${missing.map((item) => item.label).join(" and ")} before publishing` }, { status: 409 });
       }
     } catch {
-      // Provider availability must not turn a valid draft into data loss.
+      // Composio availability must not turn a valid draft into data loss.
     }
   }
   if (needsBrandGrounding(graph)) {

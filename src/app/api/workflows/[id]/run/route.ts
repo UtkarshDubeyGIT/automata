@@ -7,6 +7,8 @@ import { getWorkflowRow } from "@/lib/workflows/store";
 import { draftIssues } from "@/lib/workflows/editor";
 import { repairRefs } from "@/lib/workflows/repair";
 import { setupGaps, validateGraph } from "@/lib/workflows/validate";
+import { firecrawlConfigured } from "@/lib/env";
+import { setupNotice } from "@/lib/setup-notice";
 
 /**
  * Run now — the Run button.
@@ -55,6 +57,18 @@ export async function POST(
   const gaps = setupGaps(graph);
   if (issues.length || Object.values(gaps).some((items) => items.length)) {
     return NextResponse.json({ error: issues[0]?.message ?? "Finish configuring this draft before running it" }, { status: 400 });
+  }
+
+  if (Object.values(graph.steps).some((step) => step.type === "firecrawl") && !firecrawlConfigured) {
+    return NextResponse.json(
+      {
+        error: setupNotice(
+          "Web research isn't available yet, so this automation can't run. Please try again later.",
+          "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
+        ),
+      },
+      { status: 409 },
+    );
   }
 
   // A missing nonce still gets a unique key: an old client that doesn't send

@@ -17,6 +17,12 @@ export interface ToolSpec {
   required: string[];
   desc: string;
   argHint: string;
+  /** Composio toolkit version captured when this action was selected. */
+  version?: string;
+  /** JSON Schema of expected inputs if available. */
+  inputSchema?: Record<string, unknown>;
+  /** JSON Schema of action outputs if available. */
+  outputSchema?: Record<string, unknown>;
   /**
    * Constants filled in at run time when the author left the argument blank.
    *
@@ -74,6 +80,10 @@ export const APP_LABELS: Record<string, string> = {
   gmail: "Gmail",
   notion: "Notion",
   googlesheets: "Google Sheets",
+  google_search_console: "Search Console",
+  google_analytics: "Google Analytics",
+  googleads: "Google Ads",
+  youtube: "YouTube",
   github: "GitHub",
   googlecalendar: "Google Calendar",
   slack: "Slack",
@@ -86,6 +96,7 @@ export const APP_LABELS: Record<string, string> = {
   airtable: "Airtable",
   telegram: "Telegram",
   hubspot: "HubSpot",
+  firecrawl: "Firecrawl",
 };
 
 export function appLabel(app: string): string {
@@ -269,6 +280,11 @@ export const TRIGGERS: Record<string, TriggerSpec> = {
   NEW_GOOGLE_REVIEW: {
     app: "googlebusinessprofile",
     desc: "Fires when a customer leaves a new review on the Google Business Profile",
+    // Polled, and only ever polled. Google publishes no webhook for reviews —
+    // the Business Profile APIs have no push channel at all — so unlike the
+    // Composio-backed triggers there is no real-time path to fall back from.
+    // The tool is ours (`native-tools.ts`), not Composio's.
+    pollTool: "GOOGLEBUSINESS_GET_REVIEWS",
     event: {
       review_id: "unique id of the review",
       reviewer: "display name of the customer",
@@ -706,8 +722,10 @@ export const TOOLS: Record<string, ToolSpec> = {
     external: true,
     required: ["review_id", "reply"],
     desc: "Post a public owner reply to a Google review",
-    argHint:
-      '{"review_id": "{{steps.<trigger>.event.review_id}}", "reply": "{{steps.<ai>.result.reply}}"}',
+    // Keep examples value-free. Documentation placeholders such as <trigger>
+    // and <ai> look like valid step ids to a model and can leak into a saved
+    // graph. The builder rules explain how to add real upstream references.
+    argHint: '{"review_id": "", "reply": ""}',
   },
   LINKEDIN_GET_MY_INFO: {
     app: "linkedin",
@@ -1139,8 +1157,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     external: true,
     required: ["recipient_email", "subject", "body"],
     desc: "Send an email via the connected Gmail account",
-    argHint:
-      '{"recipient_email": "", "subject": "{{steps.<ai>.result.subject}}", "body": "{{steps.<ai>.result.body}}"}',
+    argHint: '{"recipient_email": "", "subject": "", "body": ""}',
   },
   GMAIL_CREATE_EMAIL_DRAFT: {
     app: "gmail",
@@ -1189,6 +1206,52 @@ export const TOOLS: Record<string, ToolSpec> = {
     required: ["label_name"],
     desc: "Create label — Creates a new label with a unique name in the specified user's Gmail account. Returns a labelId (e.g., 'Label_123') requ",
     argHint: '{\"label_name\":\"\",\"user_id\":\"\",\"text_color\":\"\",\"background_color\":\"\",\"label_list_visibility\":\"\"}',
+  },
+  // Search Console. Verified against the live catalog: the toolkit has six
+  // tools and these are the four a marketing automation has any use for.
+  // `site_url` is exact — "example.com" is not a property id; it is either
+  // "https://example.com/" (URL prefix) or "sc-domain:example.com" (domain
+  // property), and Google rejects anything else with a bare 403.
+  GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY: {
+    app: "google_search_console",
+    kind: "read",
+    external: false,
+    required: ["site_url", "start_date", "end_date"],
+    desc: "Read organic search performance — clicks, impressions, CTR and average position, optionally broken down by query, page, country or device",
+    argHint:
+      '{"site_url": "sc-domain:example.com", "start_date": "2026-01-01", "end_date": "2026-01-31", "dimensions": ["query"], "row_limit": 25}',
+    limits: [
+      "Search Console data lags about two days — a window ending today reports a dip that is not real.",
+      "Rows are capped at 25,000 per query and long-tail terms with very few impressions are withheld by Google entirely.",
+    ],
+  },
+  GOOGLE_SEARCH_CONSOLE_LIST_SITES: {
+    app: "google_search_console",
+    kind: "read",
+    external: false,
+    required: [],
+    desc: "List the Search Console properties this account has verified — use it to discover the exact site_url the other tools need",
+    argHint: "{}",
+  },
+  GOOGLE_SEARCH_CONSOLE_INSPECT_URL: {
+    app: "google_search_console",
+    kind: "read",
+    external: false,
+    required: ["site_url", "url", "inspection_url"],
+    desc: "Inspect one URL for indexing status and issues — whether Google has it, when it was crawled, and why it may be excluded",
+    argHint:
+      '{"site_url": "sc-domain:example.com", "url": "https://example.com/pricing", "inspection_url": "https://example.com/pricing"}',
+    limits: ["Google allows roughly 2,000 URL inspections per property per day."],
+  },
+  GOOGLE_SEARCH_CONSOLE_SUBMIT_SITEMAP: {
+    app: "google_search_console",
+    kind: "write",
+    // Nothing is published to an audience, but it does ask Google to recrawl a
+    // real site — a write against the customer's live search presence.
+    external: true,
+    required: ["site_url", "feedpath"],
+    desc: "Submit a sitemap to Search Console so Google recrawls the site",
+    argHint: '{"site_url": "sc-domain:example.com", "feedpath": "https://example.com/sitemap.xml"}',
   },
   GOOGLESHEETS_BATCH_GET: {
     app: "googlesheets",
@@ -1301,7 +1364,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     required: ["block_id"],
     desc:
       "Read the text content of a Notion page — block_id is the page id, or a "
-      + "{{steps.<step>.<field>}} reference when an earlier step supplies it",
+      + "value supplied by an earlier step",
     argHint: '{"block_id": ""}',
   },
   NOTION_CREATE_NOTION_PAGE: {
@@ -1310,7 +1373,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     external: false,
     required: ["parent_id", "title"],
     desc: "Create a page in the user's own Notion workspace",
-    argHint: '{"parent_id": "", "title": "{{steps.<ai>.result.title}}"}',
+    argHint: '{"parent_id": "", "title": ""}',
   },
   NOTION_INSERT_ROW_DATABASE: {
     app: "notion",
@@ -1363,8 +1426,7 @@ export const TOOLS: Record<string, ToolSpec> = {
       "your business. To start a conversation with someone who has not written first, use " +
       "WHATSAPP_SEND_TEMPLATE_MESSAGE instead. to_number carries the country code with no leading +, "
       + "and phone_number_id comes from WHATSAPP_GET_PHONE_NUMBERS.",
-    argHint:
-      '{"phone_number_id": "", "to_number": "919876543210", "text": "{{steps.<ai>.result.message}}"}',
+    argHint: '{"phone_number_id": "", "to_number": "", "text": ""}',
     limits: [
       "WhatsApp only delivers free text within 24 hours of that number messaging your business — outside that window it is rejected, so this is reliable for messaging yourself or your team and not for reaching a customer first.",
     ],
@@ -1401,13 +1463,21 @@ export const TOOLS: Record<string, ToolSpec> = {
     desc: "Get business profile — Get the business profile information for a WhatsApp Business phone number. This includes business details like descripti",
     argHint: '{\"phone_number_id\":\"\",\"fields\":\"\"}',
   },
-  SHOPIFY_GET_PRODUCTS: {
+  // Shopify is READ-ONLY on purpose. The developer app we register with
+  // Shopify asks for read scopes only, so a write tool here would build
+  // cleanly, pass validation, and then fail on the live run with a scope
+  // error the user cannot fix. Adding one means adding the matching
+  // write_* scope to COMPOSIO_OAUTH_SHOPIFY_SCOPES *and* to the app in
+  // Shopify's dashboard first. Argument hints match the toolkit's real
+  // input schema — Composio rejects a call carrying a field the tool
+  // does not declare, so an invented "limit" is a guaranteed failure.
+  SHOPIFY_GET_SHOP_DETAILS: {
     app: "shopify",
     kind: "read",
     external: false,
     required: [],
-    desc: "List products from the Shopify store",
-    argHint: '{"limit": 50}',
+    desc: "Get shop details — store name, currency, plan and the store's own timezone (use it for day boundaries)",
+    argHint: '{}',
   },
   SHOPIFY_GET_ORDER_LIST: {
     app: "shopify",
@@ -1415,47 +1485,79 @@ export const TOOLS: Record<string, ToolSpec> = {
     external: false,
     required: [],
     desc: "List recent orders from the Shopify store",
-    argHint: '{"limit": 50, "status": "any"}',
+    argHint: '{}',
   },
-  SHOPIFY_CREATE_PRODUCT: {
+  SHOPIFY_GET_ORDERSBY_ID: {
     app: "shopify",
-    kind: "write",
-    external: true,
-    required: ["title"],
-    desc: "Create a product (Deprecated) — DEPRECATED: Use SHOPIFY_CREATES_A_NEW_PRODUCT instead. Creates a new product in a Shopify store; a product title is gene",
-    argHint: '{\"title\":\"\",\"vendor\":\"\",\"variants\":[],\"body_html\":\"\",\"product_type\":\"\"}',
+    kind: "read",
+    external: false,
+    required: ["order_id"],
+    desc: "Retrieve one order in full by its id",
+    argHint: '{"order_id":"","fields":""}',
   },
-  SHOPIFY_CREATE_CUSTOMER: {
+  SHOPIFY_GET_CUSTOMER_ORDERS: {
     app: "shopify",
-    kind: "write",
-    external: true,
+    kind: "read",
+    external: false,
+    required: ["customer_id"],
+    desc: "List every order placed by one customer",
+    argHint: '{"customer_id":""}',
+  },
+  SHOPIFY_GET_PRODUCTS: {
+    app: "shopify",
+    kind: "read",
+    external: false,
     required: [],
-    desc: "Create Customer — Create a new customer in Shopify. Use to add a customer record to the store with contact details, addresses, and marketi",
-    argHint: '{\"note\":\"\",\"tags\":\"\",\"email\":\"\",\"phone\":\"\",\"password\":\"\"}',
+    desc: "List products from the Shopify store (optionally a comma-separated `ids` filter)",
+    argHint: '{"ids":""}',
   },
-  SHOPIFY_CREATE_ORDER: {
+  SHOPIFY_GET_PRODUCT: {
     app: "shopify",
-    kind: "write",
-    external: true,
-    required: ["line_items"],
-    desc: "Create an order — Create a fully committed (real) order in Shopify without payment processing. Use when programmatically generating orders",
-    argHint: '{\"line_items\":\"\",\"note\":\"\",\"tags\":\"\",\"email\":\"\",\"phone\":\"\"}',
+    kind: "read",
+    external: false,
+    required: ["product_id"],
+    desc: "Retrieve one product in full by its id",
+    argHint: '{"product_id":""}',
+  },
+  SHOPIFY_GET_PRODUCTS_COUNT: {
+    app: "shopify",
+    kind: "read",
+    external: false,
+    required: [],
+    desc: "Count all products in the store",
+    argHint: '{}',
+  },
+  SHOPIFY_GET_ALL_CUSTOMERS: {
+    app: "shopify",
+    kind: "read",
+    external: false,
+    required: [],
+    desc: "List customers, optionally filtered by created/updated date window",
+    argHint: '{"limit":"","fields":"","created_at_min":"","created_at_max":""}',
   },
   SHOPIFY_GET_CUSTOMER: {
     app: "shopify",
     kind: "read",
     external: false,
     required: ["customer_id"],
-    desc: "Retrieve a single customer — Retrieve a single customer by their unique identifier. Use when you need to fetch detailed information about a specific ",
-    argHint: '{\"customer_id\":\"\",\"fields\":\"\"}',
+    desc: "Retrieve a single customer by id",
+    argHint: '{"customer_id":""}',
   },
-  SHOPIFY_GET_SHOP_DETAILS: {
+  SHOPIFY_GET_CUSTOM_COLLECTIONS: {
     app: "shopify",
     kind: "read",
     external: false,
     required: [],
-    desc: "Get Shop Details (Deprecated) — Retrieves comprehensive administrative information about the authenticated Shopify store. The returned `iana_timezone` f",
-    argHint: '{}',
+    desc: "List custom collections (product groupings) in the store",
+    argHint: '{"ids":"","limit":"","handle":"","product_id":""}',
+  },
+  SHOPIFY_GET_PRODUCTS_IN_COLLECTION: {
+    app: "shopify",
+    kind: "read",
+    external: false,
+    required: ["collection_id"],
+    desc: "List the products inside one collection",
+    argHint: '{"collection_id":"","limit":""}',
   },
   GITHUB_ABORT_REPOSITORY_MIGRATION: {
     app: "github",
@@ -8603,12 +8705,159 @@ export const TOOLS: Record<string, ToolSpec> = {
   },
 };
 
-export function getTool(slug: string): ToolSpec | undefined {
-  return TOOLS[slug];
+export function getTool(slug: string, snapshot?: unknown): ToolSpec | undefined {
+  const curated = TOOLS[slug];
+  if (curated) return curated;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return undefined;
+  const value = snapshot as Record<string, unknown>;
+  if (
+    typeof value.app !== "string" ||
+    (value.kind !== "read" && value.kind !== "write") ||
+    typeof value.external !== "boolean" ||
+    !Array.isArray(value.required) ||
+    !value.required.every((key) => typeof key === "string") ||
+    typeof value.desc !== "string" ||
+    typeof value.argHint !== "string" ||
+    (value.version !== undefined && typeof value.version !== "string")
+  ) {
+    return undefined;
+  }
+  try {
+    JSON.parse(value.argHint);
+  } catch {
+    return undefined;
+  }
+  return value as unknown as ToolSpec;
 }
 
 export function isExternal(slug: string): boolean {
   return TOOLS[slug]?.external ?? false;
+}
+
+/**
+ * Normalizes raw tool objects returned by Composio API v3 into ToolSpec definitions.
+ * Curated TOOLS definitions always take precedence over dynamic metadata.
+ * Dynamic actions default safely to kind: "write" and external: true unless explicit
+ * read-only tags or flags are returned by Composio.
+ */
+export function normalizeComposioTool(
+  raw: unknown,
+): { slug: string; spec: ToolSpec } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+
+  const rawSlug = obj.slug ?? obj.name;
+  if (!rawSlug || typeof rawSlug !== "string") return null;
+  const slug = rawSlug.trim();
+  if (!slug) return null;
+
+  const rawToolkit =
+    (obj.toolkit && typeof obj.toolkit === "object"
+      ? (obj.toolkit as Record<string, unknown>).slug ?? (obj.toolkit as Record<string, unknown>).name
+      : undefined) ??
+    obj.toolkit_slug ??
+    obj.app;
+  const app =
+    typeof rawToolkit === "string" && rawToolkit.trim()
+      ? rawToolkit.trim().toLowerCase()
+      : slug.split("_")[0]?.toLowerCase() || "app";
+
+  const desc =
+    typeof obj.description === "string"
+      ? obj.description.trim()
+      : typeof obj.desc === "string"
+        ? obj.desc.trim()
+        : typeof obj.name === "string"
+          ? obj.name.trim()
+          : slug;
+
+  const isReadOnly =
+    obj.is_read_only === true ||
+    obj.read_only === true ||
+    (Array.isArray(obj.tags) &&
+      obj.tags.some(
+        (t) =>
+          typeof t === "string" &&
+          (t.toLowerCase() === "read_only" || t.toLowerCase() === "read"),
+      ));
+
+  const kind: "read" | "write" = isReadOnly ? "read" : "write";
+  const external = !isReadOnly;
+
+  const inputSchema =
+    (obj.input_parameters ?? obj.inputParameters ?? obj.parameters) as
+      | Record<string, unknown>
+      | undefined;
+  const outputSchema =
+    (obj.output_parameters ?? obj.outputParameters ?? obj.response) as
+      | Record<string, unknown>
+      | undefined;
+
+  const props =
+    inputSchema && typeof inputSchema === "object" && inputSchema.properties && typeof inputSchema.properties === "object"
+      ? (inputSchema.properties as Record<string, Record<string, unknown>>)
+      : {};
+
+  const required =
+    inputSchema && typeof inputSchema === "object" && Array.isArray(inputSchema.required)
+      ? (inputSchema.required as unknown[]).filter((r): r is string => typeof r === "string")
+      : [];
+
+  const version = typeof obj.version === "string" && obj.version.trim() ? obj.version.trim() : undefined;
+
+  const orderedKeys = [
+    ...required,
+    ...Object.keys(props).filter((k) => !required.includes(k)),
+  ];
+
+  const hintObj: Record<string, unknown> = {};
+  for (const k of orderedKeys) {
+    const prop = props[k];
+    if (prop && typeof prop === "object") {
+      if (prop.default !== undefined) {
+        hintObj[k] = prop.default;
+      } else {
+        const ptype = String(prop.type ?? "").toLowerCase();
+        if (ptype === "string") hintObj[k] = "";
+        else if (ptype === "boolean") hintObj[k] = false;
+        else if (ptype === "integer" || ptype === "number") hintObj[k] = 0;
+        else if (ptype === "array") hintObj[k] = [];
+        else if (ptype === "object") hintObj[k] = {};
+        else hintObj[k] = "";
+      }
+    } else {
+      hintObj[k] = "";
+    }
+  }
+  const argHint = JSON.stringify(hintObj);
+
+  const curated = TOOLS[slug];
+  if (curated) {
+    return {
+      slug,
+      spec: {
+        ...curated,
+        ...(version ? { version } : {}),
+        ...(inputSchema ? { inputSchema } : {}),
+        ...(outputSchema ? { outputSchema } : {}),
+      },
+    };
+  }
+
+  return {
+    slug,
+    spec: {
+      app,
+      kind,
+      external,
+      required,
+      desc,
+      argHint,
+      ...(version ? { version } : {}),
+      ...(inputSchema ? { inputSchema } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
+    },
+  };
 }
 
 /** One line per tool, exactly how the builder LLM sees the action catalog. */

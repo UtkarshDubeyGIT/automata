@@ -5,6 +5,8 @@ import { getTool } from "./registry";
 import { repairRefs } from "./repair";
 import { dbRunStore, normalizeLog, updateWorkflowStats } from "./store";
 import type { RunLog, RunResult, RunStatus, WorkflowGraph } from "./types";
+import { queueWorkflowReminder } from "@/lib/whatsapp/service";
+import { pollFirecrawlJob } from "@/lib/integrations/firecrawl";
 
 /**
  * Deep Workflow Execution Runtime.
@@ -226,9 +228,70 @@ export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunRes
 
   if (result.status === "failed") {
     await refundIfClean(admin, run.id, run.workspaceId, run.graph);
+    await queueWorkflowReminder({
+      workspaceId: run.workspaceId,
+      workflowId: run.workflowId,
+      runId: run.id,
+      kind: "workflow_failure",
+      idempotencyKey: `workflow-failure:${run.id}`,
+      body: `A ZidaneAI workflow failed: ${result.error ?? "The run could not complete."}\n\nOpen the workflow run for details.`,
+    }).catch((error) => console.error("[workflows] could not queue WhatsApp failure alert:", error));
+  } else if (result.status === "waiting") {
+    const { data: waiting } = await admin.from("workflow_runs").select("log").eq("id", run.id).maybeSingle();
+    const waitingLog = (waiting?.log ?? {}) as RunLog;
+    if (waitingLog.pending) {
+      await queueWorkflowReminder({
+        workspaceId: run.workspaceId,
+        workflowId: run.workflowId,
+        runId: run.id,
+        stepId: waitingLog.pending.stepId,
+        kind: "workflow_approval",
+        idempotencyKey: `workflow-approval:${run.id}:${waitingLog.pending.stepId}`,
+        body: `A ZidaneAI workflow is waiting for your approval: ${waitingLog.pending.prompt}\n\nOpen the workflow run to review it.`,
+      }).catch((error) => console.error("[workflows] could not queue WhatsApp approval alert:", error));
+    }
   }
   await updateWorkflowStats(admin, run.workflowId);
   return result;
+}
+
+/**
+ * Drive a run the moment it is enqueued, instead of leaving it for the beat.
+ *
+ * A webhook delivery used to sit `queued` for up to fifteen minutes
+ * (`zidane-cron.timer`), which for "meeting ended -> post to Slack" reads as
+ * broken rather than slow. This is the same fast-start `workflows/build` and
+ * `video/generate` already do behind their own 202s: cron stays the recovery
+ * path, this only removes the wait in the happy case.
+ *
+ * Best-effort on purpose, and it never throws. `claimForDriving` is the very
+ * compare-and-swap the beat uses, so losing the race is not an error, and a
+ * kick killed mid-drive leaves a `running` row that `reclaimStuckRuns` takes
+ * back after STALE_CLAIM_MS. Callers are `after(...)` continuations whose
+ * response has already gone out, so there is nobody left to report to.
+ */
+export async function kickRun(
+  admin: DbClient,
+  runId: string,
+  workspaceId: string,
+): Promise<void> {
+  try {
+    const claimed = await claimForDriving(admin, runId);
+    // No claim: the beat already has it, or it is no longer drivable.
+    if (!claimed) return;
+    // A run with no stored graph is settled and refunded by `drainRuns`; it is
+    // not worth duplicating that here for a case `claimRun` cannot produce.
+    if (!claimed.graph?.start) return;
+    await driveRun(admin, {
+      id: runId,
+      workflowId: claimed.workflowId,
+      workspaceId,
+      graph: claimed.graph,
+      log: claimed.log,
+    });
+  } catch (err) {
+    console.error(`[workflows] fast start for run ${runId} failed, leaving it for the beat:`, err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,18 +405,19 @@ export async function resumeRenders(
     .order("started_at", { ascending: true })
     .limit(opts.limit ?? 25);
 
-  const rows = ((data as { id: string; log: unknown; workflow_id: string }[]) ?? [])
+  const allRows = ((data as { id: string; log: unknown; workflow_id: string }[]) ?? [])
     .map((row) => ({ ...row, log: normalizeLog(row.log) }))
-    .filter((row) => row.log.awaiting?.kind === "video" && row.log.awaiting.ref);
-  if (!rows.length) return out;
-  out.parked = rows.length;
+    .filter((row) => row.log.awaiting?.ref);
+  const rows = allRows.filter((row) => row.log.awaiting?.kind === "video");
+  const firecrawlRows = allRows.filter((row) => row.log.awaiting?.kind === "firecrawl");
+  if (!allRows.length) return out;
+  out.parked = allRows.length;
 
   // One query for every clip these runs are watching, rather than one per run.
   const refs = [...new Set(rows.map((row) => row.log.awaiting!.ref))];
-  const { data: videos } = await admin
-    .from("videos")
-    .select("job_id, status")
-    .in("job_id", refs);
+  const { data: videos } = refs.length
+    ? await admin.from("videos").select("job_id, status").in("job_id", refs)
+    : { data: [] };
   const landed = new Map(
     ((videos as { job_id: string; status: string }[]) ?? []).map((v) => [v.job_id, v.status]),
   );
@@ -392,8 +456,57 @@ export async function resumeRenders(
     out.resumed++;
   }
 
+  // Firecrawl jobs live at the provider, not in a local media table. Polling
+  // happens before claiming the run, so a still-running crawl consumes no
+  // drive attempt and remains durably parked. A completed job is then claimed
+  // and replayed through the same handler, which polls the existing job id and
+  // journals its output; it never creates a second crawl.
+  const firecrawlWorkspaces = await workspaceIdsFor(admin, firecrawlRows.map((r) => r.workflow_id));
+  for (const row of firecrawlRows) {
+    if (Date.now() >= opts.deadline) break;
+    const workspaceId = firecrawlWorkspaces.get(row.workflow_id);
+    const awaiting = row.log.awaiting;
+    if (!workspaceId || !awaiting) continue;
+    const graph = (await admin.from("workflow_runs").select("graph").eq("id", row.id).maybeSingle()).data?.graph;
+    const operation = awaiting.operation ?? (graph?.steps?.[awaiting.stepId]?.operation as "crawl" | "agent" | undefined) ?? "crawl";
+    let ready = false;
+    try {
+      const polled = await pollFirecrawlJob(operation, awaiting.ref, {
+        workspaceId,
+        timeoutMs: 90_000,
+      });
+      ready = polled.kind === "result";
+    } catch {
+      // The handler will write the normalized provider error to the run. Do
+      // not leave a key error or an outage parked until the 30-day horizon.
+      ready = true;
+    }
+    if (!ready) {
+      out.rendering++;
+      continue;
+    }
+    const claimed = await claimForDriving(admin, row.id, now, { includeWaiting: true });
+    if (!claimed) continue;
+    if (!claimed.graph?.start) {
+      await settle(admin, row.id, "failed", "This run has no stored graph and cannot be resumed.");
+      await refundIfClean(admin, row.id, workspaceId);
+      continue;
+    }
+    await driveRun(admin, {
+      id: row.id,
+      workflowId: claimed.workflowId,
+      workspaceId,
+      graph: claimed.graph,
+      log: claimed.log,
+    });
+    out.resumed++;
+  }
+
   return out;
 }
+
+/** Clear name for callers that resume more than video renders. */
+export const resumeAwaiting = resumeRenders;
 
 export interface ReclaimResult {
   failed: number;
@@ -481,13 +594,14 @@ export async function reclaimStuckRuns(
 
 export function hadRealSideEffect(log: RunLog, graph?: WorkflowGraph): boolean {
   for (const entry of log.journal ?? []) {
-    if (entry.type !== "social_post" && entry.type !== "app_action") continue;
+    if (entry.type !== "social_post" && entry.type !== "app_action" && entry.type !== "whatsapp_reminder") continue;
     const output = (entry.output ?? {}) as Record<string, unknown>;
     if (output.sim === true || output.simulated === true) continue;
     if (output.successful !== true) continue;
     if (entry.type === "app_action") {
-      const tool = String(graph?.steps?.[entry.stepId]?.tool ?? "");
-      if (getTool(tool)?.kind === "read") continue;
+      const step = graph?.steps?.[entry.stepId];
+      const tool = String(step?.tool ?? "");
+      if (getTool(tool, step?.tool_spec)?.kind === "read") continue;
     }
     return true;
   }

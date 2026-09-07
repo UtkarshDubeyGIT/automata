@@ -24,7 +24,6 @@ import {
   isPlaceholder,
   missingWatch,
   SIMULATED_APPS,
-  TOOLS,
 } from "./registry";
 import { repairRefs } from "./repair";
 import type { StepDef, WorkflowGraph } from "./types";
@@ -42,8 +41,9 @@ export class BuildError extends Error {}
 const MAX_STEPS = 60;
 const MAX_GRAPH_BYTES = 256 * 1024;
 
+/** Everything `social_post` can actually publish to. TikTok cannot yet. */
 const SOCIAL_PLATFORMS = new Set(
-  PLATFORMS.filter((p) => p.id !== "youtube" && p.id !== "tiktok").map((p) => p.id as string),
+  PLATFORMS.filter((p) => p.id !== "tiktok").map((p) => p.id as string),
 );
 
 export const FILTER_OPERATORS = new Set([
@@ -138,6 +138,24 @@ function title(node: StepDef, fallback: string): string {
 function validateConfig(nodeId: string, node: StepDef): void {
   const name = title(node, nodeId);
   switch (node.type) {
+    case "firecrawl": {
+      const credentialField = Object.keys(node).find((key) =>
+        /api[_-]?key|authorization|password|secret|access[_-]?token|refresh[_-]?token|credential/i.test(key),
+      );
+      if (credentialField) {
+        throw new BuildError(
+          `'${name}': Firecrawl credentials are managed by the workspace integration; ` +
+            `remove '${credentialField}' from the workflow.`,
+        );
+      }
+      const operation = String(node.operation ?? "");
+      if (operation && !["scrape", "search", "map", "crawl", "agent"].includes(operation)) {
+        throw new BuildError(
+          `'${name}': Firecrawl operation must be scrape, search, map, crawl, or agent`,
+        );
+      }
+      break;
+    }
     case "app_event_trigger": {
       const event = String(node.event ?? "");
       if (event && !getTrigger(event)) {
@@ -230,7 +248,8 @@ function validateConfig(nodeId: string, node: StepDef): void {
     }
     case "app_action": {
       const slug = String(node.tool ?? "");
-      if (slug && !(slug in TOOLS)) {
+      const spec = getTool(slug, node.tool_spec);
+      if (slug && !spec) {
         throw new BuildError(
           `node '${nodeId}' uses unknown app action '${slug}'. Use one of the exact tool slugs from AVAILABLE APP ACTIONS.`,
         );
@@ -345,6 +364,17 @@ export function missingSetup(step: StepDef): string[] {
     case "generate_video":
       if (blank(step.prompt)) missing.push("Describe the video to generate");
       break;
+    case "firecrawl": {
+      const operation = String(step.operation ?? "scrape");
+      if (blank(operation)) missing.push("Choose a Firecrawl operation");
+      if (operation === "search") {
+        if (blank(step.query)) missing.push("Enter a search query");
+      } else {
+        if (blank(step.url)) missing.push("Enter a public URL");
+        if (operation === "agent" && blank(step.prompt)) missing.push("Describe what to extract");
+      }
+      break;
+    }
     case "branch": {
       if (blank(step.key ?? step.branch_on)) missing.push("Choose which key to branch on");
       if (blank(step.from_step)) missing.push("Choose which step the value comes from");
@@ -359,8 +389,9 @@ export function missingSetup(step: StepDef): string[] {
         missing.push("Choose an action");
         break;
       }
+      const spec = getTool(slug, step.tool_spec);
       const args = (step.arguments as Record<string, unknown>) ?? {};
-      for (const req of TOOLS[slug]?.required ?? []) {
+      for (const req of spec?.required ?? []) {
         if (blank(args[req])) missing.push(`Fill in “${req}”`);
       }
       break;
@@ -448,7 +479,7 @@ export function liveWrites(graph: WorkflowGraph): string[] {
       continue;
     }
     if (step.type !== "app_action") continue;
-    const spec = getTool(String(step.tool ?? ""));
+    const spec = getTool(String(step.tool ?? ""), step.tool_spec);
     if (!spec || spec.kind === "read" || SIMULATED_APPS.has(spec.app)) continue;
     out.push(`${title} — ${spec.desc} (${appLabel(spec.app)})`);
   }

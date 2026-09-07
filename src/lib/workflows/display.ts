@@ -41,7 +41,7 @@ function displayStep(id: string, step: StepDef): WorkflowStep {
 
 function defaultStage(step: StepDef): string {
   if (step.type === "app_action") {
-    return getTool(String(step.tool ?? ""))?.kind === "read" ? "Fetch" : "Act";
+    return getTool(String(step.tool ?? ""), step.tool_spec)?.kind === "read" ? "Fetch" : "Act";
   }
   return nodeSpec(step.type)?.stage ?? "Step";
 }
@@ -235,11 +235,11 @@ export function buildResponse(name: string, graph: WorkflowGraph): ResponseSegme
   const steps = orderedStepIds(graph).map((id) => graph.steps[id]);
 
   const reads = steps
-    .filter((s) => s.type === "app_action" && getTool(String(s.tool))?.kind === "read")
-    .map((s) => getTool(String(s.tool))!.app);
+    .filter((s) => s.type === "app_action" && getTool(String(s.tool), s.tool_spec)?.kind === "read")
+    .map((s) => getTool(String(s.tool), s.tool_spec)!.app);
   const writes = steps
-    .filter((s) => s.type === "app_action" && getTool(String(s.tool))?.kind === "write")
-    .map((s) => getTool(String(s.tool))!.app);
+    .filter((s) => s.type === "app_action" && getTool(String(s.tool), s.tool_spec)?.kind === "write")
+    .map((s) => getTool(String(s.tool), s.tool_spec)!.app);
   const posts = steps
     .filter((s) => s.type === "social_post")
     .map((s) => platformMeta(String(s.platform))?.name ?? String(s.platform));

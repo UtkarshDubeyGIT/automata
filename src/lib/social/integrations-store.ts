@@ -1,5 +1,5 @@
 import type { RequestContext } from "@/lib/workspace";
-import { SIMULATED_APPS } from "@/lib/workflows/registry";
+import { SERVER_OWNED_APPS } from "@/lib/workflows/apps";
 import type { ConnectionState } from "./composio";
 
 /**
@@ -55,8 +55,14 @@ export async function persistIntegration(
  * to the cache — Composio down, Composio unconfigured — served them straight
  * back as "Connected".
  *
- * The one legitimate exception is SIMULATED_APPS: they have no Composio
- * toolkit at all, so they are connected by definition and never have an id.
+ * There is no longer an exception for simulated apps. There used to be: an app
+ * with no Composio toolkit was "connected by definition", so its id-less row
+ * was let through. That exemption is what kept the phantom rows alive, and it
+ * became actively dangerous once Google Business Profile gained a real
+ * integration — an old fabricated row would have been indistinguishable from a
+ * genuine OAuth grant. `POST /api/integrations/connect` no longer writes one,
+ * and a real Business Profile connection names its workspace as the account,
+ * so it passes this rule like everything else.
  */
 export async function readCachedIntegrations(
   ctx: RequestContext,
@@ -69,10 +75,7 @@ export async function readCachedIntegrations(
       .eq("workspace_id", ctx.workspaceId)
       .in("status", ["connected", "pending"]);
     return ((data as CachedIntegration[]) ?? []).filter(
-      (row) =>
-        row.status !== "connected" ||
-        !!row.connected_account_id ||
-        SIMULATED_APPS.has(row.platform),
+      (row) => row.status !== "connected" || !!row.connected_account_id,
     );
   } catch {
     return [];
@@ -103,10 +106,14 @@ export async function syncConnections(
       );
     }
 
-    // Simulated apps never appear in a live listing — keep their rows.
+    // Composio cannot report what it does not host. Google Business Profile is
+    // connected through our own OAuth client, so it is absent from every live
+    // listing by definition — without this it would be downgraded to
+    // "disconnected" on the very next status read, seconds after the user
+    // finished authorizing.
     const keep = [
       ...connections.map((c) => c.platform),
-      ...SIMULATED_APPS,
+      ...SERVER_OWNED_APPS,
     ];
     await ctx.supabase
       .from("integrations")

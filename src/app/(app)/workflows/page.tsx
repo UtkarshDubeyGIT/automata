@@ -80,8 +80,8 @@ interface RunItem {
     prompt: string;
     preview?: ApprovalPreviewData | null;
   } | null;
-  /** Set while the run is parked on a render. Nobody has to do anything. */
-  awaiting?: { kind: string; note: string; since: string } | null;
+  /** Set while the run is parked on machine work. Nobody has to do anything. */
+  awaiting?: { kind: string; operation?: string; note: string; since: string } | null;
 }
 
 type TabId = "create" | "workflows" | "runs" | "attention";

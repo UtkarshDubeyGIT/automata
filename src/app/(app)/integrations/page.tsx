@@ -17,10 +17,39 @@ import {
 // Types only — erased before the bundler sees them, so this costs nothing.
 import type { ConnectMethod, ToolkitSummary } from "@/lib/social/composio";
 import { cn } from "@/lib/utils";
+import { setupNotice } from "@/lib/setup-notice";
 
 type Status = "connected" | "pending";
 
 const CHANNELS = PLATFORMS.filter((p) => p.kind === "channel");
+
+/**
+ * Apps that can never come back from the Composio catalog, because Composio
+ * does not have them.
+ *
+ * Google Business Profile is the whole list. It had no card ANYWHERE on this
+ * screen: it is not a curated channel, and the catalog grid is fed by
+ * Composio, which returns 404 for every spelling of its slug. So the one
+ * integration whose OAuth client we own was also the one integration nobody
+ * could find a Connect button for — reachable only from inside a workflow that
+ * happened to require it.
+ *
+ * Described here in the same shape a real toolkit arrives in, so the card
+ * renders through exactly the same path as every other one.
+ */
+const NATIVE_TOOLKITS: Record<string, ToolkitSummary> = {
+  googlebusinessprofile: {
+    slug: "googlebusinessprofile",
+    name: "Google Business Profile",
+    description: "Read and reply to your Google reviews",
+    categories: ["marketing"],
+    managed: true,
+    noAuth: false,
+    // Reading reviews and posting an owner reply — the two the engine exposes.
+    toolsCount: 2,
+    connectVia: "managed",
+  },
+};
 
 interface ConnectResponse {
   redirectUrl?: string;
@@ -71,6 +100,8 @@ export default function IntegrationsPage() {
   const [pending, setPending] = useState<string | null>(null);
   /** Curated channels we hold a developer app for — those are one tap too. */
   const [ownApps, setOwnApps] = useState<string[]>([]);
+  /** Native apps the server offered this workspace — see NATIVE_TOOLKITS. */
+  const [nativeSlugs, setNativeSlugs] = useState<string[]>([]);
   /**
    * Apps the server told us would accept a pasted key after all.
    *
@@ -88,6 +119,9 @@ export default function IntegrationsPage() {
       : (new URLSearchParams(window.location.search).get("q") ?? ""),
   );
   const [items, setItems] = useState<ToolkitSummary[]>([]);
+  // Cards for this workspace's own apps, fetched by slug rather than waited
+  // for in the popularity pages — see `pinConnected`.
+  const [pinned, setPinned] = useState<ToolkitSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [browsing, setBrowsing] = useState(true);
@@ -101,15 +135,53 @@ export default function IntegrationsPage() {
       .then((r) => r.json())
       .then(
         (data: {
-          integrations?: { platform: string; status: Status }[];
+          integrations?: { platform: string; status: string }[];
           ownApps?: string[];
         }) => {
+          const rows = data.integrations ?? [];
           const next: Record<string, Status> = {};
-          for (const row of data.integrations ?? []) next[row.platform] = row.status;
+          for (const row of rows) {
+            // A row may now say "none". Composio never sends that — its
+            // listing simply omits what is not connected — but Google Business
+            // Profile has no Composio toolkit, so ABSENCE already means
+            // something for it ("this deployment has no Google client, run it
+            // in demo mode"). It therefore states "not connected yet"
+            // explicitly, and only the two real states belong in this map.
+            if (row.status === "connected" || row.status === "pending") {
+              next[row.platform] = row.status;
+            }
+          }
           setStatus(next);
           setOwnApps(data.ownApps ?? []);
+          // A card for every app the server is willing to connect — which for
+          // the native ones is the only signal there is, since they can never
+          // appear in a Composio catalog page.
+          setNativeSlugs(
+            rows.map((r) => r.platform).filter((p) => p in NATIVE_TOOLKITS),
+          );
+          pinConnected(Object.keys(next));
         },
       )
+      .catch(() => {});
+  }
+
+  /**
+   * Fetch a card for every app this workspace already has a connection to.
+   *
+   * `catalogRank` can only promote what has been fetched, and the catalog
+   * arrives 24 at a time in Composio's popularity order — so an app ranked
+   * below the first page had no card to promote. A live Shopify connection
+   * showed nothing here until the user searched "shopify" by name, which is
+   * precisely the question this page is supposed to answer for them.
+   *
+   * Asking by slug is what makes it independent of rank. Failures are silent:
+   * the pins are an addition to the grid, never a precondition for it.
+   */
+  function pinConnected(slugs: string[]) {
+    if (slugs.length === 0) return;
+    fetch(`/api/integrations/catalog?slugs=${encodeURIComponent(slugs.join(","))}`)
+      .then((r) => r.json())
+      .then((data: CatalogResponse) => setPinned(data.items ?? []))
       .catch(() => {});
   }
 
@@ -211,6 +283,63 @@ export default function IntegrationsPage() {
     browseCatalog({ category: id, search });
   }
 
+  /** A catalog card's tier — connected first, then by what connecting takes. */
+  function catalogRank(t: ToolkitSummary): number {
+    return cardRank(status[t.slug], keyOffer[t.slug] ? "key" : t.connectVia, t.noAuth);
+  }
+
+  // The workspace's own apps lead the default view. A search or a category is
+  // a narrowing the user asked for, and pinning through it would answer a
+  // question they didn't ask — so the pins only apply to the unfiltered grid.
+  const merged = !search.trim() && category === "all" ? [...pinned, ...items] : items;
+
+  /*
+   * Native cards join the same grid rather than getting a section of their
+   * own: to the user this is just another app to connect, and the fact that we
+   * run its OAuth ourselves is our problem, not theirs.
+   *
+   * They obey search and category like everything else. Matching is done here
+   * because the catalog query goes to Composio, which has never heard of them
+   * — leaving it to the server would silently drop them from every filtered
+   * view.
+   */
+  const query = search.trim().toLowerCase();
+  const nativeCards = nativeSlugs
+    .map((slug) => NATIVE_TOOLKITS[slug])
+    .filter((t): t is ToolkitSummary => !!t)
+    .filter(
+      (t) =>
+        (category === "all" || t.categories.includes(category)) &&
+        (!query ||
+          t.name.toLowerCase().includes(query) ||
+          t.slug.includes(query) ||
+          t.description.toLowerCase().includes(query)),
+    );
+
+  // Web research runs on the app's own Firecrawl key, so there is nothing for
+  // a workspace to connect. Offering the Composio toolkit here would invite a
+  // second key that no part of the product reads.
+  //
+  // Built into a fresh array, so sorting it cannot touch the `items` state
+  // behind it — the loaded pages stay in the order they arrived, which is what
+  // "Load more" appends to. A pinned app that also turns up in a page is kept
+  // once, at its pinned position.
+  const seen = new Set<string>();
+  const catalogItems: ToolkitSummary[] = [];
+  for (const toolkit of [...nativeCards, ...merged]) {
+    if (toolkit.slug === "firecrawl" || seen.has(toolkit.slug)) continue;
+    seen.add(toolkit.slug);
+    catalogItems.push(toolkit);
+  }
+  catalogItems.sort((a, b) => catalogRank(a) - catalogRank(b));
+
+  /** Same ordering for the curated channels. CHANNELS is module-level: copy. */
+  const channelCards = [...CHANNELS].sort(
+    (a, b) =>
+      cardRank(status[a.id], channelMethod(a.id, a.managedAuth, ownApps, keyOffer), false) -
+      cardRank(status[b.id], channelMethod(b.id, b.managedAuth, ownApps, keyOffer), false),
+  );
+
   async function connect(slug: string, name: string, method: ConnectMethod) {
     setPending(slug);
     try {
@@ -231,7 +360,7 @@ export default function IntegrationsPage() {
           setKeyOffer((k) => ({ ...k, [slug]: true }));
           toast({
             title: `${name} has no one-tap login`,
-            description: "You can connect it with your own API key instead — press Add key.",
+            description: "You can still connect it with your own API key. Press Add API key to open the secure key form.",
             tone: "warning",
           });
           return;
@@ -263,7 +392,12 @@ export default function IntegrationsPage() {
         setStatus((s) => ({ ...s, [slug]: "connected" }));
         toast({
           title: `${name} connected`,
-          description: data.simulated ? "Simulated — add COMPOSIO_API_KEY to go live." : undefined,
+          description: data.simulated
+            ? setupNotice(
+                "Connected in preview mode — live posting isn’t enabled yet.",
+                "Simulated — add COMPOSIO_API_KEY to go live.",
+              )
+            : undefined,
         });
       }
     } catch {
@@ -318,18 +452,23 @@ export default function IntegrationsPage() {
           <p className="mt-0.5 text-[13px] text-ink-subtle">Where the Agent and Scheduler post.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {CHANNELS.map((ch) => {
+          {channelCards.map((ch) => {
             const state = status[ch.id];
             const method = channelMethod(ch.id, ch.managedAuth, ownApps, keyOffer);
             return (
               <Card key={ch.id} className="flex items-center gap-4 p-4" hover>
                 <Logo slug={ch.id} name={ch.name} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-semibold text-ink">{ch.name}</div>
-                  <div className="truncate text-[13px] text-ink-subtle">{ch.description}</div>
+                  <div className="truncate text-[14px] font-semibold text-ink" title={ch.name}>
+                    {ch.name}
+                  </div>
+                  <div className="truncate text-[13px] text-ink-subtle" title={ch.description}>
+                    {ch.description}
+                  </div>
                 </div>
                 <CardActions
                   state={state}
+                  name={ch.name}
                   pending={pending === ch.id}
                   method={method}
                   onConnect={() => connect(ch.id, ch.name, method)}
@@ -347,7 +486,7 @@ export default function IntegrationsPage() {
           <div>
             <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">All integrations</h2>
             <p className="mt-0.5 text-[13px] text-ink-subtle">
-              {total > 0 ? `${total.toLocaleString()} apps` : "Every app"} available through Composio — most popular first.
+              {total > 0 ? `${total.toLocaleString()} apps` : "Every app"} available through Composio — connected first, then most popular.
             </p>
           </div>
           <div className="w-full sm:w-72">
@@ -377,34 +516,50 @@ export default function IntegrationsPage() {
           ))}
         </div>
 
-        {items.length === 0 && !browsing ? (
+        {catalogItems.length === 0 && !browsing ? (
           <Card className="p-8 text-center text-[13px] text-ink-subtle">
-            No apps match — try a different search or category.
+            {search.trim().toLowerCase().includes("firecrawl")
+              ? "Web research is built in — Automata can already read the public web, with nothing to connect."
+              : "No apps match — try a different search or category."}
           </Card>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {items.map((t) => {
+            {catalogItems.map((t) => {
               const state = status[t.slug];
               const method = keyOffer[t.slug] ? "key" : t.connectVia;
+              const meta = t.description || t.categories.join(", ");
               return (
                 <Card key={t.slug} className="flex items-center gap-4 p-4" hover>
                   <Logo slug={t.slug} name={t.name} />
+                  {/* The name gets the whole first line. Sharing it with the
+                      tool count cost ~70px that the count would never give
+                      back — it is `flex-none`, so the name absorbed every
+                      squeeze and lost. Demoted to the meta line, where it sits
+                      beside a description that can truncate harmlessly. */}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-[14px] font-semibold text-ink">{t.name}</span>
+                    <div className="truncate text-[14px] font-semibold text-ink" title={t.name}>
+                      {t.name}
+                    </div>
+                    <div className="flex items-baseline gap-1.5 text-[13px] text-ink-subtle">
                       <span className="flex-none font-mono text-[11px] text-ink-muted">
                         {t.toolsCount} tools
                       </span>
-                    </div>
-                    <div className="truncate text-[13px] text-ink-subtle">
-                      {t.description || t.categories.join(", ")}
+                      {meta ? (
+                        <>
+                          <span aria-hidden className="flex-none text-ink-muted">·</span>
+                          <span className="truncate" title={meta}>{meta}</span>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   {t.noAuth ? (
-                    <Badge>No auth needed</Badge>
+                    // `flex-none`: without it the badge is shrinkable and its
+                    // label wraps to two lines on a narrow card.
+                    <Badge className="flex-none whitespace-nowrap">No auth needed</Badge>
                   ) : (
                     <CardActions
                       state={state}
+                      name={t.name}
                       pending={pending === t.slug}
                       method={method}
                       onConnect={() => connect(t.slug, t.name, method)}
@@ -453,23 +608,71 @@ function channelMethod(
   return keyOffer[id] ? "key" : "own_app";
 }
 
+/**
+ * Where a card sits in the list.
+ *
+ * Two questions, in that order: does this workspace already have the app, and
+ * if not, what will it take to get it? The catalog arrives in Composio's
+ * popularity order, which is a fine tiebreaker but a poor headline — a
+ * workspace's own connected apps were scattered among ~1,400 others, so the
+ * page never answered "what have I actually got?" without a search.
+ *
+ * `pending` sits second because it is a connection the user already started
+ * and can finish. `noAuth` sits below the two methods a user can act on: it
+ * has no button at all, so promoting it would put dead cards above live ones.
+ * `own_app` is last — nothing the user types today will unblock it.
+ *
+ * The sort is stable, so within a tier Composio's popularity order survives.
+ */
+const RANK: Record<ConnectMethod, number> = {
+  managed: 2,
+  key: 3,
+  own_app: 5,
+};
+
+function cardRank(
+  state: Status | undefined,
+  method: ConnectMethod,
+  noAuth: boolean,
+): number {
+  if (state === "connected") return 0;
+  if (state === "pending") return 1;
+  if (noAuth) return 4;
+  return RANK[method];
+}
+
 /** What each connect method promises the user. */
 const CONNECT_LABEL: Record<ConnectMethod, string> = {
   managed: "Connect",
-  // Not "Set up": this one is finishable right now, in about a minute.
-  key: "Add key",
+  // This one is finishable right now, in about a minute.
+  key: "Add API key",
   // Honest about the wait — nothing the user types will unblock this one.
-  own_app: "Set up",
+  own_app: "Set up app",
 };
 
+/**
+ * The card's right-hand controls.
+ *
+ * These share one row with the app's name, and they win that fight: the row is
+ * `flex-none` while the name column shrinks. A "Connected" badge next to a
+ * "Disconnect" text button ran ~196px, which in a three-column grid left the
+ * name about 40px — every connected app read as a single letter ("G", "S").
+ *
+ * So the destructive action goes icon-only. It keeps its accessible name and a
+ * native tooltip, and it is the control on the card least in need of a label:
+ * the badge beside it has already said what state this is.
+ */
 function CardActions({
   state,
+  name,
   pending,
   method,
   onConnect,
   onDisconnect,
 }: {
   state: Status | undefined;
+  /** Names the icon-only button for screen readers and on hover. */
+  name: string;
   pending: boolean;
   method: ConnectMethod;
   onConnect: () => void;
@@ -477,11 +680,20 @@ function CardActions({
 }) {
   if (state === "connected") {
     return (
-      <div className="flex flex-none items-center gap-2">
+      <div className="flex flex-none items-center gap-1.5">
         <Badge tone="success" dot>Connected</Badge>
-        <Button variant="ghost" size="sm" loading={pending} onClick={onDisconnect}>
-          Disconnect
-        </Button>
+        {/* `Button` rather than `IconButton`: it carries the loading spinner,
+            and an icon with no children renders as a compact square. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="x"
+          loading={pending}
+          onClick={onDisconnect}
+          aria-label={`Disconnect ${name}`}
+          title={`Disconnect ${name}`}
+          className="px-2"
+        />
       </div>
     );
   }

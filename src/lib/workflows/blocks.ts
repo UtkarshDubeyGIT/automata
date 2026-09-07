@@ -1,7 +1,7 @@
 import type { IconName } from "@/components/ui/icon";
 import type { TileColor } from "@/lib/data/workflows";
 import { PLATFORMS, platformMeta } from "@/lib/social/platforms";
-import { appLabel, getTool, getTrigger, SIMULATED_APPS, TOOLS, TRIGGERS, watchValues } from "./registry";
+import { appLabel, getTool, getTrigger, SIMULATED_APPS, TOOLS, TRIGGERS, watchValues, type ToolSpec } from "./registry";
 import type { StepDef, StepType } from "./types";
 
 /**
@@ -599,6 +599,106 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
     ],
   },
 
+  firecrawl: {
+    type: "firecrawl",
+    produces:
+      "text (readable page/search content when available), data (structured provider data), sources " +
+      "(source URLs), operation, status and jobId; crawl and agent may pause until the job completes",
+    label: "Firecrawl research",
+    icon: "globe",
+    tile: "amber",
+    stage: "Research",
+    purpose:
+      "Read public web content through Firecrawl. Use scrape for one page, search to discover pages, " +
+      "map to list a site's URLs, crawl for a multi-page site read, or agent for structured extraction. " +
+      "This node is read-only, never needs human approval, and web research is built in — there is " +
+      "nothing for the workspace to connect. Crawl and agent jobs pause and resume automatically.",
+    config: {
+      operation: "'scrape' | 'search' | 'map' | 'crawl' | 'agent'",
+      url: "public HTTP(S) URL for scrape, map, crawl, or agent",
+      query: "search query for search",
+      prompt: "what the agent should extract from the public page",
+      schema: "optional JSON object describing structured fields for agent",
+      limit: "maximum results/pages, bounded by the operation",
+    },
+    routing: ["next"],
+    defaults: { operation: "scrape", url: "", query: "", prompt: "", schema: {}, limit: 10 },
+    fields: [
+      ...TITLE_FIELDS,
+      {
+        key: "operation",
+        label: "Operation",
+        kind: "select",
+        required: true,
+        choices: [
+          { value: "scrape", label: "Scrape a page", hint: "Read one public page" },
+          { value: "search", label: "Search the web", hint: "Find relevant public pages" },
+          { value: "map", label: "Map a site", hint: "List a site's URLs" },
+          { value: "crawl", label: "Crawl a site", hint: "Read multiple pages asynchronously" },
+          { value: "agent", label: "Extract structured data", hint: "Use Firecrawl's current agent endpoint" },
+        ],
+      },
+      {
+        key: "url",
+        label: "Public URL",
+        kind: "text",
+        required: true,
+        templated: true,
+        showIf: { key: "operation", equals: ["scrape", "map", "crawl", "agent"] },
+        placeholder: "https://example.com",
+        hint: "Only public HTTP(S) URLs are accepted.",
+      },
+      {
+        key: "query",
+        label: "Search query",
+        kind: "text",
+        required: true,
+        templated: true,
+        showIf: { key: "operation", equals: "search" },
+        placeholder: "competitors in vertical SaaS",
+      },
+      {
+        key: "prompt",
+        label: "What to extract",
+        kind: "textarea",
+        required: true,
+        templated: true,
+        showIf: { key: "operation", equals: "agent" },
+        placeholder: "Find the product name, pricing model, and target customer",
+      },
+      {
+        key: "schema",
+        label: "Structured fields (optional)",
+        kind: "keyvalue",
+        templated: true,
+        showIf: { key: "operation", equals: "agent" },
+        keyLabel: "field",
+        valueLabel: "description",
+        hint: "The agent returns these fields in data.",
+      },
+      {
+        key: "limit",
+        label: "Result limit",
+        kind: "number",
+        showIf: { key: "operation", equals: ["search", "map", "crawl"] },
+        hint: "Bounded by the selected operation.",
+      },
+    ],
+    summary: (s) => {
+      const op = str(s.operation) || "scrape";
+      const target = str(s.url) || str(s.query) || str(s.prompt) || "No input yet";
+      return `${op} · ${truncate(target, 58)}`;
+    },
+    outputs: () => [
+      { path: "text", label: "text — readable content" },
+      { path: "data", label: "data — structured provider data" },
+      { path: "sources", label: "sources — source URLs" },
+      { path: "operation", label: "operation — Firecrawl operation" },
+      { path: "jobId", label: "jobId — async provider job" },
+      { path: "status", label: "status — completed" },
+    ],
+  },
+
   branch: {
     type: "branch",
     produces:
@@ -760,11 +860,11 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       },
     ],
     summary: (s) => {
-      const spec = getTool(str(s.tool));
+      const spec = getTool(str(s.tool), s.tool_spec);
       return spec ? `${appLabel(spec.app)} · ${spec.desc}` : "Pick an action";
     },
     outputs: (s) => {
-      const spec = getTool(str(s.tool));
+      const spec = getTool(str(s.tool), s.tool_spec);
       const base = [
         { path: "result", label: "result — the raw provider response" },
         { path: "url", label: "url — link to the created record, when there is one" },
@@ -775,6 +875,44 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       }
       return base;
     },
+  },
+
+  whatsapp_reminder: {
+    type: "whatsapp_reminder",
+    produces: "delivery_id (durable delivery record id), status and successful",
+    label: "Send WhatsApp reminder",
+    icon: "message-circle",
+    tile: "green",
+    stage: "Notify",
+    purpose:
+      "Queue a concise WhatsApp reminder for the workspace owner's verified, consented number. " +
+      "Use this for workflow summaries, failures, and approval alerts; never include secrets.",
+    config: {
+      message: "plain-text reminder, may use {{steps.<id>.field}} references",
+    },
+    routing: ["next"],
+    defaults: {
+      title: "Send WhatsApp reminder",
+      stage: "Notify",
+      message: "{{steps.summary.text}}\n\nOpen in ZidaneAI for details.",
+    },
+    fields: [
+      ...TITLE_FIELDS,
+      {
+        key: "message",
+        label: "Message",
+        kind: "textarea",
+        required: true,
+        templated: true,
+        placeholder: "Meeting summary: {{steps.summary.text}}",
+        hint: "Sent to the workspace owner's verified WhatsApp. Keep sensitive details behind a ZidaneAI link.",
+      },
+    ],
+    summary: (s) => truncate(str(s.message) || "Send the workflow summary to WhatsApp"),
+    outputs: () => [
+      { path: "delivery_id", label: "delivery_id — durable delivery record" },
+      { path: "status", label: "status — queued, sent, delivered, or read" },
+    ],
   },
 
   social_post: {
@@ -987,12 +1125,16 @@ export function outputKeys(step: StepDef): Set<string> {
       return new Set(["text", "meetingId", "provider", "model", "chunks"]);
     case "generate_image":
       return new Set(["url", "provider", "aspect"]);
+    case "firecrawl":
+      return new Set(["text", "data", "sources", "operation", "jobId", "status"]);
     case "branch":
       return new Set([str(step.key) || str(step.branch_on) || "value", "branched_on"]);
     case "filter":
       return new Set(["passed", "value", "operator", "compared_to", "unresolved"]);
     case "human_approval":
       return new Set(["decision", "note", "auto"]);
+    case "whatsapp_reminder":
+      return new Set(["delivery_id", "status", "successful", "simulated"]);
     case "app_action":
       // `text` only exists on READ actions, but an unknown/blank tool slug must
       // not produce a false "invalid reference" while the step is half-built.
@@ -1023,13 +1165,17 @@ export function primaryOutputPath(step: StepDef): string | null {
     case "meeting_summary":
       return "text";
     case "app_action":
-      return getTool(str(step.tool))?.kind === "read" ? "text" : "result";
+      return getTool(str(step.tool), step.tool_spec)?.kind === "read" ? "text" : "result";
     case "generate_image":
       return "url";
     case "log_action":
       return "message";
     case "human_approval":
       return "decision";
+    case "whatsapp_reminder":
+      return "status";
+    case "firecrawl":
+      return "text";
     case "filter":
       return "value";
     case "schedule_trigger":
@@ -1440,8 +1586,9 @@ export function describeStep(step: StepDef): {
 /** Toolkit slug this step's logo should come from, if any. */
 export function stepApp(step: StepDef): string | null {
   if (step.type === "app_event_trigger") return getTrigger(str(step.event))?.app ?? null;
-  if (step.type === "app_action") return getTool(str(step.tool))?.app ?? null;
+  if (step.type === "app_action") return getTool(str(step.tool), step.tool_spec)?.app ?? str(step.toolkit) ?? null;
   if (step.type === "social_post") return str(step.platform) || null;
+  if (step.type === "firecrawl") return "firecrawl";
   return null;
 }
 
@@ -1468,6 +1615,7 @@ const TOOLKIT_ICON: Record<string, IconName> = {
   youtube: "video",
   reddit: "message-circle",
   tiktok: "video",
+  firecrawl: "globe",
 };
 
 export function stepIcon(step: StepDef): IconName {
@@ -1485,7 +1633,7 @@ export function outputsOf(step: StepDef): { path: string; label: string }[] {
 // The palette — what the "add a step" picker shows
 // ---------------------------------------------------------------------------
 
-export type BlockCategory = "trigger" | "ai" | "logic" | "human" | "app" | "social" | "output";
+export type BlockCategory = "trigger" | "ai" | "logic" | "human" | "app" | "social" | "notification" | "output";
 
 export const CATEGORY_LABELS: Record<BlockCategory, string> = {
   trigger: "Triggers",
@@ -1494,6 +1642,7 @@ export const CATEGORY_LABELS: Record<BlockCategory, string> = {
   human: "People",
   app: "Apps",
   social: "Channels",
+  notification: "Notifications",
   output: "Output",
 };
 
@@ -1518,8 +1667,32 @@ function block(spec: PaletteBlock): PaletteBlock {
   return spec;
 }
 
+export function toolBlock(slug: string, spec: ToolSpec): PaletteBlock {
+  return block({
+    id: `app:${slug}`,
+    type: "app_action",
+    category: "app",
+    label: headline(spec.desc),
+    desc: `${appLabel(spec.app)} · ${spec.kind === "read" ? "reads data" : "performs an action"}`,
+    icon: TOOLKIT_ICON[spec.app] ?? "plug",
+    tile: spec.kind === "read" ? "amber" : "green",
+    app: spec.app,
+    preset: {
+      tool: slug,
+      toolkit: spec.app,
+      tool_spec: spec,
+      arguments: Object.fromEntries(spec.required.map((r: string) => [r, ""])),
+      title: headline(spec.desc),
+      stage: spec.kind === "read" ? "Fetch" : "Act",
+    },
+    keywords: `${slug} ${spec.app} ${spec.kind}`,
+  });
+}
+
 /** Everything the user can insert, grouped by category in the picker. */
-export function palette(): PaletteBlock[] {
+export function palette(
+  extraTools?: Record<string, ToolSpec> | Array<{ slug: string; spec: ToolSpec }>,
+): PaletteBlock[] {
   const blocks: PaletteBlock[] = [
     // Triggers
     block({
@@ -1627,6 +1800,20 @@ export function palette(): PaletteBlock[] {
       keywords: "video clip reel film footage media instagram tiktok",
     }),
 
+    // Research
+    block({
+      id: "app:firecrawl",
+      type: "firecrawl",
+      category: "app",
+      label: "Firecrawl research",
+      desc: "Search, scrape, map, crawl, or extract structured data from the public web.",
+      icon: "globe",
+      tile: "amber",
+      app: "firecrawl",
+      preset: { title: "Research with Firecrawl", stage: "Research" },
+      keywords: "firecrawl web search scrape crawl map extract research website",
+    }),
+
     // Logic
     block({
       id: "logic:branch",
@@ -1662,6 +1849,23 @@ export function palette(): PaletteBlock[] {
       tile: "violet",
       preset: { title: "Review & approve", stage: "Review" },
       keywords: "human in the loop review approve reject",
+    }),
+
+    // Notifications
+    block({
+      id: "notification:whatsapp",
+      type: "whatsapp_reminder",
+      category: "notification",
+      label: "Send WhatsApp reminder",
+      desc: "Send a workflow summary to a verified, opted-in member.",
+      icon: "message-circle",
+      tile: "green",
+      preset: {
+        title: "Send WhatsApp reminder",
+        stage: "Notify",
+        message: "{{steps.summary.text}}\n\nOpen in ZidaneAI for details.",
+      },
+      keywords: "whatsapp reminder notification summary meeting message",
     }),
 
     // Output
@@ -1711,31 +1915,26 @@ export function palette(): PaletteBlock[] {
   // prompt and can carry caveats ("NOTE: LinkedIn's API does not expose…") —
   // the card shows the headline, the caveat stays in the inspector's hint.
   for (const [slug, spec] of Object.entries(TOOLS)) {
-    blocks.push(
-      block({
-        id: `app:${slug}`,
-        type: "app_action",
-        category: "app",
-        label: headline(spec.desc),
-        desc: `${appLabel(spec.app)} · ${spec.kind === "read" ? "reads data" : "performs an action"}`,
-        icon: TOOLKIT_ICON[spec.app] ?? "plug",
-        tile: spec.kind === "read" ? "amber" : "green",
-        app: spec.app,
-        preset: {
-          tool: slug,
-          toolkit: spec.app,
-          arguments: Object.fromEntries(spec.required.map((r) => [r, ""])),
-          title: headline(spec.desc),
-          stage: spec.kind === "read" ? "Fetch" : "Act",
-        },
-        keywords: `${slug} ${spec.app} ${spec.kind}`,
-      }),
-    );
+    blocks.push(toolBlock(slug, spec));
+  }
+
+  if (extraTools) {
+    const list = Array.isArray(extraTools)
+      ? extraTools
+      : Object.entries(extraTools).map(([slug, spec]) => ({ slug, spec }));
+    for (const { slug, spec } of list) {
+      if (!(slug in TOOLS)) {
+        blocks.push(toolBlock(slug, spec));
+      }
+    }
   }
 
   // One block per publishable channel.
   for (const p of PLATFORMS) {
-    if (p.id === "youtube" || p.id === "tiktok") continue; // video publishing not supported yet
+    // TikTok alone. YouTube publishes for real now (`youtube-upload.ts`);
+    // TikTok's Content Posting API still needs a developer app and an audit,
+    // so a block for it would offer a step that always fails.
+    if (p.id === "tiktok") continue;
     blocks.push(
       block({
         id: `social:${p.id}`,

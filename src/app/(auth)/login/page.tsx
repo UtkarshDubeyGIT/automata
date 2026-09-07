@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-import { signIn, signInWithGoogle } from "../actions";
+import { signIn } from "../actions";
 
 type LoginPageProps = { searchParams: Promise<{ error?: string; message?: string }> };
 
@@ -15,8 +15,6 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       {notice.error ? <p className="auth-alert error">{notice.error}</p> : null}
       {notice.message ? <p className="auth-alert">{notice.message}</p> : null}
       {!configured ? <p className="auth-alert preview">Supabase keys are not set. Forms open the local product preview.</p> : null}
-      <form action={signInWithGoogle}><button className="oauth-button" type="submit"><b>G</b> Continue with Google</button></form>
-      <div className="auth-divider"><span>or use email</span></div>
       <form action={signIn} className="auth-form">
         <label>Email address<input type="email" name="email" autoComplete="email" placeholder="you@company.com" required /></label>
         <label>Password<input type="password" name="password" autoComplete="current-password" placeholder="Your password" required /></label>
