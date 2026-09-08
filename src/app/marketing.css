@@ -304,7 +304,7 @@
 .aqua-button:hover, .glass-button:hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px white, 0 8px 18px rgba(39,57,135,.18); }
 .hero-center > small { display: block; margin-top: 14px; color: #8b8991; font-size: 11px; }
 .hero-playground { width: min(720px, calc(100vw - 40px)); margin: 24px auto 0; padding: 14px 18px 13px; border: 1px solid #d6d4dc; border-radius: 14px; background: rgba(255,255,255,.78); box-shadow: 0 12px 30px rgba(50,79,130,.07); backdrop-filter: blur(14px); }
-.hero-playground > p { margin: 0; color: #66646e; font-size: 12px; line-height: 1.45; }.hero-playground > p b { color: #26242c; }.hero-playground > div { min-height: 42px; margin: 11px 0 7px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; }.hero-playground .service-icon { width: 34px; height: 34px; margin-left: -5px; box-shadow: 0 4px 9px rgba(24,23,31,.09); transition: transform .18s ease; }.hero-playground .service-icon:first-child { margin-left: 0; }.hero-playground .service-icon:hover { z-index: 2; transform: translateY(-4px) scale(1.08); }.hero-playground > span { color: #8b8991; font: 650 9px ui-monospace, monospace; }
+.hero-playground > p { margin: 0; color: #66646e; font-size: 12px; line-height: 1.45; }.hero-playground > p b { color: #26242c; }.hero-playground > div { min-height: 42px; margin: 11px 0 7px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; }.hero-playground .service-icon { width: 34px; height: 34px; margin-left: -5px; box-shadow: 0 4px 9px rgba(24,23,31,.09); }.hero-playground .service-icon:first-child { margin-left: 0; }.hero-playground > span { color: #8b8991; font: 650 9px ui-monospace, monospace; }
 .mini-window-bar, .product-window-bar { min-height: 32px; border-bottom: 1px solid rgba(21,21,27,.17); background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(222,222,220,.95)); display: flex; align-items: center; gap: 6px; padding: 0 10px; }
 .mini-window-bar > i, .window-lights i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); background: #ff675d; box-shadow: inset 0 1px white; }
 .mini-window-bar > i:nth-child(2), .window-lights i:nth-child(2) { background: #ffbf3d; }
@@ -425,9 +425,12 @@
 }
 
 
-/* Official service marks ------------------------------------------------- */
+/* Official service marks -------------------------------------------------
+   Real brand logos on a plain light plate. The plate is neutral on purpose:
+   these marks already carry their own colour, and tinting the backing as well
+   used to give every row a different accent. No hover state — a logo is a
+   label, not a control. */
 .service-icon {
-  --service-color: #71748a;
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
@@ -435,28 +438,29 @@
   display: inline-grid;
   place-items: center;
   overflow: hidden;
-  color: #fff;
-  background: var(--service-color);
+  color: #4a4a55;
+  background: #fff;
   border: 2px solid #fff;
-  font: 800 8px ui-monospace, monospace;
+  box-shadow: inset 0 0 0 1px rgba(20, 20, 30, 0.08);
+  font: 800 9px ui-monospace, monospace;
   line-height: 1;
-  text-transform: none;
+  text-transform: uppercase;
   letter-spacing: 0;
 }
-.service-icon svg { width: 57%; height: 57%; display: block; fill: currentColor; }
-.service-icon-mark { border: 0; color: var(--service-color); background: transparent; }
-.service-icon-fallback { background: #6f7280; }
-.hero-module > .module-service-icon { width: 38px; height: 38px; border: 0; border-radius: 10px; color: #fff; background: var(--service-color); }
+.service-icon-art { width: 68%; height: 68%; display: block; object-fit: contain; }
+span.service-icon-art { display: inline-grid; place-items: center; }
+.service-icon-mark { border: 0; box-shadow: none; background: transparent; }
+.hero-module > .module-service-icon { width: 38px; height: 38px; border: 0; border-radius: 10px; }
 .app-stack .service-icon + .service-icon, .app-template-apps .service-icon + .service-icon, .automation-app-stack .service-icon + .service-icon { margin-left: -6px; }
 .public-template-card .app-stack .service-icon { width: 36px; height: 36px; margin-right: -5px; }
 .little-apps .service-icon { width: 38px; height: 38px; margin-right: -6px; }
 .desk-card-body > .service-icon { width: 38px; height: 38px; border: 0; border-radius: 10px; }
-.canvas-node span.service-icon { width: 38px; height: 38px; border: 0; padding: 0; color: #fff; background: var(--service-color); }
+.canvas-node span.service-icon { width: 38px; height: 38px; border: 0; padding: 0; border-radius: 10px; }
 .approval-meta > .service-icon { width: 44px; height: 44px; border: 0; border-radius: 11px; }
 .automation-app-stack .service-icon { width: 32px; height: 32px; }
 .app-template-apps .service-icon { width: 29px; height: 29px; }
-.integration-card header > span.service-icon { width: 38px; height: 38px; padding: 0; border: 0; border-radius: 10px; color: #fff; background: var(--service-color); }
-.growth-app-art.service-icon { width: 46px; height: 46px; border: 0; color: #fff; }
+.integration-card header > span.service-icon { width: 38px; height: 38px; padding: 0; border: 0; border-radius: 10px; }
+.growth-app-art.service-icon { width: 46px; height: 46px; border: 0; }
 .growth-inspector-summary .growth-app-art.service-icon { width: 36px; height: 36px; }
 
 
