@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/form";
-import { Dialog } from "@/components/ui/feedback";
+import { Dialog, Skeleton } from "@/components/ui/feedback";
 import { useToast } from "@/components/ui/toast";
 import { useCredits } from "@/components/ui/credits";
 import { cn } from "@/lib/utils";
@@ -804,9 +804,9 @@ function WorkflowsContent() {
             {loadError ? (
               <ErrorState message={loadError} onRetry={() => void load()} />
             ) : loading ? (
-              <div className="grid gap-3.5 md:grid-cols-2">
+              <div className="grid gap-3.5 md:grid-cols-2" aria-hidden="true">
                 {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className="h-[132px] animate-pulse rounded-card bg-inset" />
+                  <WorkflowCardSkeleton key={i} />
                 ))}
               </div>
             ) : list.length === 0 ? (
@@ -864,11 +864,7 @@ function WorkflowsContent() {
             {runsError && runs === null ? (
               <ErrorState message={runsError} onRetry={() => void loadRuns()} />
             ) : runs === null ? (
-              <div className="flex flex-col gap-2">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-[62px] animate-pulse rounded-card bg-inset" />
-                ))}
-              </div>
+              <RunTimelineSkeleton />
             ) : runs.length === 0 ? (
               <EmptyState
                 icon="activity"
@@ -892,9 +888,9 @@ function WorkflowsContent() {
           ) : runsError && runs === null ? (
             <ErrorState message={runsError} onRetry={() => void loadRuns()} />
           ) : items === null || runs === null ? (
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-3.5" aria-hidden="true">
               {[0, 1].map((i) => (
-                <div key={i} className="h-[200px] animate-pulse rounded-[18px] bg-inset" />
+                <AttentionCardSkeleton key={i} lead={i === 0} />
               ))}
             </div>
           ) : attention.length === 0 ? (
@@ -1178,6 +1174,34 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 // My workflows
 // ---------------------------------------------------------------------------
 
+/**
+ * The loading shape of a WorkflowCard.
+ *
+ * Same chrome as the real card — border, radius, padding, the 40px logo slot,
+ * the divided footer — so the only thing that changes when data lands is the
+ * text inside it. A plain grey block of roughly the right height still made the
+ * whole grid jump, because it had none of the card's internal structure.
+ */
+function WorkflowCardSkeleton() {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-card border border-line bg-card p-4 shadow-xs">
+      <div className="flex items-start gap-3">
+        <Skeleton className="h-10 w-10 flex-none rounded-[12px]" />
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-[15px] w-1/2" />
+          <Skeleton className="mt-2 h-[13px] w-4/5" />
+        </div>
+        {/* The toggle. */}
+        <Skeleton rounded="full" className="h-[22px] w-[38px] flex-none" />
+      </div>
+      <div className="mt-4 flex items-center gap-3 border-t border-line pt-3.5">
+        <Skeleton rounded="full" className="h-[22px] w-[112px]" />
+        <Skeleton className="ml-auto h-[13px] w-[64px]" />
+      </div>
+    </div>
+  );
+}
+
 function WorkflowCard({
   wf,
   busy,
@@ -1328,6 +1352,43 @@ function dayBucket(iso: string): string {
   return "Earlier";
 }
 
+/**
+ * The loading shape of the run timeline.
+ *
+ * The timeline is the point of this view — a vertical rule, a day heading, then
+ * rows hanging off it with a status dot each. The old skeleton was a flat stack
+ * of grey bars, so the rail and the heading appeared out of nowhere on load and
+ * pushed every row sideways.
+ */
+function RunTimelineSkeleton() {
+  return (
+    <div className="relative pl-[34px]" aria-hidden="true">
+      <span className="absolute bottom-1.5 left-[14px] top-1.5 w-px bg-line" />
+      <Skeleton className="-ml-[34px] mb-3 h-[14px] w-[72px]" />
+      <div className="flex flex-col gap-2">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className="relative flex items-center gap-3.5 rounded-card border border-line bg-card px-4 py-3"
+          >
+            {/* The status dot, sitting on the rail. */}
+            <Skeleton
+              rounded="full"
+              className="absolute -left-[27px] top-1/2 h-[11px] w-[11px] -translate-y-1/2 border-[2.5px] border-page"
+            />
+            <Skeleton className="h-10 w-10 flex-none rounded-[12px]" />
+            <span className="min-w-0 flex-1">
+              <Skeleton className="h-[14px] w-2/5" />
+              <Skeleton className="mt-2 h-[12.5px] w-3/5" />
+            </span>
+            <Skeleton className="h-[12.5px] w-[52px] flex-none" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RunTimeline({ runs, onOpen }: { runs: RunItem[]; onOpen: (r: RunItem) => void }) {
   // Runs arrive newest first, so the buckets come out in order for free.
   const groups: { label: string; runs: RunItem[] }[] = [];
@@ -1407,6 +1468,39 @@ type AttentionItem =
   | { kind: "waiting"; wf: WorkflowListItem; run: RunItem }
   | { kind: "failed"; wf: WorkflowListItem; run?: RunItem }
   | { kind: "trigger"; wf: WorkflowListItem };
+
+/**
+ * The loading shape of an AttentionCard, including the lead card's ring.
+ *
+ * The first card is the one to deal with and is ringed in the real view, so the
+ * skeleton rings it too — otherwise the emphasis appears from nowhere and the
+ * card grows by the width of the ring when data lands.
+ */
+function AttentionCardSkeleton({ lead }: { lead: boolean }) {
+  return (
+    <div
+      className={cn(
+        "rounded-[18px] border bg-card p-5 shadow-sm",
+        lead ? "border-brand-border ring-4 ring-brand-border" : "border-line",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <Skeleton className="h-10 w-10 flex-none rounded-[12px]" />
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-[16px] w-2/5" />
+          <Skeleton className="mt-2 h-[13px] w-1/4" />
+        </div>
+        <Skeleton rounded="full" className="h-[22px] w-[88px] flex-none" />
+      </div>
+      <Skeleton className="mt-4 h-[13.5px] w-full" />
+      <Skeleton className="mt-2 h-[13.5px] w-3/4" />
+      <div className="mt-5 flex items-center gap-2.5">
+        <Skeleton rounded="control" className="h-[38px] w-[104px]" />
+        <Skeleton rounded="control" className="h-[38px] w-[92px]" />
+      </div>
+    </div>
+  );
+}
 
 function AttentionCard({
   item,

@@ -134,3 +134,37 @@ export function Dialog({
     </div>
   );
 }
+
+/**
+ * A single placeholder bar.
+ *
+ * Exists so loading states can be built from the same pieces as the thing they
+ * stand in for — a card skeleton is the real card chrome with these where the
+ * text goes, not a grey rectangle the size of the card. A block that doesn't
+ * match what arrives reads as a layout shift rather than as loading.
+ */
+export function Skeleton({
+  className,
+  rounded = "sm",
+}: {
+  className?: string;
+  /** Match the radius of whatever this stands in for. */
+  rounded?: "sm" | "full" | "control" | "card";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "block animate-pulse bg-inset",
+        rounded === "full"
+          ? "rounded-full"
+          : rounded === "control"
+            ? "rounded-control"
+            : rounded === "card"
+              ? "rounded-card"
+              : "rounded-[5px]",
+        className,
+      )}
+    />
+  );
+}

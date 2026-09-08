@@ -1143,7 +1143,12 @@ export default function WorkflowDetailPage() {
       <div className="min-w-0">
           {tab === "editor" ? (
             !graph ? (
-              <div className="h-[560px] min-h-[460px] animate-pulse rounded-card border border-line bg-inset lg:h-[calc(100vh-250px)]" />
+              <div
+                // Same box as the canvas shell below, shadow included, so the
+                // only thing that changes on load is what's drawn inside it.
+                className="h-[560px] min-h-[460px] animate-pulse rounded-card border border-line bg-inset shadow-xs lg:h-[calc(100vh-250px)]"
+                aria-hidden="true"
+              />
             ) : (
               <div
                 data-workflow-canvas-shell
@@ -1306,7 +1311,7 @@ function ModuleLibrary({ onPick, onClose }: { onPick: (block: PaletteBlock) => v
           className="h-9 w-full rounded-[8px] border border-line bg-inset px-3 text-[12.5px] text-ink outline-none focus:border-brand"
         />
       </div>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-3">
         {shown.map((block) => (
           <button
             key={block.id}
