@@ -605,7 +605,7 @@ function PromptBox({
   return (
     <div
       className={cn(
-        "border border-line bg-card transition focus-within:border-brand focus-within:ring-[3px] focus-within:ring-[color:rgba(74,69,209,0.18)]",
+        "border border-line bg-card transition focus-within:border-brand focus-within:ring-[3px] focus-within:ring-[color:rgba(23,23,23,0.18)]",
         hero ? "rounded-[18px] shadow-sm" : "rounded-[16px]",
       )}
     >

@@ -661,8 +661,14 @@ function WorkflowsContent() {
         }}
       />
 
+      {/* No tabindex on these panels. Every one of them contains focusable
+          content, so APG does not ask for one, and nothing focuses them in
+          code — but tabindex="-1" makes a container click-focusable, so a
+          click on empty panel background parked focus here and the next
+          keypress (Cmd, Shift, anything) flipped it to :focus-visible and
+          drew the page-wide focus ring. */}
       {tab === "create" && (
-        <div className="pt-6" role="tabpanel" id="tabpanel-create" aria-labelledby="tab-create" tabIndex={-1}>
+        <div className="pt-6" role="tabpanel" id="tabpanel-create" aria-labelledby="tab-create">
           <BuilderChat
             variant="hero"
             placeholder="Describe the automation you want"
@@ -749,7 +755,7 @@ function WorkflowsContent() {
       )}
 
       {tab === "workflows" && (
-        <div className="mx-auto w-full max-w-[1080px] pt-9" role="tabpanel" id="tabpanel-workflows" aria-labelledby="tab-workflows" tabIndex={-1}>
+        <div className="mx-auto w-full max-w-[1080px] pt-9" role="tabpanel" id="tabpanel-workflows" aria-labelledby="tab-workflows">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-[220px] flex-1">
               <Input
@@ -830,7 +836,7 @@ function WorkflowsContent() {
       )}
 
       {tab === "runs" && (
-        <div className="mx-auto w-full max-w-[880px] pt-9" role="tabpanel" id="tabpanel-runs" aria-labelledby="tab-runs" tabIndex={-1}>
+        <div className="mx-auto w-full max-w-[880px] pt-9" role="tabpanel" id="tabpanel-runs" aria-labelledby="tab-runs">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-[220px] flex-1">
               <Input
@@ -879,7 +885,7 @@ function WorkflowsContent() {
       )}
 
       {tab === "attention" && (
-        <div className="mx-auto w-full max-w-[820px] pt-9" role="tabpanel" id="tabpanel-attention" aria-labelledby="tab-attention" tabIndex={-1}>
+        <div className="mx-auto w-full max-w-[820px] pt-9" role="tabpanel" id="tabpanel-attention" aria-labelledby="tab-attention">
           {runsError && runs !== null && <StaleNote onRetry={() => void loadRuns()} />}
           {loadError && items === null ? (
             <ErrorState message={loadError} onRetry={() => void load()} />
@@ -1205,7 +1211,7 @@ function WorkflowCard({
       <button
         onClick={onOpen}
         aria-label={`Open ${wf.name}`}
-        className="absolute inset-0 rounded-card focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(74,69,209,0.32)]"
+        className="absolute inset-0 rounded-card focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]"
       />
 
       <div className="pointer-events-none relative flex items-start gap-3">
@@ -1284,7 +1290,7 @@ function Toggle({
       onClick={onClick}
       className={cn(
         "pointer-events-auto relative h-[21px] w-9 flex-none rounded-full transition-colors duration-200",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(74,69,209,0.32)]",
+        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
         on ? "bg-success" : "bg-line-strong",
         busy && "opacity-60",
       )}
@@ -1450,7 +1456,7 @@ function AttentionCard({
       className={cn(
         "rounded-[18px] border bg-card p-5 shadow-sm",
         lead
-          ? "border-brand-border ring-4 ring-[color:rgba(94,90,224,0.08)]"
+          ? "border-brand-border ring-4 ring-[color:rgba(23,23,23,0.06)]"
           : "border-line",
       )}
     >

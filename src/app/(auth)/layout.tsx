@@ -1,3 +1,4 @@
+import { AuthOrbits } from "@/components/auth-orbits";
 import { Logo } from "@/components/logo";
 
 export default function AuthLayout({
@@ -19,13 +20,7 @@ export default function AuthLayout({
 
       {/* Brand panel — the sanctioned dark editorial surface */}
       <div className="relative hidden overflow-hidden bg-gray-950 lg:block">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(70% 60% at 70% 20%, rgba(94,90,224,0.5), transparent 60%)",
-          }}
-        />
+        <AuthOrbits />
         <div className="relative flex h-full flex-col justify-end p-14">
           <blockquote className="max-w-md">
             <p className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-white text-balance">

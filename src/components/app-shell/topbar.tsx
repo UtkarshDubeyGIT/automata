@@ -46,7 +46,7 @@ export function Topbar({
           ref={searchRef}
           aria-label="Search workflows"
           placeholder="Search workflows…"
-          className="h-10 w-full rounded-control border border-line bg-sunken pl-10 pr-16 text-[14px] text-ink placeholder:text-ink-subtle focus:border-focus focus:bg-card focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(74,69,209,0.32)]"
+          className="h-10 w-full rounded-control border border-line bg-sunken pl-10 pr-16 text-[14px] text-ink placeholder:text-ink-subtle focus:border-focus focus:bg-card focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)]"
         />
         <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-line bg-card px-1.5 py-0.5 font-mono text-[11px] text-ink-subtle">
           ⌘K
@@ -114,7 +114,7 @@ function AccountMenu({ userName, userEmail }: { userName: string; userEmail?: st
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className="flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(74,69,209,0.32)]"
+        className="flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]"
       >
         <Avatar name={userName} size="md" status="online" />
       </button>

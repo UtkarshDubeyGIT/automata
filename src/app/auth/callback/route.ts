@@ -1,16 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { safeNext } from "@/lib/auth/redirects";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  const code = request.nextUrl.searchParams.get("code");
-  const next = request.nextUrl.searchParams.get("next");
-  const safeNext = next?.startsWith("/") && !next.startsWith("//") ? next : "/app";
-  const supabase = await createServerSupabaseClient();
+  const params = request.nextUrl.searchParams;
+  const code = params.get("code");
+  const dest = safeNext(params.get("next"));
 
-  if (code && supabase) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(new URL(safeNext, request.url));
+  // Providers report failures on the redirect itself; surface those rather
+  // than pretending the code was simply unverifiable.
+  const providerError = params.get("error_description") ?? params.get("error");
+  if (providerError) {
+    console.error("[auth] callback returned an error", { providerError });
+    return NextResponse.redirect(new URL("/login?notice=link_expired", request.url));
   }
-  return NextResponse.redirect(new URL("/login?error=Sign-in%20link%20could%20not%20be%20verified.", request.url));
+
+  if (code) {
+    const supabase = await createServerSupabaseClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) return NextResponse.redirect(new URL(dest, request.url));
+    console.error("[auth] code exchange failed", { code: error.code, status: error.status });
+  }
+
+  return NextResponse.redirect(new URL("/login?notice=verify_failed", request.url));
 }

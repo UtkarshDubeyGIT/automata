@@ -5,6 +5,7 @@ export { Stat } from "./stat";
 export { Badge, Tag } from "./badge";
 export { Avatar } from "./avatar";
 export { Field, Input, Textarea, Select, Checkbox, Switch } from "./form";
+export { PasswordInput } from "./password-input";
 export { Tabs, Segmented, Chips, type TabItem } from "./tabs";
 export { ProgressBar, Tooltip, Dialog } from "./feedback";
 export { ToastProvider, useToast } from "./toast";

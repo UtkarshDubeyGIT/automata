@@ -52,7 +52,7 @@ const frequentlyAsked = [
 const deskCards = [
   { className: "desk-card desk-card-sheet", label: "trigger.payload", detail: "new paid order", tone: "#16a46c", mark: "GS", slug: "googlesheets" },
   { className: "desk-card desk-card-approval", label: "approval needed", detail: "message operations?", tone: "#f06f52", mark: "✓", slug: undefined },
-  { className: "desk-card desk-card-run", label: "run 2,184", detail: "finished in 2.4s", tone: "#6256d9", mark: "↗", slug: undefined },
+  { className: "desk-card desk-card-run", label: "run 2,184", detail: "finished in 2.4s", tone: "#5686d9", mark: "↗", slug: undefined },
 ];
 
 export default function LandingPage() {

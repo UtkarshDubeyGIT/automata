@@ -40,7 +40,7 @@ function normalizeHex(v: string | null | undefined, fallback: string): string {
 }
 
 export function carouselHtml(slides: CarouselSlide[], brand: CarouselBrand = {}): string {
-  const accent = normalizeHex(brand.accent, "#4f46e5");
+  const accent = normalizeHex(brand.accent, "#262626");
   const company = (brand.company ?? "").trim();
   const total = slides.length;
 
@@ -88,7 +88,7 @@ export function carouselHtml(slides: CarouselSlide[], brand: CarouselBrand = {})
   footer {
     position: absolute; left: 88px; right: 88px; bottom: 64px;
     display: flex; justify-content: space-between; align-items: center;
-    font-size: 26px; color: #64748b;
+    font-size: 26px; color: #737373;
   }
   .brand { font-weight: 600; color: ${accent}; }
 </style></head>

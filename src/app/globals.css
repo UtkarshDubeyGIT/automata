@@ -2,7 +2,9 @@
 
 /* ============================================================
    ZidaneAI design tokens → Tailwind v4 theme
-   Light-first. Deep indigo brand + cool-neutral grays.
+   Light-first. Monochrome: near-black brand + true-neutral grays.
+   Status ramps (green/amber/red) stay in colour on purpose — they carry
+   meaning, not brand.
    Fonts are provided by next/font (see layout.tsx) as
    --font-sora / --font-hanken / --font-geist-mono.
    ============================================================ */
@@ -13,33 +15,34 @@
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ---- Brand: Indigo ramp --------------------------------- */
-  --color-indigo-50: #eeeffe;
-  --color-indigo-100: #e0e1fc;
-  --color-indigo-200: #c5c6fa;
-  --color-indigo-300: #a2a2f4;
-  --color-indigo-400: #7e7dec;
-  --color-indigo-500: #5e5ae0;
-  --color-indigo-600: #4a45d1;
-  --color-indigo-700: #3a35b3;
-  --color-indigo-800: #2c2987;
-  --color-indigo-900: #201e5e;
-  --color-indigo-950: #131238;
+  /* ---- Brand: neutral ramp (still named indigo-* so the
+     existing utilities and var() references keep resolving) ---- */
+  --color-indigo-50: #f4f4f4;
+  --color-indigo-100: #e8e8e8;
+  --color-indigo-200: #d6d6d6;
+  --color-indigo-300: #b8b8b8;
+  --color-indigo-400: #8f8f8f;
+  --color-indigo-500: #616161;
+  --color-indigo-600: #3d3d3d;
+  --color-indigo-700: #262626;
+  --color-indigo-800: #171717;
+  --color-indigo-900: #0d0d0d;
+  --color-indigo-950: #050505;
 
   /* ---- Neutrals: cool gray -------------------------------- */
   --color-gray-0: #ffffff;
-  --color-gray-25: #fbfbfd;
-  --color-gray-50: #f6f7fa;
-  --color-gray-100: #edeef3;
-  --color-gray-200: #e0e2ea;
-  --color-gray-300: #cbcdd9;
-  --color-gray-400: #9ea1b2;
-  --color-gray-500: #71748a;
-  --color-gray-600: #565a6e;
-  --color-gray-700: #3d4052;
-  --color-gray-800: #262936;
-  --color-gray-900: #171922;
-  --color-gray-950: #0d0e15;
+  --color-gray-25: #fcfcfc;
+  --color-gray-50: #f7f7f7;
+  --color-gray-100: #efefef;
+  --color-gray-200: #e2e2e2;
+  --color-gray-300: #cccccc;
+  --color-gray-400: #a0a0a0;
+  --color-gray-500: #737373;
+  --color-gray-600: #575757;
+  --color-gray-700: #3f3f3f;
+  --color-gray-800: #272727;
+  --color-gray-900: #171717;
+  --color-gray-950: #0c0c0c;
 
   /* ---- Status ramps --------------------------------------- */
   --color-green-50: #e6f7ee;
@@ -58,10 +61,23 @@
   --color-red-600: #c12b31;
   --color-red-700: #9c2227;
 
+  /* ---- Accent: the one colour left in a greyscale system ---
+     Links carry it everywhere; the public site also fills its
+     large brand surfaces with it. Dark enough to sit beside
+     near-black ink without reading as a second brand. -------- */
+  --color-blue-50: #eef2fa;
+  --color-blue-100: #dae3f4;
+  --color-blue-200: #b6c7e8;
+  --color-blue-500: #2f5aad;
+  --color-blue-600: #23478c;
+  --color-blue-700: #1b3a75;
+  --color-blue-800: #152c5a;
+  --color-blue-900: #101f3e;
+
   /* ---- Semantic aliases (clean, non-colliding names) ------ */
-  --color-brand: var(--color-indigo-600);
-  --color-brand-hover: var(--color-indigo-700);
-  --color-brand-active: var(--color-indigo-800);
+  --color-brand: var(--color-indigo-700);
+  --color-brand-hover: var(--color-indigo-800);
+  --color-brand-active: var(--color-indigo-900);
   --color-brand-subtle: var(--color-indigo-50);
   --color-brand-subtle-hover: var(--color-indigo-100);
   --color-brand-border: var(--color-indigo-200);
@@ -79,7 +95,7 @@
 
   --color-line: var(--color-gray-200);
   --color-line-strong: var(--color-gray-300);
-  --color-focus: var(--color-indigo-500);
+  --color-focus: var(--color-indigo-600);
 
   --color-success: var(--color-green-600);
   --color-success-surface: var(--color-green-50);
@@ -105,12 +121,12 @@
   --radius-modal: 24px;
 
   /* ---- Shadows (soft, layered) ---------------------------- */
-  --shadow-xs: 0 1px 2px rgba(13, 14, 21, 0.05);
-  --shadow-sm: 0 1px 2px rgba(13, 14, 21, 0.05), 0 1px 3px rgba(13, 14, 21, 0.06);
-  --shadow-md: 0 2px 4px rgba(13, 14, 21, 0.05), 0 4px 12px rgba(13, 14, 21, 0.07);
-  --shadow-lg: 0 4px 8px rgba(13, 14, 21, 0.05), 0 12px 28px rgba(13, 14, 21, 0.1);
-  --shadow-xl: 0 8px 16px rgba(13, 14, 21, 0.06), 0 24px 48px rgba(13, 14, 21, 0.14);
-  --shadow-brand: 0 4px 14px rgba(74, 69, 209, 0.3);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.05), 0 12px 28px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.06), 0 24px 48px rgba(0, 0, 0, 0.14);
+  --shadow-brand: 0 4px 14px rgba(23, 23, 23, 0.28);
 
   /* ---- Letter spacing ------------------------------------- */
   --tracking-tighter: -0.03em;
@@ -171,9 +187,9 @@
   --container-wide: 1360px;
 
   /* semantic color aliases mirrored from @theme */
-  --brand: var(--color-indigo-600);
-  --brand-hover: var(--color-indigo-700);
-  --brand-active: var(--color-indigo-800);
+  --brand: var(--color-indigo-700);
+  --brand-hover: var(--color-indigo-800);
+  --brand-active: var(--color-indigo-900);
   --brand-subtle: var(--color-indigo-50);
   --brand-subtle-hover: var(--color-indigo-100);
   --brand-border: var(--color-indigo-200);
@@ -184,7 +200,8 @@
   --text-tertiary: var(--color-gray-500);
   --text-disabled: var(--color-gray-400);
   --text-on-brand: #ffffff;
-  --text-link: var(--color-indigo-600);
+  --text-link: var(--color-blue-800);
+  --text-link-hover: var(--color-blue-900);
 
   --surface-page: var(--color-gray-50);
   --surface-card: #ffffff;
@@ -197,7 +214,7 @@
   --border-subtle: var(--color-gray-200);
   --border-default: var(--color-gray-300);
   --border-strong: var(--color-gray-400);
-  --border-focus: var(--color-indigo-500);
+  --border-focus: var(--color-indigo-600);
 
   --success: var(--color-green-600);
   --success-surface: var(--color-green-50);
@@ -209,9 +226,9 @@
   --danger-surface: var(--color-red-50);
   --danger-border: var(--color-red-100);
 
-  --overlay-scrim: rgba(13, 14, 21, 0.48);
-  --overlay-soft: rgba(13, 14, 21, 0.04);
-  --ring: 0 0 0 3px rgba(74, 69, 209, 0.32);
+  --overlay-scrim: rgba(0, 0, 0, 0.48);
+  --overlay-soft: rgba(0, 0, 0, 0.04);
+  --ring: 0 0 0 3px rgba(23, 23, 23, 0.22);
 
   /* radius mirror */
   --radius-control: 10px;
@@ -219,8 +236,8 @@
   --radius-modal: 24px;
 
   /* shadows mirror */
-  --shadow-inset: inset 0 1px 2px rgba(13, 14, 21, 0.08);
-  --shadow-hairline: 0 0 0 1px rgba(13, 14, 21, 0.06);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-hairline: 0 0 0 1px rgba(0, 0, 0, 0.06);
   --elevation-card: var(--shadow-sm);
   --elevation-raised: var(--shadow-md);
   --elevation-popover: var(--shadow-lg);

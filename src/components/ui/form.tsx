@@ -7,7 +7,7 @@ import { Icon } from "./icon";
 const CONTROL =
   "w-full rounded-control border border-line bg-card px-3.5 text-[14px] text-ink placeholder:text-ink-disabled " +
   "transition-[border-color,box-shadow] duration-150 " +
-  "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(74,69,209,0.32)] " +
+  "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)] " +
   "disabled:cursor-not-allowed disabled:opacity-60";
 
 export function Field({

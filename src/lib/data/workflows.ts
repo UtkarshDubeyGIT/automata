@@ -93,7 +93,7 @@ export interface ResponseSegment {
 const TILE: Record<TileColor, [string, string]> = {
   indigo: ["var(--brand-subtle)", "var(--color-indigo-600)"],
   amber: ["var(--warning-surface)", "var(--color-amber-600)"],
-  tan: ["#F2E9DE", "#B45309"],
+  tan: ["var(--surface-inset)", "var(--color-gray-600)"],
   green: ["var(--success-surface)", "var(--color-green-600)"],
   red: ["var(--danger-surface)", "var(--color-red-600)"],
   violet: ["var(--color-indigo-100)", "var(--color-indigo-500)"],

@@ -57,7 +57,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           "inline-flex select-none items-center justify-center font-medium",
           "transition-[background-color,border-color,color,box-shadow,transform] duration-150",
           "active:translate-y-[0.5px] active:scale-[0.992]",
-          "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(74,69,209,0.32)]",
+          "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
           "disabled:pointer-events-none disabled:opacity-50",
           VARIANT[variant],
           SIZE[size],
@@ -99,7 +99,7 @@ export function IconButton({
       className={cn(
         "inline-flex items-center justify-center rounded-control",
         "transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.94]",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(74,69,209,0.32)]",
+        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
         "disabled:pointer-events-none disabled:opacity-50",
         VARIANT[variant],
         box,

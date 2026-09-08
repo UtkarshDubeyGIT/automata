@@ -3,6 +3,8 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
+const AUTH_ROUTES = new Set(["/login", "/signup", "/forgot-password"]);
+
 export async function proxy(request: NextRequest) {
   const config = getSupabasePublicConfig();
   if (!config) return NextResponse.next({ request });
@@ -22,7 +24,10 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const signedIn = Boolean(data?.claims?.sub);
   const isProductRoute = request.nextUrl.pathname.startsWith("/app");
-  const isAuthRoute = request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/signup";
+  // /reset-password is deliberately absent: arriving there means holding a
+  // recovery session, which counts as signed in, so bouncing it to /app would
+  // make the reset link impossible to use.
+  const isAuthRoute = AUTH_ROUTES.has(request.nextUrl.pathname);
 
   if (!signedIn && isProductRoute) {
     const url = request.nextUrl.clone();
@@ -42,5 +47,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/signup"],
+  matcher: ["/app/:path*", "/login", "/signup", "/forgot-password"],
 };

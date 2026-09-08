@@ -467,7 +467,7 @@ function StepNode({ id, dragging }: NodeProps) {
         className={cn(
           "relative flex h-full w-full items-center justify-center rounded-full border-2 bg-card transition-all",
           selected
-            ? "border-brand shadow-[0_0_0_4px_rgba(74,69,209,0.18)]"
+            ? "border-brand shadow-[0_0_0_4px_rgba(23,23,23,0.18)]"
             : status === "failed"
               ? "border-danger"
               : status === "done"
