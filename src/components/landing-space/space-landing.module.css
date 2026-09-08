@@ -1,0 +1,506 @@
+/* ---------------------------------------------------------------------------
+   Space landing — the sign-in panel's night sky, stretched over a whole page.
+
+   Everything decorative here is a product concept: orbits are routines, the
+   travelling lights are runs, and the "console" is a real run log. Colour is
+   almost entirely absent on purpose; the page is ink, silver, and one warm
+   amber reserved for the moment a human is asked to decide.
+--------------------------------------------------------------------------- */
+
+.page {
+  --sky: #07070a;
+  --sky-2: #0c0c11;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --ink: #f4f4f7;
+  --ink-muted: #a3a3ad;
+  --ink-subtle: #70707a;
+  --attention: #f2b357;
+  --live: #5fd39a;
+  position: relative;
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: var(--sky);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Two starfield layers, each a tiled set of tiny radial dots at prime-ish
+   tile sizes so the repetition never lines up. The far layer twinkles. */
+.stars,
+.starsNear {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+}
+.stars {
+  background-image:
+    radial-gradient(1px 1px at 23px 31px, rgba(255, 255, 255, 0.55), transparent 60%),
+    radial-gradient(1px 1px at 117px 163px, rgba(255, 255, 255, 0.4), transparent 60%),
+    radial-gradient(1.2px 1.2px at 191px 47px, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 61px 211px, rgba(255, 255, 255, 0.35), transparent 60%),
+    radial-gradient(1px 1px at 149px 97px, rgba(255, 255, 255, 0.45), transparent 60%),
+    radial-gradient(1px 1px at 229px 199px, rgba(255, 255, 255, 0.3), transparent 60%);
+  background-size: 251px 251px;
+  animation: twinkle 9s ease-in-out infinite alternate;
+  opacity: 0.7;
+}
+.starsNear {
+  background-image:
+    radial-gradient(1.4px 1.4px at 41px 71px, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1.6px 1.6px at 277px 191px, rgba(255, 255, 255, 0.55), transparent 60%),
+    radial-gradient(1.2px 1.2px at 331px 37px, rgba(255, 255, 255, 0.6), transparent 60%);
+  background-size: 397px 397px;
+  opacity: 0.5;
+}
+@keyframes twinkle {
+  from { opacity: 0.45; }
+  to { opacity: 0.85; }
+}
+
+/* A faint cold nebula behind the hero so the black has depth without a hue
+   loud enough to read as brand colour. */
+.nebula {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 70% 30%, rgba(90, 110, 160, 0.16), transparent 70%),
+    radial-gradient(40% 40% at 20% 80%, rgba(120, 120, 140, 0.08), transparent 70%);
+}
+
+/* Section boundaries are hairlines that fade at the edges, like a horizon. */
+.horizon {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+.eyebrow i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--live);
+  box-shadow: 0 0 0 4px rgba(95, 211, 154, 0.14);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(95, 211, 154, 0.1); }
+  50% { box-shadow: 0 0 0 6px rgba(95, 211, 154, 0.2); }
+}
+
+.display {
+  /* Headings default to the light theme's ink via the base layer. */
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+.display em {
+  font-style: normal;
+  color: transparent;
+  background: linear-gradient(180deg, #ffffff 0%, #b9b9c4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.primary,
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), background 0.2s;
+}
+.primary {
+  background: #ffffff;
+  color: #0b0b0f;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.4),
+    0 12px 40px rgba(255, 255, 255, 0.12);
+}
+.primary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 16px 50px rgba(255, 255, 255, 0.2);
+}
+.ghost {
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+}
+.ghost:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+/* Glass card: the one surface treatment used everywhere below the hero. */
+.card {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  backdrop-filter: blur(10px);
+  transition: border-color 0.25s, transform 0.25s var(--ease-out), background 0.25s;
+}
+.card:hover {
+  border-color: var(--line-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.02));
+}
+.cardLink:hover {
+  transform: translateY(-2px);
+}
+
+/* ---- Hero route: one workflow as a short vertical story ----------------- */
+.route {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  background: rgba(10, 10, 14, 0.7);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.routePrompt {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.routePrompt svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ink-subtle);
+}
+.routeStops {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+.routeRail {
+  position: absolute;
+  left: 21px;
+  top: 28px;
+  bottom: 28px;
+  width: 1px;
+  background: var(--line-strong);
+}
+.routeRail::after {
+  content: "";
+  position: absolute;
+  left: -1.5px;
+  top: 0;
+  width: 4px;
+  height: 40px;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, transparent, #ffffff);
+  opacity: 0.85;
+  animation: descend 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes descend {
+  0% { transform: translateY(-40px); opacity: 0; }
+  12% { opacity: 0.9; }
+  80% { opacity: 0.9; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+.routeStop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px 8px 0;
+  border-radius: 14px;
+}
+.stopLogo,
+.appMark {
+  /* Logos need a light backing on the night sky; the plate is neutral so the
+     brand colour on the mark is the only colour in the row. */
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #fff;
+  padding: 5px;
+}
+.appMark {
+  border-radius: 9px;
+  padding: 4px;
+}
+.routeStop b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.routeStop small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--ink-subtle);
+}
+.routeDone {
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--live);
+  box-shadow: 0 0 0 3px rgba(95, 211, 154, 0.14);
+}
+.routeAsk {
+  margin-block: 4px;
+  padding: 12px 12px 12px 0;
+  background: linear-gradient(90deg, rgba(242, 179, 87, 0.09), rgba(242, 179, 87, 0.02));
+  border: 1px solid rgba(242, 179, 87, 0.22);
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+  margin-left: 17px;
+  padding-left: 14px;
+  grid-template-columns: 34px 1fr auto;
+}
+.routeAsk small {
+  color: var(--ink-muted);
+}
+.routeAskIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--attention);
+  background: rgba(242, 179, 87, 0.1);
+  border: 1px solid rgba(242, 179, 87, 0.35);
+  animation: waitPulse 2.4s ease-in-out infinite;
+}
+@keyframes waitPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 179, 87, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(242, 179, 87, 0.12); }
+}
+.routeApprove {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: #0b0b0f;
+  font-size: 13px;
+  font-weight: 600;
+}
+.routeNext {
+  opacity: 0.55;
+}
+.routeCta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: background 0.2s, border-color 0.2s;
+}
+.routeCta:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--line-strong);
+}
+.routeCta svg {
+  transition: transform 0.2s var(--ease-out);
+}
+.routeCta:hover svg {
+  transform: translateX(3px);
+}
+
+/* ---- Tool wall: two rows of logos drifting right-to-left ---------------- */
+.wall {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding-block: 20px 4px;
+  overflow: hidden;
+  /* Kept quiet by scale and spacing rather than by dimming the marks: the
+     logos show their real colours, small and widely spaced behind an edge
+     mask, so the band is texture without being washed out. */
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+.wallRow {
+  display: flex;
+  width: max-content;
+  animation: drift 120s linear infinite;
+}
+.wallRowSlow {
+  animation-duration: 160s;
+  animation-direction: reverse;
+}
+/* The band never stops and never reacts to the cursor: it just drifts, so the
+   page always has one thing quietly in motion. */
+@keyframes drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.wallTrack {
+  display: flex;
+  gap: 22px;
+  margin: 0;
+  padding: 0 11px;
+  list-style: none;
+}
+.wallTile {
+  display: flex;
+  align-items: center;
+  /* A light plate so dark marks (GitHub, Notion, X) do not sink into the sky,
+     and so every logo in the band sits on the same backing. No hover state. */
+  padding: 5px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallRow { animation: none; }
+}
+
+/* ---- Step markers for "how it works" ---------------------------------- */
+.stepNumber {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.12), transparent 70%);
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.06);
+}
+
+/* Pain-point cards: the complaint is a quotation, the answer follows. */
+.quote {
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.quote::before {
+  content: "“";
+  color: var(--ink-subtle);
+}
+.quote::after {
+  content: "”";
+  color: var(--ink-subtle);
+}
+
+/* FAQ */
+.faq details {
+  border-top: 1px solid var(--line);
+}
+.faq details:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.faq summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 4px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+.faq summary span {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-subtle);
+}
+.faq summary i {
+  margin-left: auto;
+  font-style: normal;
+  color: var(--ink-subtle);
+  transition: transform 0.25s var(--ease-out);
+}
+.faq details[open] summary i {
+  transform: rotate(45deg);
+}
+.faq details p {
+  padding: 0 4px 24px 44px;
+  max-width: 62ch;
+  color: var(--ink-muted);
+  line-height: 1.65;
+}
+
+/* Entrance: the hero copy rises into place as the orbits ramp up. */
+.rise {
+  animation: rise 0.9s var(--ease-out) both;
+}
+.rise:nth-child(2) { animation-delay: 0.08s; }
+.rise:nth-child(3) { animation-delay: 0.16s; }
+.rise:nth-child(4) { animation-delay: 0.24s; }
+.rise:nth-child(5) { animation-delay: 0.32s; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.popular {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 60px rgba(255, 255, 255, 0.05);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.8;
+  font-size: clamp(72px, 16vw, 220px);
+  color: transparent;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0));
+  -webkit-background-clip: text;
+  background-clip: text;
+  user-select: none;
+}

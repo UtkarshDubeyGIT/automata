@@ -108,9 +108,33 @@ function makeGlow(tone: RGB): HTMLCanvasElement {
   return sprite;
 }
 
-export function AuthOrbits() {
+type OrbitsFocus = {
+  /** Centre of the system as a fraction of the host width (0–1). */
+  x?: number;
+  /** Centre of the system as a fraction of the host height (0–1). */
+  y?: number;
+  /** Multiplier on the default ring size. */
+  scale?: number;
+};
+
+const DEFAULT_MASK =
+  "linear-gradient(to bottom, #000 0%, #000 52%, rgba(0,0,0,0.35) 78%, transparent 96%)";
+
+export function AuthOrbits({
+  focus,
+  mask = DEFAULT_MASK,
+  className = "",
+}: {
+  focus?: OrbitsFocus;
+  /** CSS mask-image over the canvas; pass `null` for none. */
+  mask?: string | null;
+  className?: string;
+} = {}) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const fx = focus?.x ?? 0.52;
+  const fy = focus?.y ?? 0.34;
+  const fs = focus?.scale ?? 1;
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -185,9 +209,9 @@ export function AuthOrbits() {
     const draw = (t: number) => {
       if (width < 2 || height < 2) return; // pane is hidden (below lg) — nothing to paint
 
-      const cx = width * 0.52;
-      const cy = height * 0.34;
-      const scale = Math.min(width * 0.46, height * 0.34);
+      const cx = width * fx;
+      const cy = height * fy;
+      const scale = Math.min(width * 0.46, height * 0.34) * fs;
       const spin = t * 0.055; // the whole system turns slowly, so tilts read as 3D
       // Ramp in rather than appear: at t=0 the panel is empty and it settles
       // over roughly two seconds, so there is no frame where the art pops on.
@@ -370,22 +394,17 @@ export function AuthOrbits() {
       document.removeEventListener("visibilitychange", onVisibility);
       ro.disconnect();
     };
-  }, []);
+  }, [fx, fy, fs]);
 
   return (
     <div
       ref={hostRef}
-      className="pointer-events-none absolute inset-0"
+      className={`pointer-events-none absolute inset-0 ${className}`}
       aria-hidden="true"
-      /* The orbits now run wider than the copy below them, so the lower third
-         is masked out rather than shrunk — the art keeps its size and the
-         blockquote keeps its contrast. */
-      style={{
-        maskImage:
-          "linear-gradient(to bottom, #000 0%, #000 52%, rgba(0,0,0,0.35) 78%, transparent 96%)",
-        WebkitMaskImage:
-          "linear-gradient(to bottom, #000 0%, #000 52%, rgba(0,0,0,0.35) 78%, transparent 96%)",
-      }}
+      /* The orbits run wider than the copy below them, so by default the
+         lower third is masked out rather than shrunk — the art keeps its size
+         and the blockquote keeps its contrast. Callers can swap the mask. */
+      style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
     >
       <canvas ref={canvasRef} className="h-full w-full" />
     </div>
