@@ -286,6 +286,25 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+
+    /* Paint the canvas here, not only on <body>.
+       When <html> has no background of its own the browser propagates body's
+       up to the canvas — the surface behind everything, which is what a
+       rubber-band overscroll actually exposes. That was fine while every page
+       was light, and wrong the moment one page was dark: flicking past the end
+       of the dark landing revealed a pale strip. */
+    background-color: var(--surface-page);
+
+    /* No rubber-banding at the ends of the document. Scrolling stops where the
+       content stops, which is the whole ask: fast scrolling should never land
+       in empty space. Also suppresses pull-to-refresh on Android, which this
+       app has no use for. */
+    overscroll-behavior-y: none;
+
+    /* Reserve the scrollbar's width whether or not the page needs one, so
+       moving between a short page and a long one doesn't shift the layout
+       sideways. No-op on macOS overlay scrollbars. */
+    scrollbar-gutter: stable;
   }
   body {
     margin: 0;
@@ -294,6 +313,7 @@
     line-height: var(--leading-normal);
     color: var(--text-primary);
     background-color: var(--surface-page);
+    overscroll-behavior-y: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

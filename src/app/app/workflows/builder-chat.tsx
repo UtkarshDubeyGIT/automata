@@ -384,7 +384,7 @@ export function BuilderChat({
 
       <div
         ref={scrollRef}
-        className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4"
+        className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-4"
       >
         {messages.map((msg, i) =>
           msg.role === "user" ? (
@@ -492,7 +492,7 @@ export function BuilderChat({
           <div className="px-4 pt-4">{promptBox}</div>
 
           {suggestions.length > 0 && (
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-4 pb-4 text-left">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 text-left">
               <div className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                 <Icon name="sparkles" size={12} />
                 Try a prompt

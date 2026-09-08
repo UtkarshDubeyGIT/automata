@@ -7,6 +7,16 @@
    amber reserved for the moment a human is asked to decide.
 --------------------------------------------------------------------------- */
 
+/* The document canvas is painted by <html> (see globals.css) and is what a
+   rubber-band overscroll exposes. While this page is mounted it has to be the
+   sky, or a hard flick at either end shows a pale band under a black page.
+   The literal has to be repeated because a custom property defined on .page
+   is not visible to its ancestor. */
+html:has(.page),
+body:has(.page) {
+  background-color: #07070a;
+}
+
 .page {
   --sky: #07070a;
   --sky-2: #0c0c11;

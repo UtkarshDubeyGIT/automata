@@ -154,7 +154,7 @@ export function StepPicker({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-3">
           {results.length === 0 ? (
             <p className="px-4 py-10 text-center text-[13.5px] text-ink-subtle">
               Nothing matches “{query}”.

@@ -2,6 +2,13 @@
 /* Public Automata website. Product screens use globals.css design tokens. */
 .container { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
 
+/* Same reasoning as the space landing: the overscroll area belongs to the
+   canvas, so it has to match the page it sits under. */
+html:has(.marketing-shell),
+body:has(.marketing-shell) {
+  background-color: var(--paper);
+}
+
 .marketing-shell {
   overflow-x: clip;
   /* The product is monochrome; the public site is not. These accents are
