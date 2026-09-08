@@ -2,6 +2,8 @@
 
 import "@xyflow/react/dist/style.css";
 
+import { useTheme } from "@/components/theme";
+
 import {
   createContext,
   useCallback,
@@ -158,6 +160,9 @@ const edgeTypes = { flow: FlowEdge };
 function Whiteboard() {
   const ctx = useCanvas();
   const { graph } = ctx;
+  // React Flow ships its own stylesheet with a .dark block; handing it the
+  // resolved theme is cheaper and more correct than overriding its internals.
+  const { resolved } = useTheme();
   const layout = useMemo(() => layoutGraph(graph), [graph]);
   const { fitView, zoomIn, zoomOut, zoomTo, screenToFlowPosition, setViewport } = useReactFlow();
 
@@ -311,6 +316,7 @@ function Whiteboard() {
     <FlipCtx.Provider value={flipUp}>
         <ReactFlow
           ref={board}
+          colorMode={resolved}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -467,7 +473,7 @@ function StepNode({ id, dragging }: NodeProps) {
         className={cn(
           "relative flex h-full w-full items-center justify-center rounded-full border-2 bg-card transition-all",
           selected
-            ? "border-brand shadow-[0_0_0_4px_rgba(23,23,23,0.18)]"
+            ? "border-brand shadow-[0_0_0_4px_var(--color-ring)]"
             : status === "failed"
               ? "border-danger"
               : status === "done"
@@ -485,10 +491,10 @@ function StepNode({ id, dragging }: NodeProps) {
             className={cn(
               "absolute -right-0.5 -top-0.5 flex h-[17px] w-[17px] items-center justify-center rounded-full border-2 border-card",
               status === "failed"
-                ? "bg-danger text-white"
+                ? "bg-danger text-on-brand"
                 : status === "done"
-                  ? "bg-success text-white"
-                  : "bg-warning text-white",
+                  ? "bg-success text-on-brand"
+                  : "bg-warning text-on-brand",
             )}
           >
             <Icon name={status === "failed" ? "x" : status === "done" ? "check" : "info"} size={9} />

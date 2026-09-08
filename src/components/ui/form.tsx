@@ -7,7 +7,7 @@ import { Icon } from "./icon";
 const CONTROL =
   "w-full rounded-control border border-line bg-card px-3.5 text-[14px] text-ink placeholder:text-ink-disabled " +
   "transition-[border-color,box-shadow] duration-150 " +
-  "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)] " +
+  "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-ring " +
   "disabled:cursor-not-allowed disabled:opacity-60";
 
 export function Field({
@@ -131,7 +131,7 @@ export function Checkbox({
         className={cn(
           "flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border transition-colors duration-150",
           checked
-            ? "border-brand bg-brand text-white"
+            ? "border-brand bg-brand text-on-brand"
             : "border-line-strong bg-card hover:border-brand",
         )}
       >
@@ -178,7 +178,7 @@ export function Switch({
       >
         <span
           className={cn(
-            "absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-[left] duration-200",
+            "absolute top-[3px] h-4 w-4 rounded-full bg-card shadow-sm transition-[left] duration-200",
             checked ? "left-[19px]" : "left-[3px]",
           )}
         />

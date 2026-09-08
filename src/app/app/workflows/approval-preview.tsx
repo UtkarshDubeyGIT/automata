@@ -171,7 +171,7 @@ function Picture({ url }: { url: string }) {
         onError={() => setBroken(true)}
         className="max-h-[260px] w-full rounded-[10px] border border-line object-cover"
       />
-      <span className="absolute right-2 top-2 hidden items-center gap-1 rounded-full bg-ink/70 px-2 py-1 text-[11px] font-medium text-white group-hover:inline-flex">
+      <span className="absolute right-2 top-2 hidden items-center gap-1 rounded-full bg-ink/70 px-2 py-1 text-[11px] font-medium text-page group-hover:inline-flex">
         <Icon name="external-link" size={11} />
         Full size
       </span>

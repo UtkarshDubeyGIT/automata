@@ -101,6 +101,14 @@ export default function WorkflowDetailPage() {
   const searchParams = useSearchParams();
   const workflowId = params?.id ?? "";
   const creating = searchParams.get("creating") === "1";
+  /**
+   * Deep link from a notification: `?run=<id>` opens that specific run.
+   *
+   * Notifications are the only place that points at an individual run, so
+   * without this a "your run failed" alert could only drop you on a list to
+   * hunt through. Read once — the accordion is user-controlled from then on.
+   */
+  const deepLinkedRun = searchParams.get("run");
   const router = useRouter();
   const { toast } = useToast();
   const { refresh: refreshCredits } = useCredits();
@@ -112,7 +120,8 @@ export default function WorkflowDetailPage() {
   const [active, setActive] = useState(false);
   const [togglingActive, setTogglingActive] = useState(false);
   const [runs, setRuns] = useState<RunEntry[]>([]);
-  const [tab, setTab] = useState<Tab>("editor");
+  const [openRunId, setOpenRunId] = useState<string | null>(deepLinkedRun);
+  const [tab, setTab] = useState<Tab>(deepLinkedRun ? "runs" : "editor");
   /**
    * Whether the workspace profile says what the product does. Read from the
    * shared endpoint rather than off this workflow's own response, so the
@@ -1134,11 +1143,11 @@ export default function WorkflowDetailPage() {
       <div className="min-w-0">
           {tab === "editor" ? (
             !graph ? (
-              <div className="h-[560px] min-h-[460px] animate-pulse rounded-card border border-line bg-inset lg:h-[calc(100vh-320px)]" />
+              <div className="h-[560px] min-h-[460px] animate-pulse rounded-card border border-line bg-inset lg:h-[calc(100vh-250px)]" />
             ) : (
               <div
                 data-workflow-canvas-shell
-                className="relative h-[560px] min-h-[460px] overflow-hidden rounded-card border border-line bg-inset shadow-xs lg:h-[calc(100vh-320px)]"
+                className="relative h-[560px] min-h-[460px] overflow-hidden rounded-card border border-line bg-inset shadow-xs lg:h-[calc(100vh-250px)]"
               >
                 <Canvas
                   graph={graph}
@@ -1236,6 +1245,8 @@ export default function WorkflowDetailPage() {
           ) : (
             <Runs
               runs={runs}
+              openId={openRunId}
+              onOpenChange={setOpenRunId}
               onDecide={decide}
               onReplay={(run) => {
                 // Mark which steps that run actually reached, then show the

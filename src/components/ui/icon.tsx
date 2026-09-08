@@ -92,6 +92,10 @@ import {
   Store,
   Briefcase,
   Flag,
+  Sun,
+  Moon,
+  Monitor,
+  TriangleAlert,
   type LucideIcon,
   type LucideProps,
 } from "lucide-react";
@@ -237,6 +241,10 @@ const MAP: Record<string, LucideIcon> = {
   store: Store,
   briefcase: Briefcase,
   flag: Flag,
+  sun: Sun,
+  moon: Moon,
+  monitor: Monitor,
+  alert: TriangleAlert,
 };
 
 export type IconName = keyof typeof MAP | string;

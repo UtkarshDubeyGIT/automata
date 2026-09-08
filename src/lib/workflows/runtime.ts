@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { CREDIT_COST, grantCredits, isDuplicateKey, spendCredits } from "@/lib/credits";
 import { errorMessage, resumeRun } from "./engine";
 import { getTool } from "./registry";
@@ -6,6 +7,7 @@ import { repairRefs } from "./repair";
 import { dbRunStore, normalizeLog, updateWorkflowStats } from "./store";
 import type { RunLog, RunResult, RunStatus, WorkflowGraph } from "./types";
 import { queueWorkflowReminder } from "@/lib/whatsapp/service";
+import { notifyWorkspace } from "@/lib/notifications/service";
 import { pollFirecrawlJob } from "@/lib/integrations/firecrawl";
 
 /**
@@ -236,6 +238,20 @@ export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunRes
       idempotencyKey: `workflow-failure:${run.id}`,
       body: `A Automata workflow failed: ${result.error ?? "The run could not complete."}\n\nOpen the workflow run for details.`,
     }).catch((error) => console.error("[workflows] could not queue WhatsApp failure alert:", error));
+    /**
+     * The in-app bell, and the one kind that is allowed to send email: a failed
+     * run is the case where nobody is watching the tab. `admin` is a real
+     * service-role client at runtime; the cast is for DbClient's minimal shape.
+     */
+    await notifyWorkspace(admin as unknown as SupabaseClient, {
+      workspaceId: run.workspaceId,
+      kind: "failure",
+      title: "A workflow run failed",
+      body: result.error ?? "The run could not complete.",
+      href: `/app/workflows/${run.workflowId}?run=${run.id}`,
+      email: true,
+      dedupeKey: `workflow-failure:${run.id}`,
+    }).catch((error) => console.error("[workflows] could not record failure notification:", error));
   } else if (result.status === "waiting") {
     const { data: waiting } = await admin.from("workflow_runs").select("log").eq("id", run.id).maybeSingle();
     const waitingLog = (waiting?.log ?? {}) as RunLog;
@@ -249,6 +265,17 @@ export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunRes
         idempotencyKey: `workflow-approval:${run.id}:${waitingLog.pending.stepId}`,
         body: `A Automata workflow is waiting for your approval: ${waitingLog.pending.prompt}\n\nOpen the workflow run to review it.`,
       }).catch((error) => console.error("[workflows] could not queue WhatsApp approval alert:", error));
+      // In-app only: approvals already reach people over WhatsApp, and mailing
+      // every member on every gate is how a workflow becomes a mailing list.
+      await notifyWorkspace(admin as unknown as SupabaseClient, {
+        workspaceId: run.workspaceId,
+        kind: "approval",
+        title: "A run is waiting for your approval",
+        body: waitingLog.pending.prompt,
+        href: `/app/workflows/${run.workflowId}?run=${run.id}`,
+        email: false,
+        dedupeKey: `workflow-approval:${run.id}:${waitingLog.pending.stepId}`,
+      }).catch((error) => console.error("[workflows] could not record approval notification:", error));
     }
   }
   await updateWorkflowStats(admin, run.workflowId);

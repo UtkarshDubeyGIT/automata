@@ -9,13 +9,13 @@ type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-brand text-white shadow-[var(--shadow-brand)] hover:bg-brand-hover active:bg-brand-active",
+    "bg-brand text-on-brand shadow-[var(--shadow-brand)] hover:bg-brand-hover active:bg-brand-active",
   secondary:
     "bg-card text-ink border border-line hover:bg-inset hover:border-line-strong",
   ghost: "bg-transparent text-ink-muted hover:bg-inset hover:text-ink",
   subtle:
     "bg-brand-subtle text-brand border border-brand-border hover:bg-brand-subtle-hover",
-  danger: "bg-danger text-white hover:brightness-95",
+  danger: "bg-danger text-on-brand hover:brightness-95",
 };
 
 const SIZE: Record<Size, string> = {
@@ -57,7 +57,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           "inline-flex select-none items-center justify-center font-medium",
           "transition-[background-color,border-color,color,box-shadow,transform] duration-150",
           "active:translate-y-[0.5px] active:scale-[0.992]",
-          "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
+          "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
           "disabled:pointer-events-none disabled:opacity-50",
           VARIANT[variant],
           SIZE[size],
@@ -99,7 +99,7 @@ export function IconButton({
       className={cn(
         "inline-flex items-center justify-center rounded-control",
         "transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.94]",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
+        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
         "disabled:pointer-events-none disabled:opacity-50",
         VARIANT[variant],
         box,

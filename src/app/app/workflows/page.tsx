@@ -1072,7 +1072,7 @@ function TabBar({
               {count > 0 && (
                 <span
                   className={cn(
-                    "min-w-[19px] rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none text-white",
+                    "min-w-[19px] rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none text-on-brand",
                     // The attention badge is the one number on this page that
                     // means "act", so it never blends in with the neutral one.
                     t.id === "attention"
@@ -1211,7 +1211,7 @@ function WorkflowCard({
       <button
         onClick={onOpen}
         aria-label={`Open ${wf.name}`}
-        className="absolute inset-0 rounded-card focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]"
+        className="absolute inset-0 rounded-card focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
       />
 
       <div className="pointer-events-none relative flex items-start gap-3">
@@ -1290,14 +1290,14 @@ function Toggle({
       onClick={onClick}
       className={cn(
         "pointer-events-auto relative h-[21px] w-9 flex-none rounded-full transition-colors duration-200",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:rgba(23,23,23,0.32)]",
+        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
         on ? "bg-success" : "bg-line-strong",
         busy && "opacity-60",
       )}
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[17px] w-[17px] rounded-full bg-white shadow-xs transition-[left] duration-200",
+          "absolute top-[2px] h-[17px] w-[17px] rounded-full bg-card shadow-xs transition-[left] duration-200",
           on ? "left-[18px]" : "left-[2px]",
         )}
       />
@@ -1456,7 +1456,7 @@ function AttentionCard({
       className={cn(
         "rounded-[18px] border bg-card p-5 shadow-sm",
         lead
-          ? "border-brand-border ring-4 ring-[color:rgba(23,23,23,0.06)]"
+          ? "border-brand-border ring-4 ring-brand-border"
           : "border-line",
       )}
     >

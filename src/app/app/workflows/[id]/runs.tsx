@@ -57,14 +57,23 @@ export function Runs({
   runs,
   onReplay,
   onDecide,
+  openId = null,
+  onOpenChange,
 }: {
   runs: RunEntry[];
   /** Mark this run's steps on the canvas and switch to it. */
   onReplay?: (run: RunEntry) => void;
   /** Approve or reject a run that is waiting on a person. */
   onDecide?: (run: RunEntry, decision: "approve" | "reject") => Promise<void>;
+  /**
+   * Which run is expanded. Owned by the parent so a `?run=` deep link can open
+   * one — this component is mounted inside a tab ternary, so it unmounts every
+   * time you visit the editor, and local state seeded from a prop would
+   * re-expand the deep-linked run on every return to this tab.
+   */
+  openId?: string | null;
+  onOpenChange?: (id: string | null) => void;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
 
   if (runs.length === 0) {
     return (
@@ -88,7 +97,7 @@ export function Runs({
             className="overflow-hidden rounded-card border border-line bg-card shadow-xs"
           >
             <button
-              onClick={() => setOpenId(open ? null : run.id)}
+              onClick={() => onOpenChange?.(open ? null : run.id)}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-inset"
             >
               <StatusIcon status={run.status} />
@@ -222,7 +231,7 @@ function Approval({
             <button
               onClick={() => void decide("approve")}
               disabled={busy !== null}
-              className="rounded-[8px] bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="rounded-[8px] bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-on-brand transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               {busy === "approve" ? "Approving…" : "Approve"}
             </button>

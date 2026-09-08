@@ -186,7 +186,7 @@ function CategoryChip({
       onClick={onClick}
       className={cn(
         "rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors",
-        active ? "bg-brand text-white" : "bg-inset text-ink-muted hover:text-ink",
+        active ? "bg-brand text-on-brand" : "bg-inset text-ink-muted hover:text-ink",
       )}
     >
       {children}

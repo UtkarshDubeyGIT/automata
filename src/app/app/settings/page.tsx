@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/icon";
 import { useToast } from "@/components/ui/toast";
 import { signOut as signOutAction } from "@/app/(auth)/actions";
 import { WhatsAppSettings } from "@/components/whatsapp-settings";
+import { NotificationSettings } from "@/components/notification-settings";
 
 const TABS = [
   { id: "profile", label: "Profile" },
@@ -372,8 +373,11 @@ export default function SettingsPage() {
       {tab === "notifications" && (
         <Card className="min-w-0 p-4 sm:p-6">
           <CardHeader title="Notifications" subtitle="Receive workflow approvals and reminders on WhatsApp." />
-          <div className="mt-6 max-w-2xl">
-            <WhatsAppSettings />
+          <div className="mt-6 flex max-w-2xl flex-col gap-8">
+            <NotificationSettings />
+            <div className="border-t border-line pt-8">
+              <WhatsAppSettings />
+            </div>
           </div>
         </Card>
       )}

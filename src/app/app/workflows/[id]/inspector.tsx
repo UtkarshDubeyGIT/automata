@@ -566,7 +566,7 @@ function ToolPickerField({
           className={cn(
             "flex h-11 w-full items-center gap-3 rounded-control border border-line bg-card px-3.5 text-left",
             "transition-[border-color,box-shadow] duration-150 hover:border-line-strong",
-            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)]",
+            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-ring",
           )}
         >
           {selected ? <ToolLogo app={selected.app} size={24} /> : <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-inset text-ink-subtle"><Icon name="plug" size={14} /></span>}
@@ -623,7 +623,7 @@ function ToolPickerField({
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search actions — send, create, read, Slack…"
                   aria-label="Search app actions"
-                  className="h-12 w-full rounded-control border border-brand bg-card pl-10 pr-4 text-[14px] text-ink outline-none ring-[3px] ring-[color:rgba(23,23,23,0.2)] placeholder:text-ink-disabled"
+                  className="h-12 w-full rounded-control border border-brand bg-card pl-10 pr-4 text-[14px] text-ink outline-none ring-[3px] ring-ring placeholder:text-ink-disabled"
                 />
               </div>
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Filter actions">
@@ -701,7 +701,7 @@ function ActionFilterChip({ active, onClick, children }: { active: boolean; onCl
       onClick={onClick}
       className={cn(
         "flex h-8 flex-none items-center rounded-full px-3 text-[12px] font-medium transition-colors",
-        active ? "bg-brand text-white" : "bg-inset text-ink-muted hover:text-ink",
+        active ? "bg-brand text-on-brand" : "bg-inset text-ink-muted hover:text-ink",
       )}
     >
       {children}
@@ -980,7 +980,7 @@ function ScheduleField({
                   // whole point of the row is that it reads as seven circles.
                   "flex h-9 w-9 flex-none items-center justify-center rounded-full border text-[12.5px] font-semibold transition-colors",
                   on
-                    ? "border-brand bg-brand text-white"
+                    ? "border-brand bg-brand text-on-brand"
                     : "border-line bg-card text-ink-muted hover:border-line-strong hover:bg-sunken",
                 )}
               >
@@ -1220,7 +1220,7 @@ export function SlackDmField({
           className={cn(
             "flex h-10 w-full items-center gap-2 rounded-control border border-line bg-card px-3.5 text-left",
             "transition-[border-color,box-shadow] duration-150",
-            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)]",
+            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-ring",
           )}
         >
           <span
@@ -1484,7 +1484,7 @@ function GithubRepoField({
           className={cn(
             "flex h-10 w-full items-center gap-2 rounded-control border border-line bg-card px-3.5 text-left",
             "transition-[border-color,box-shadow] duration-150",
-            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-[color:rgba(23,23,23,0.32)]",
+            "focus:border-focus focus:outline-none focus:ring-[3px] focus:ring-ring",
           )}
         >
           <span

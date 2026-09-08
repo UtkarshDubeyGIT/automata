@@ -109,7 +109,7 @@ export function Chips({
             className={cn(
               "rounded-full border px-3 py-1 text-[13px] font-medium transition-colors",
               active
-                ? "border-brand bg-brand text-white"
+                ? "border-brand bg-brand text-on-brand"
                 : "border-line bg-card text-ink-muted hover:border-line-strong hover:text-ink",
             )}
           >

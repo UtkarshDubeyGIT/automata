@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode. Without this, Tailwind v4 compiles `dark:` to a
+   prefers-color-scheme query and ignores our explicit .dark override. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================================
    ZidaneAI design tokens → Tailwind v4 theme
    Light-first. Monochrome: near-black brand + true-neutral grays.
@@ -107,6 +111,13 @@
   --color-danger-surface: var(--color-red-50);
   --color-danger-border: var(--color-red-100);
 
+  /* Text that sits ON a brand-filled surface. Not the same as white: in dark
+     mode the brand ramp flips light, so white-on-brand becomes unreadable. */
+  --color-on-brand: var(--color-gray-0);
+  /* Focus ring colour. Was hardcoded rgba(23,23,23,0.32) at ~10 call sites,
+     which is invisible against a near-black surface. */
+  --color-ring: rgba(23, 23, 23, 0.32);
+
   /* ---- Radius (DS scale) ---------------------------------- */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -186,35 +197,40 @@
   --container-max: 1200px;
   --container-wide: 1360px;
 
-  /* semantic color aliases mirrored from @theme */
-  --brand: var(--color-indigo-700);
-  --brand-hover: var(--color-indigo-800);
-  --brand-active: var(--color-indigo-900);
-  --brand-subtle: var(--color-indigo-50);
-  --brand-subtle-hover: var(--color-indigo-100);
-  --brand-border: var(--color-indigo-200);
-  --brand-on: #ffffff;
+  /* Semantic colour aliases mirrored from @theme.
+     These point at the SEMANTIC tokens, never at raw ramp steps or literals —
+     that indirection is what lets `.dark` flip the whole app from one place.
+     (They used to resolve straight to --color-gray-900 / #ffffff, which meant
+     every var() consumer, including the `body` rule below, stayed light no
+     matter what the theme said.) */
+  --brand: var(--color-brand);
+  --brand-hover: var(--color-brand-hover);
+  --brand-active: var(--color-brand-active);
+  --brand-subtle: var(--color-brand-subtle);
+  --brand-subtle-hover: var(--color-brand-subtle-hover);
+  --brand-border: var(--color-brand-border);
+  --brand-on: var(--color-on-brand);
 
-  --text-primary: var(--color-gray-900);
-  --text-secondary: var(--color-gray-600);
-  --text-tertiary: var(--color-gray-500);
-  --text-disabled: var(--color-gray-400);
-  --text-on-brand: #ffffff;
+  --text-primary: var(--color-ink);
+  --text-secondary: var(--color-ink-muted);
+  --text-tertiary: var(--color-ink-subtle);
+  --text-disabled: var(--color-ink-disabled);
+  --text-on-brand: var(--color-on-brand);
   --text-link: var(--color-blue-800);
   --text-link-hover: var(--color-blue-900);
 
-  --surface-page: var(--color-gray-50);
-  --surface-card: #ffffff;
-  --surface-raised: #ffffff;
-  --surface-sunken: var(--color-gray-50);
-  --surface-inset: var(--color-gray-100);
-  --surface-hover: var(--color-gray-50);
-  --surface-inverse: var(--color-gray-950);
+  --surface-page: var(--color-page);
+  --surface-card: var(--color-card);
+  --surface-raised: var(--color-card);
+  --surface-sunken: var(--color-sunken);
+  --surface-inset: var(--color-inset);
+  --surface-hover: var(--color-sunken);
+  --surface-inverse: var(--color-inverse);
 
-  --border-subtle: var(--color-gray-200);
-  --border-default: var(--color-gray-300);
-  --border-strong: var(--color-gray-400);
-  --border-focus: var(--color-indigo-600);
+  --border-subtle: var(--color-line);
+  --border-default: var(--color-line-strong);
+  --border-strong: var(--color-line-strong);
+  --border-focus: var(--color-focus);
 
   --success: var(--color-green-600);
   --success-surface: var(--color-green-50);
@@ -228,7 +244,7 @@
 
   --overlay-scrim: rgba(0, 0, 0, 0.48);
   --overlay-soft: rgba(0, 0, 0, 0.04);
-  --ring: 0 0 0 3px rgba(23, 23, 23, 0.22);
+  --ring: 0 0 0 3px var(--color-ring);
 
   /* radius mirror */
   --radius-control: 10px;
@@ -324,78 +340,9 @@
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* ---------------------------------------------------------------------------
-   First-run tour (driver.js)
-
-   The library ships its own light-mode look. These overrides map it onto the
-   ZidaneAI tokens so the popover reads as part of the product rather than a
-   bolted-on widget — same card surface, same border, same radius, same brand
-   button. Scoped to .zidane-tour (set via popoverClass) so nothing here leaks
-   into any other driver instance.
---------------------------------------------------------------------------- */
-.driver-popover.zidane-tour {
-  background: var(--surface-card);
-  color: var(--color-ink);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lg);
-  padding: 18px 18px 14px;
-  max-width: 340px;
-  font-family: inherit;
-}
-.driver-popover.zidane-tour .driver-popover-title {
-  font-family: var(--font-display), inherit;
-  font-size: 15.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--color-ink);
-}
-.driver-popover.zidane-tour .driver-popover-description {
-  margin-top: 6px;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--color-ink-muted);
-}
-.driver-popover.zidane-tour .driver-popover-progress-text {
-  font-size: 11.5px;
-  color: var(--color-ink-subtle);
-}
-.driver-popover.zidane-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: var(--surface-card); }
-.driver-popover.zidane-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--surface-card); }
-.driver-popover.zidane-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--surface-card); }
-.driver-popover.zidane-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--surface-card); }
-.driver-popover.zidane-tour .driver-popover-navigation-btns button {
-  all: unset;
-  cursor: pointer;
-  border-radius: var(--radius-control);
-  padding: 6px 13px;
-  font-size: 13px;
-  font-weight: 500;
-  text-shadow: none;
-  border: 1px solid var(--border-default);
-  color: var(--color-ink-muted);
-  background: var(--surface-card);
-}
-.driver-popover.zidane-tour .driver-popover-navigation-btns button:hover {
-  background: var(--surface-inset);
-  color: var(--color-ink);
-}
-/* The forward action is the one we want taken, so it carries the brand. */
-.driver-popover.zidane-tour .driver-popover-next-btn {
-  border-color: transparent !important;
-  background: var(--brand) !important;
-  color: #fff !important;
-}
-.driver-popover.zidane-tour .driver-popover-next-btn:hover {
-  background: var(--brand-hover) !important;
-  color: #fff !important;
-}
-.driver-popover.zidane-tour .driver-popover-close-btn {
-  color: var(--color-ink-subtle);
-}
-
 /* Automata public/auth compatibility aliases, all rooted in the shared theme. */
 :root {
+  color-scheme: light;
   --ink: var(--text-primary);
   --muted: var(--text-secondary);
   --line: var(--border-subtle);
@@ -415,4 +362,147 @@
 @layer base {
   :focus-visible { outline: 3px solid var(--color-indigo-200); outline-offset: 3px; }
   button:not(:disabled), [role="button"] { cursor: pointer; }
+}
+
+/* ============================================================
+   Dark mode
+
+   The class is set before first paint by the inline script in
+   src/app/layout.tsx, so there is no flash. Everything below overrides the
+   SEMANTIC layer only — the :root mirrors above all resolve through these, so
+   flipping them carries the whole app, including plain var() consumers.
+
+   Values are literal rather than "reuse the ramp in reverse": Tailwind v4
+   prunes @theme variables that nothing references directly, so a ramp step
+   used only by another token can vanish from the emitted :root.
+   ============================================================ */
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces: page is the darkest, cards lift toward the viewer. */
+  --color-page: #0b0b0c;
+  --color-card: #161618;
+  --color-inset: #212124;
+  --color-sunken: #121214;
+  --color-inverse: #f7f7f7;
+
+  /* Ink: never pure white — it vibrates against a dark surface. */
+  --color-ink: #ededee;
+  --color-ink-muted: #a8a8ad;
+  --color-ink-subtle: #85858b;
+  --color-ink-disabled: #5c5c62;
+
+  --color-line: #2b2b2f;
+  --color-line-strong: #3d3d43;
+  --color-focus: #d6d6d6;
+
+  /* The brand ramp is a near-black greyscale, so in dark it flips to the light
+     end of the same ramp: a light chip with dark text on it. */
+  --color-brand: #ededee;
+  --color-brand-hover: #ffffff;
+  --color-brand-active: #d0d0d2;
+  --color-brand-subtle: #232326;
+  --color-brand-subtle-hover: #2c2c30;
+  --color-brand-border: #3d3d43;
+  --color-on-brand: #131315;
+
+  --color-ring: rgba(237, 237, 238, 0.34);
+
+  /* Status: surfaces become tinted darks; the foreground lifts to stay legible
+     on them rather than staying at the 600 shade tuned for white. */
+  --color-success: #4ade80;
+  --color-success-surface: #0e2a1b;
+  --color-success-border: #1c4a31;
+  --color-warning: #fbbf24;
+  --color-warning-surface: #2e2210;
+  --color-warning-border: #4d3a15;
+  --color-danger: #f87171;
+  --color-danger-surface: #2e1416;
+  --color-danger-border: #522225;
+
+  /* Black shadows are invisible on a near-black page. Dark elevation reads
+     through a hairline top border plus a deeper, higher-alpha shadow. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5), 0 12px 28px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.55), 0 24px 48px rgba(0, 0, 0, 0.7);
+  --shadow-brand: 0 4px 14px rgba(0, 0, 0, 0.6);
+  --shadow-hairline: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+
+  --overlay-scrim: rgba(0, 0, 0, 0.68);
+  --overlay-soft: rgba(255, 255, 255, 0.05);
+}
+
+.dark :focus-visible { outline-color: var(--color-line-strong); }
+
+/* ============================================================
+   Public surfaces stay light
+
+   marketing.css is hardcoded light throughout (white backgrounds, #ccd1d9
+   borders, its own --blue/--coral). Rather than port it, the marketing, auth
+   and legal shells opt back out of the dark token set.
+
+   This is a class rather than a path check in the theme script on purpose: a
+   client-side <Link> from /app/settings to / never re-runs that script, so
+   path-scoping would leave the marketing page dark.
+
+   .marketing-shell and .legal-page are matched directly as well as via the
+   opt-in class, so a public page is pinned by virtue of being one — nobody has
+   to remember to add .theme-light when writing the next landing variant.
+   ============================================================ */
+.theme-light,
+.marketing-shell,
+.legal-page {
+  color-scheme: light;
+
+  --color-page: var(--color-gray-50);
+  --color-card: var(--color-gray-0);
+  --color-inset: var(--color-gray-100);
+  --color-sunken: var(--color-gray-50);
+  --color-inverse: var(--color-gray-950);
+
+  --color-ink: var(--color-gray-900);
+  --color-ink-muted: var(--color-gray-600);
+  --color-ink-subtle: var(--color-gray-500);
+  --color-ink-disabled: var(--color-gray-400);
+
+  --color-line: var(--color-gray-200);
+  --color-line-strong: var(--color-gray-300);
+  --color-focus: var(--color-indigo-600);
+
+  --color-brand: var(--color-indigo-700);
+  --color-brand-hover: var(--color-indigo-800);
+  --color-brand-active: var(--color-indigo-900);
+  --color-brand-subtle: var(--color-indigo-50);
+  --color-brand-subtle-hover: var(--color-indigo-100);
+  --color-brand-border: var(--color-indigo-200);
+  --color-on-brand: var(--color-gray-0);
+
+  --color-ring: rgba(23, 23, 23, 0.32);
+
+  --color-success: var(--color-green-600);
+  --color-success-surface: var(--color-green-50);
+  --color-success-border: var(--color-green-100);
+  --color-warning: var(--color-amber-600);
+  --color-warning-surface: var(--color-amber-50);
+  --color-warning-border: var(--color-amber-100);
+  --color-danger: var(--color-red-600);
+  --color-danger-surface: var(--color-red-50);
+  --color-danger-border: var(--color-red-100);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.05), 0 12px 28px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.06), 0 24px 48px rgba(0, 0, 0, 0.14);
+  --shadow-brand: 0 4px 14px rgba(23, 23, 23, 0.28);
+
+  --overlay-scrim: rgba(0, 0, 0, 0.48);
+  --overlay-soft: rgba(0, 0, 0, 0.04);
+
+  /* The dark <body> must not show through around these shells. */
+  background-color: var(--color-page);
+  color: var(--color-ink);
 }
