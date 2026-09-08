@@ -355,9 +355,19 @@ function StepField({
           <Input
             id={fieldId}
             type="number"
+            min={field.min}
             value={value === undefined || value === null ? "" : String(value)}
             placeholder={field.placeholder}
             onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+            // Raised when you LEAVE the box, not as you type: correcting per
+            // keystroke makes a value above the floor unreachable, because the
+            // first digit of "20" is below it and would be rewritten first.
+            // `min` alone only styles the spinner — a typed 5 still saves.
+            onBlur={(e) => {
+              if (field.min === undefined || e.target.value === "") return;
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n < field.min) onChange(field.min);
+            }}
           />
         </Field>
       );
@@ -1299,7 +1309,7 @@ export function SlackDmField({
             ) : (
               <p className="px-3 py-3 text-[12.5px] leading-relaxed text-ink-subtle">
                 No Slack users found. Check that Slack is connected under{" "}
-                <a href="/integrations?q=slack" className="text-brand underline">
+                <a href="/app/integrations?q=slack" className="text-brand underline">
                   Integrations
                 </a>
                 .
@@ -1554,7 +1564,7 @@ function GithubRepoField({
             ) : (
               <p className="px-3 py-3 text-[12.5px] leading-relaxed text-ink-subtle">
                 No repositories came back. Check that GitHub is connected under{" "}
-                <a href="/integrations?q=github" className="text-brand underline">
+                <a href="/app/integrations?q=github" className="text-brand underline">
                   Integrations
                 </a>
                 .

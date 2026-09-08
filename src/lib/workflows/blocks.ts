@@ -1,7 +1,7 @@
 import type { IconName } from "@/components/ui/icon";
 import type { TileColor } from "@/lib/data/workflows";
 import { PLATFORMS, platformMeta } from "@/lib/social/platforms";
-import { appLabel, getTool, getTrigger, SIMULATED_APPS, TOOLS, TRIGGERS, watchValues, type ToolSpec } from "./registry";
+import { appLabel, getTool, getTrigger, MIN_POLL_MINUTES, pollMinutes, TOOLS, TRIGGERS, watchValues, type ToolSpec } from "./registry";
 import type { StepDef, StepType } from "./types";
 
 /**
@@ -52,6 +52,12 @@ export interface FieldSpec {
   required?: boolean;
   /** Render only when a sibling field holds this value (or one of them). */
   showIf?: { key: string; equals: string | string[] };
+  /**
+   * Lowest accepted value for a `number`. Enforced on blur, not per keystroke:
+   * clamping as you type makes "20" unreachable, because the leading "2" would
+   * be corrected first.
+   */
+  min?: number;
   keyLabel?: string;
   valueLabel?: string;
 }
@@ -130,25 +136,34 @@ const WATCH_FIELDS: FieldSpec[] = Object.entries(TRIGGERS).flatMap(([slug, spec]
 );
 
 /**
- * Trigger slugs with no real-time watch — the ONLY ones whose polling cadence
- * is a setting rather than an invisible fallback.
+ * Trigger slugs that CANNOT be pushed and CAN be polled — the only ones whose
+ * cadence is a setting rather than an invisible fallback.
  *
  * Where `realtime` exists we subscribe, and polling is what happens silently if
  * that can't be arranged (see realtime.ts, which never fails the toggle). A
- * cadence box on those triggers offers a knob that does nothing on the path the
+ * cadence box on those offers a knob that does nothing on the path the
  * automation actually takes, and advertises the slower path as the plan.
  *
- * A simulated app is excluded for the opposite reason: the sweep only stamps
- * `lastCheckedAt` for those, so how fast it would poll is a setting for
- * something that never runs.
+ * This used to exclude `SIMULATED_APPS` as well, on the reasoning that the
+ * sweep merely stamps `lastCheckedAt` for a simulated app, so its cadence
+ * configures something that never runs. That stopped being true when native
+ * polling arrived: `sweep.ts` polls through `nativePoll()` regardless of
+ * Composio, so `googlebusinessprofile` — in that set permanently because
+ * Composio has no toolkit for it — really is polled wherever a Google client is
+ * configured. It is also the ONLY trigger here with no `realtime` block, so
+ * that clause emptied this list entirely and the cadence field never rendered
+ * for anything: the one trigger that can only ever be polled was the one denied
+ * the control, and Google reviews were checked hourly with no way to say
+ * otherwise.
  *
- * Today that leaves this EMPTY, and the field never renders — every real
- * trigger asks Composio for a push. It stays derived rather than deleted so
- * that a trigger added tomorrow with nothing to subscribe to gets its cadence
- * control back without anyone remembering this rule.
+ * Asking `pollTool` instead keeps the question static — no deployment lookup,
+ * which this module could not do anyway (`validate.ts` and three components
+ * pinned pure by pure-modules.test.ts import it) — and says what is actually
+ * meant. A trigger with neither a watch nor a poll tool cannot be checked at
+ * all and still gets no knob.
  */
 const POLL_ONLY_TRIGGERS = Object.entries(TRIGGERS)
-  .filter(([, spec]) => !spec.realtime && !SIMULATED_APPS.has(spec.app))
+  .filter(([, spec]) => !spec.realtime && !!spec.pollTool)
   .map(([slug]) => slug);
 
 function truncate(text: string, max = 90): string {
@@ -230,7 +245,8 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
     config: {
       app: "the app slug of the trigger",
       event: "the exact trigger slug from AVAILABLE TRIGGERS",
-      interval_minutes: "polling cadence in minutes (default 60)",
+      interval_minutes:
+        "polling cadence in minutes (default 60, minimum 15 — the beat runs every 15)",
       "watch_<setting>":
         "what to watch, per the trigger's REQUIRED SETTINGS (e.g. watch_owner, watch_repo)",
     },
@@ -247,7 +263,8 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
         key: "interval_minutes",
         label: "Check every (minutes)",
         kind: "number",
-        hint: "How often the poller looks for new items.",
+        hint: `How often the poller looks for new items. ${MIN_POLL_MINUTES} minutes is the floor — the background beat runs on that cycle, so anything smaller would be a promise nothing can keep.`,
+        min: MIN_POLL_MINUTES,
         showIf: { key: "event", equals: POLL_ONLY_TRIGGERS },
       },
     ],
@@ -267,7 +284,9 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       // above. Anything else advertises the slower path on a trigger that
       // doesn't take it.
       if (!POLL_ONLY_TRIGGERS.includes(str(s.event))) return head;
-      const every = Number(s.interval_minutes) || 60;
+      // The number the SWEEP will use, not the number on the step — otherwise a
+      // graph carrying a below-floor value advertises a cadence nothing honours.
+      const every = pollMinutes(s);
       return `${head} · checks ${every >= 60 ? "hourly" : `every ${every} min`}`;
     },
     outputs: (s) => {
@@ -894,7 +913,7 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
     defaults: {
       title: "Send WhatsApp reminder",
       stage: "Notify",
-      message: "{{steps.summary.text}}\n\nOpen in ZidaneAI for details.",
+      message: "{{steps.summary.text}}\n\nOpen in Automata for details.",
     },
     fields: [
       ...TITLE_FIELDS,
@@ -905,7 +924,7 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
         required: true,
         templated: true,
         placeholder: "Meeting summary: {{steps.summary.text}}",
-        hint: "Sent to the workspace owner's verified WhatsApp. Keep sensitive details behind a ZidaneAI link.",
+        hint: "Sent to the workspace owner's verified WhatsApp. Keep sensitive details behind a Automata link.",
       },
     ],
     summary: (s) => truncate(str(s.message) || "Send the workflow summary to WhatsApp"),
@@ -1378,7 +1397,7 @@ interface ZonedParts {
 }
 
 /** Wall-clock calendar fields for an instant, as seen in `timeZone`. */
-function zonedParts(at: Date, timeZone: string): ZonedParts {
+export function zonedParts(at: Date, timeZone: string): ZonedParts {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -1399,8 +1418,14 @@ function zonedParts(at: Date, timeZone: string): ZonedParts {
   };
 }
 
-/** The instant at which a wall-clock time in `timeZone` occurs. */
-function zonedTimeToUtc(
+/**
+ * The instant at which a wall-clock time in `timeZone` occurs.
+ *
+ * Exported for the goal layer's posting windows (W3). Two correct wall-clock
+ * conversions already existed here; a third written by hand is how the goal
+ * layer ended up scheduling in the server's zone.
+ */
+export function zonedTimeToUtc(
   year: number,
   month: number,
   day: number,
@@ -1863,7 +1888,7 @@ export function palette(
       preset: {
         title: "Send WhatsApp reminder",
         stage: "Notify",
-        message: "{{steps.summary.text}}\n\nOpen in ZidaneAI for details.",
+        message: "{{steps.summary.text}}\n\nOpen in Automata for details.",
       },
       keywords: "whatsapp reminder notification summary meeting message",
     }),

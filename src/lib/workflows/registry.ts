@@ -74,6 +74,35 @@ export type AutofillSource = "meta_ad_account";
  */
 export const SIMULATED_APPS = new Set(["googlebusinessprofile"]);
 
+/**
+ * The fastest a polled trigger can possibly be checked.
+ *
+ * Not a policy — a fact about the machine. `deploy/systemd/zidane-cron.timer`
+ * fires the beat every 15 minutes and each workspace then decides whether it is
+ * due, so a trigger asking for 5 gets 15 and a card promising "every 5 min"
+ * would be describing something that cannot happen. The shipped templates
+ * already bottom out at exactly 15.
+ */
+export const MIN_POLL_MINUTES = 15;
+
+/**
+ * How often this trigger is REALLY checked, in minutes.
+ *
+ * One definition, because there were four: `sweep.ts` (the behaviour),
+ * `blocks.ts` (the card's "checks hourly" suffix), `limitations.ts` (the "runs
+ * up to N late" line) and `display.ts` each wrote their own
+ * `Number(x) > 0 ? x : 60`. They agreed only by coincidence, which is exactly
+ * the shape that lets a card advertise a cadence the poller does not use.
+ *
+ * An absent, zero or unparseable value means "never set", which is an hour —
+ * distinct from a value set too low, which is raised to the floor.
+ */
+export function pollMinutes(step: Record<string, unknown>): number {
+  const raw = Number(step.interval_minutes);
+  const wanted = Number.isFinite(raw) && raw > 0 ? raw : 60;
+  return Math.max(MIN_POLL_MINUTES, wanted);
+}
+
 /** Display labels for apps that appear in workflows (fallback: title-case slug). */
 export const APP_LABELS: Record<string, string> = {
   googlebusinessprofile: "Google Business Profile",

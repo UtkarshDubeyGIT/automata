@@ -1,4 +1,5 @@
 import type { RequestContext } from "@/lib/workspace";
+import { createAdminClient } from "@/lib/supabase/server";
 import { SERVER_OWNED_APPS } from "@/lib/workflows/apps";
 import type { ConnectionState } from "./composio";
 
@@ -16,6 +17,14 @@ export interface CachedIntegration {
   connected_account_id: string | null;
 }
 
+/** Only a server-verified workspace may update provider connection facts. */
+function cacheWriter(ctx: RequestContext) {
+  if (!ctx.supabase || !ctx.userId || !ctx.workspaceId || ctx.entityId !== ctx.workspaceId) return null;
+  // The browser can read its workspace cache, but cannot manufacture an
+  // authorized connection by inserting a row directly into the Data API.
+  return createAdminClient();
+}
+
 /** Record one platform's state (connect initiated, OAuth completed, disconnect). */
 export async function persistIntegration(
   ctx: RequestContext,
@@ -23,9 +32,10 @@ export async function persistIntegration(
   status: "connected" | "pending" | "disconnected",
   accountId?: string | null,
 ): Promise<void> {
-  if (!ctx.supabase || !ctx.workspaceId) return;
   try {
-    await ctx.supabase.from("integrations").upsert(
+    const db = cacheWriter(ctx);
+    if (!db) return;
+    await db.from("integrations").upsert(
       {
         workspace_id: ctx.workspaceId,
         platform,
@@ -92,10 +102,11 @@ export async function syncConnections(
   ctx: RequestContext,
   connections: ConnectionState[],
 ): Promise<void> {
-  if (!ctx.supabase || !ctx.workspaceId) return;
   try {
+    const db = cacheWriter(ctx);
+    if (!db) return;
     if (connections.length > 0) {
-      await ctx.supabase.from("integrations").upsert(
+      await db.from("integrations").upsert(
         connections.map((c) => ({
           workspace_id: ctx.workspaceId,
           platform: c.platform,
@@ -115,7 +126,7 @@ export async function syncConnections(
       ...connections.map((c) => c.platform),
       ...SERVER_OWNED_APPS,
     ];
-    await ctx.supabase
+    await db
       .from("integrations")
       .update({ status: "disconnected", connected_account_id: null })
       .eq("workspace_id", ctx.workspaceId)

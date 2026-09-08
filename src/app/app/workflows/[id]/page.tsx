@@ -316,16 +316,6 @@ export default function WorkflowDetailPage() {
    * swapping a trigger or a tool updates it as you build, and refined by what
    * the enable path actually resolved once the automation has been switched on.
    */
-  const limits = useMemo(
-    () =>
-      graph
-        ? limitations(graph, {
-            mode: wf?.trigger?.delivery,
-            reason: wf?.trigger?.deliveryReason,
-          })
-        : [],
-    [graph, wf?.trigger?.delivery, wf?.trigger?.deliveryReason],
-  );
   /**
    * The accounts this automation needs, and whether the workspace has them.
    *
@@ -342,6 +332,41 @@ export default function WorkflowDetailPage() {
     busy: connectBusy,
     connect,
   } = useAppConnections(requiredApps);
+
+  /**
+   * Which apps are really demo mode, rather than merely on the static list.
+   *
+   * Google Business Profile is the whole reason this is passed instead of
+   * assumed: it sits in `SIMULATED_APPS` permanently because Composio has no
+   * toolkit for it, but we run it ourselves, so on a deployment with a Google
+   * client `steps.ts` executes those steps for REAL. The panel used to promise
+   * "produce realistic results without anything reaching Google Business
+   * Profile" and then the run reached Google Business Profile — and failed
+   * against it, after a human had already approved the reply.
+   *
+   * `null` until every row has landed, which keeps the static fallback (and
+   * the honest banner on a deployment with no Google client) rather than
+   * flickering a wrong answer from a half-loaded status.
+   */
+  const demoApps = useMemo(
+    () =>
+      connections.some((c) => c.status === "unknown")
+        ? null
+        : connections.filter((c) => c.status === "simulated").map((c) => c.app),
+    [connections],
+  );
+
+  const limits = useMemo(
+    () =>
+      graph
+        ? limitations(
+            graph,
+            { mode: wf?.trigger?.delivery, reason: wf?.trigger?.deliveryReason },
+            demoApps,
+          )
+        : [],
+    [graph, wf?.trigger?.delivery, wf?.trigger?.deliveryReason, demoApps],
+  );
 
   /**
    * Pressing Run gives an app-event trigger no event, so it runs on the
@@ -630,7 +655,9 @@ export default function WorkflowDetailPage() {
       diff.added.length ? `Added: ${diff.added.join(", ")}` : "",
       diff.removed.length ? `Removed: ${diff.removed.join(", ")}` : "",
       diff.changed.length ? `Changed: ${diff.changed.join(", ")}` : "",
-      liveWrites(graph).length ? `External writes: ${liveWrites(graph).join(", ")}` : "",
+      liveWrites(graph, demoApps).length
+        ? `External writes: ${liveWrites(graph, demoApps).join(", ")}`
+        : "",
     ].filter(Boolean).join("\n");
     if (!window.confirm(`Publish this draft?\n\n${summary || "No module changes."}`)) return;
     const res = await fetch(`/api/workflows/${workflowId}/publish`, { method: "POST" });
@@ -641,7 +668,7 @@ export default function WorkflowDetailPage() {
     }
     setPublishedGraph(data.graph);
     toast({ title: "Published", description: "Scheduled and external runs now use this version." });
-  }, [dirty, graph, publishedGraph, save, toast, workflowId]);
+  }, [demoApps, dirty, graph, publishedGraph, save, toast, workflowId]);
 
   const saveAsCopy = useCallback(async () => {
     if (!graph) return;
@@ -655,7 +682,7 @@ export default function WorkflowDetailPage() {
       toast({ title: "Couldn't save a copy", description: data?.error, tone: "danger" });
       return;
     }
-    router.push(`/workflows/${data.id}`);
+    router.push(`/app/workflows/${data.id}`);
   }, [graph, positions, router, toast, wf?.name, workflowId]);
 
   // Cmd/Ctrl+S saves, Cmd/Ctrl+Z undoes — the two shortcuts people reach for.
@@ -695,7 +722,7 @@ export default function WorkflowDetailPage() {
     // canned sample — but every step AFTER it is real. A reply published to a
     // review that nobody left is still published, and cannot be taken back, so
     // it gets asked about rather than assumed.
-    const writes = sampleFed ? liveWrites(graph) : [];
+    const writes = sampleFed ? liveWrites(graph, demoApps) : [];
     if (
       writes.length > 0 &&
       !window.confirm(
@@ -912,7 +939,7 @@ export default function WorkflowDetailPage() {
         return;
       }
       toast({ title: "Automation deleted" });
-      router.push("/workflows");
+      router.push("/app/workflows");
     } catch {
       toast({ title: "Couldn't delete", tone: "danger" });
     }
@@ -922,7 +949,7 @@ export default function WorkflowDetailPage() {
     return (
       <div className="flex flex-col items-center gap-4 py-20 text-center">
         <p className="text-[14px] text-ink-muted">This automation doesn&apos;t exist.</p>
-        <Button variant="secondary" onClick={() => router.push("/workflows")}>
+        <Button variant="secondary" onClick={() => router.push("/app/workflows")}>
           All automations
         </Button>
       </div>
@@ -941,7 +968,7 @@ export default function WorkflowDetailPage() {
         </div>
         <div className="flex gap-2">
           <Button onClick={() => void refresh()}>Try again</Button>
-          <Button variant="secondary" onClick={() => router.push("/workflows")}>
+          <Button variant="secondary" onClick={() => router.push("/app/workflows")}>
             All automations
           </Button>
         </div>
@@ -965,7 +992,7 @@ export default function WorkflowDetailPage() {
         canUndo={history.length > 0}
         conflict={saveConflict}
         saveError={saveError}
-        onBack={() => router.push("/workflows")}
+        onBack={() => router.push("/app/workflows")}
         onRename={(name) => setWf((w) => (w ? { ...w, name } : w))}
         onToggleActive={toggleActive}
         onTest={() => void runNow()}
@@ -1161,7 +1188,7 @@ export default function WorkflowDetailPage() {
                       graph={graph}
                       inputRef={chatInputRef}
                       onRunTest={() => void runNow()}
-                      onSaved={(workflow) => router.push(`/workflows/${workflow.id}`)}
+                      onSaved={(workflow) => router.push(`/app/workflows/${workflow.id}`)}
                       onEdited={(edited) => {
                         apply(edited.graph);
                         setWf((w) => (w ? { ...w, name: edited.name, desc: edited.description } : w));

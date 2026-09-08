@@ -3,7 +3,7 @@ import { env } from "@/lib/env";
 import { resolveRequestContext } from "@/lib/workspace";
 import { safeNext } from "@/lib/auth/redirects";
 import { completeOAuthReturn } from "@/lib/social/oauth-return";
-import { completeConnect, verifyState } from "@/lib/google/business-profile";
+import { completeConnect, stateMessage, verifyState } from "@/lib/google/business-profile";
 import { persistIntegration } from "@/lib/social/integrations-store";
 
 const PLATFORM = "googlebusinessprofile";
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   // Where to land. A forged or expired state has no trustworthy return path,
   // so it falls back to the Integrations page rather than anywhere it named.
-  const dest = new URL(safeNext(state?.returnTo, "/integrations"), env.appUrl);
+  const dest = new URL(safeNext(state?.returnTo, "/app/integrations"), env.appUrl);
   const popup = !!state?.popup;
 
   // No code means the user pressed Cancel on Google's consent screen — an
@@ -46,8 +46,9 @@ export async function GET(req: NextRequest) {
     return completeOAuthReturn(dest, PLATFORM, false, popup);
   }
 
+  let outcome;
   try {
-    await completeConnect(state.workspaceId, code);
+    outcome = await completeConnect(state.workspaceId, code);
   } catch (err) {
     console.error("[google-business/callback] connect failed:", err);
     return completeOAuthReturn(dest, PLATFORM, false, popup);
@@ -57,6 +58,26 @@ export async function GET(req: NextRequest) {
   // the workflow connection pre-check and `requiredAppsOf` all see it without
   // learning that this one is special.
   await persistIntegration(ctx, PLATFORM, "connected", state.workspaceId);
-  return completeOAuthReturn(dest, PLATFORM, true, popup);
+
+  /*
+   * Connected, and useless — say so NOW.
+   *
+   * Signing in with a personal Google account is an easy mistake to make and
+   * an invisible one to have made: the consent screen looks identical, the
+   * grant is real, and the row goes green. The first sign anything was wrong
+   * used to be a failed run — and for a review workflow that means AFTER a
+   * person had read and approved a drafted reply, which is the most expensive
+   * possible moment to learn the account was never going to work.
+   *
+   * Only when Google actually ANSWERED the lookup. A failed lookup is a
+   * different problem (project setup, a blip) and `resolveState` retries it on
+   * every later call, so guessing here would cry wolf at a connection that is
+   * about to start working on its own.
+   */
+  const warning =
+    outcome.checked && !outcome.listing
+      ? stateMessage("no_location")
+      : undefined;
+  return completeOAuthReturn(dest, PLATFORM, true, popup, warning);
 }
 

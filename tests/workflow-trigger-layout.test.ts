@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const inspector = readFileSync("src/app/(app)/workflows/[id]/inspector.tsx", "utf8");
+const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
 
 test("the trigger inspector keeps its copy clear of the action buttons", () => {
   const triggerPanel = inspector.match(/\{spec\.trigger && \([\s\S]*?\n        \)\}/)?.[0] ?? "";

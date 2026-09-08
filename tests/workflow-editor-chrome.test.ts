@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const editor = readFileSync("src/app/(app)/workflows/[id]/page.tsx", "utf8");
+const editor = readFileSync("src/app/app/workflows/[id]/page.tsx", "utf8");
 const integrations = readFileSync("src/components/connect-apps.tsx", "utf8");
-const canvas = readFileSync("src/app/(app)/workflows/[id]/canvas.tsx", "utf8");
-const chat = readFileSync("src/app/(app)/workflows/builder-chat.tsx", "utf8");
-const inspector = readFileSync("src/app/(app)/workflows/[id]/inspector.tsx", "utf8");
+const canvas = readFileSync("src/app/app/workflows/[id]/canvas.tsx", "utf8");
+const chat = readFileSync("src/app/app/workflows/builder-chat.tsx", "utf8");
+const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
 
 test("the workflow header exposes one history button instead of duplicate refresh icons", () => {
   assert.equal((editor.match(/aria-label="Undo"/g) ?? []).length, 1);

@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   // Validated here rather than on the way back: `safeNext` keeps it
   // same-origin, and once inside the signed state it cannot be edited at all.
   // Google forbids varying the redirect_uri, so this is the only way home.
-  const returnTo = safeNext(body.returnTo, "/integrations");
+  const returnTo = safeNext(body.returnTo, "/app/integrations");
 
   return NextResponse.json({
     redirectUrl: authorizeUrl({

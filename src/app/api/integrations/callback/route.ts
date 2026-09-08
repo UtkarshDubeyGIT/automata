@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   // Set when the connect was started somewhere other than the Integrations
   // screen — the goal console, mainly. Validated, because it is a redirect.
   const dest = new URL(
-    safeNext(req.nextUrl.searchParams.get("return"), "/integrations"),
+    safeNext(req.nextUrl.searchParams.get("return"), "/app/integrations"),
     env.appUrl,
   );
 

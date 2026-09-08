@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -28,6 +28,7 @@ import type { ApprovalPreview as ApprovalPreviewData } from "@/lib/workflows/typ
 import { ApprovalPreview } from "./approval-preview";
 import { BuilderChat, type ChatSuggestion } from "./builder-chat";
 import { WorkflowLogo } from "./workflow-logo";
+import Loading from "./loading";
 
 /**
  * Automations — four sub-tabs over one page.
@@ -184,16 +185,24 @@ function isDraft(w: WorkflowListItem): boolean {
 }
 
 export default function WorkflowsPage() {
+  return <Suspense fallback={<Loading />}><WorkflowsContent /></Suspense>;
+}
+
+function WorkflowsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { refresh: refreshCredits } = useCredits();
 
-  const [tab, setTab] = useState<TabId>("create");
+  const requestedTab = searchParams.get("tab");
+  const tab: TabId = requestedTab === "workflows" || requestedTab === "runs" || requestedTab === "attention"
+    ? requestedTab
+    : "create";
   const [items, setItems] = useState<WorkflowListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunItem[] | null>(null);
   const [runsError, setRunsError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const query = searchParams.get("q") ?? "";
   const [wfFilter, setWfFilter] = useState<WorkflowFilter>("all");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState<string | null>(null);
@@ -229,6 +238,21 @@ export default function WorkflowsPage() {
       return next;
     });
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function setTab(next: TabId) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", next);
+    // Workflow and run searches filter different things.
+    params.delete("q");
+    window.history.pushState(null, "", `/app/workflows?${params}`);
+  }
+
+  function setQuery(value: string) {
+    const params = new URLSearchParams(window.location.search);
+    if (value) params.set("q", value);
+    else params.delete("q");
+    window.history.replaceState(null, "", `/app/workflows${params.size ? `?${params}` : ""}`);
+  }
 
   /**
    * Load the list.
@@ -375,7 +399,7 @@ export default function WorkflowsPage() {
 
       setGated(null);
       const mode = openChat ? "?creating=1&chat=1" : "?creating=1";
-      const href = `/workflows/${outcome.workflow.id}${mode}`;
+      const href = `/app/workflows/${outcome.workflow.id}${mode}`;
       keepLocked = true;
       setCreatedHref(href);
       startOpening(() => router.push(href));
@@ -630,12 +654,7 @@ export default function WorkflowsPage() {
     <div className="flex flex-col">
       <TabBar
         value={tab}
-        onChange={(next) => {
-          setTab(next);
-          // The two lists filter different things; carrying a workflow name
-          // into the run search only ever hides rows.
-          setQuery("");
-        }}
+        onChange={setTab}
         counts={{
           workflows: list.length,
           attention: runs ? attention.length : estimatedAttention,
@@ -653,7 +672,7 @@ export default function WorkflowsPage() {
             inputRef={chatInputRef}
             navigationPending={createdHref !== null}
             onSaved={(workflow) => {
-              const href = `/workflows/${workflow.id}?creating=1`;
+              const href = `/app/workflows/${workflow.id}?creating=1`;
               setCreatedHref(href);
               startOpening(() => router.push(href));
             }}
@@ -800,7 +819,7 @@ export default function WorkflowsPage() {
                     key={wf.id}
                     wf={wf}
                     busy={Boolean(busy[wf.id])}
-                    onOpen={() => router.push(`/workflows/${wf.id}`)}
+                    onOpen={() => router.push(`/app/workflows/${wf.id}`)}
                     onToggle={() => void toggleActive(wf)}
                   />
                 ))}
@@ -853,7 +872,7 @@ export default function WorkflowsPage() {
             ) : visibleRuns.length === 0 ? (
               <EmptyState icon="filter" title="Nothing matches here" body="Try a different search or filter." />
             ) : (
-              <RunTimeline runs={visibleRuns} onOpen={(r) => router.push(`/workflows/${r.workflowId}`)} />
+              <RunTimeline runs={visibleRuns} onOpen={(r) => router.push(`/app/workflows/${r.workflowId}`)} />
             )}
           </div>
         </div>
@@ -901,12 +920,12 @@ export default function WorkflowsPage() {
                     // lands on the button that was pressed and the rest of the
                     // page stays usable while a long run finishes.
                     running={busy[item.kind === "waiting" ? item.run.id : item.wf.id]}
-                    onOpen={() => router.push(`/workflows/${item.wf.id}`)}
+                    onOpen={() => router.push(`/app/workflows/${item.wf.id}`)}
                     onDecide={(decision) =>
                       item.kind === "waiting" ? void decide(item.run, decision) : undefined
                     }
                     onRunAgain={() => void runAgain(item.wf)}
-                    onReconnect={() => router.push("/integrations")}
+                    onReconnect={() => router.push("/app/integrations")}
                   />
                 ))}
               </div>
@@ -953,7 +972,7 @@ export default function WorkflowsPage() {
           busy={connectBusy}
           onConnect={connect}
           title="Accounts this template uses"
-          note="Each opens in a new tab — this list updates itself when you come back."
+          note="Each provider opens in a new tab and returns you here. Your automation stays safely paused until every connection is ready."
         />
         {/* Only reachable when an account is ALSO missing, since a template
             whose accounts are all connected is created without stopping here.

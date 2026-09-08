@@ -12,7 +12,7 @@ export async function POST() {
   const delivery = await queueWorkflowReminder({
     workspaceId: workspace.id,
     kind: "test",
-    body: "Your ZidaneAI WhatsApp workflow reminders are ready.",
+    body: "Your Automata WhatsApp workflow reminders are ready.",
     idempotencyKey: `whatsapp-test:${user.id}:${minute}`,
   });
   if (!delivery.queued) return NextResponse.json({ error: delivery.reason }, { status: 409 });

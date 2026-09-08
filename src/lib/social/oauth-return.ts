@@ -8,6 +8,8 @@ export interface IntegrationReturnMessage {
   type: "automata:integration-complete" | "zidaneai:integration-complete";
   platform: string;
   connected: boolean;
+  /** The account authorized successfully but needs attention before it can run steps. */
+  warning?: string;
 }
 
 /**
@@ -27,16 +29,19 @@ function popupComplete(
   dest: URL,
   platform: string,
   connected: boolean,
+  warning?: string,
 ): NextResponse {
   const message = JSON.stringify({
     type: "automata:integration-complete",
     platform,
     connected,
+    ...(connected && warning ? { warning } : {}),
   }).replace(/</g, "\\u003c");
   const legacyMessage = JSON.stringify({
     type: "zidaneai:integration-complete",
     platform,
     connected,
+    ...(connected && warning ? { warning } : {}),
   }).replace(/</g, "\\u003c");
   const channel = JSON.stringify(INTEGRATION_RETURN_CHANNEL);
   const legacyChannel = JSON.stringify(LEGACY_INTEGRATION_RETURN_CHANNEL);
@@ -85,9 +90,10 @@ export function completeOAuthReturn(
   platform: string,
   connected: boolean,
   popup: boolean,
+  warning?: string,
 ): NextResponse {
-  if (popup) return popupComplete(dest, platform, connected);
+  if (popup) return popupComplete(dest, platform, connected, warning);
   dest.searchParams.set(connected ? "connected" : "error", platform);
+  if (connected && warning) dest.searchParams.set("warning", warning);
   return NextResponse.redirect(dest);
 }
-

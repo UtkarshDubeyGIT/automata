@@ -784,7 +784,7 @@ function AssistantMessage({
             onConnect={connect}
             note={
               missing.length
-                ? `Connect ${appList(missing)} to create this automation — every run stops at the first step that needs it.`
+                ? `Connect ${appList(missing)} before saving. We'll open each provider in a new tab and bring you back here; runs stop until the connection is ready.`
                 : undefined
             }
           />

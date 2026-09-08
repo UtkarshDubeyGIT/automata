@@ -7,7 +7,7 @@ import type {
 import { platformMeta } from "@/lib/social/platforms";
 import { describeStep, isTriggerType, nodeSpec, scheduleLabel, stepApp } from "./blocks";
 import { orderedStepIds } from "./graph";
-import { getTool, getTrigger, missingWatch, watchValues } from "./registry";
+import { getTool, getTrigger, missingWatch, pollMinutes, watchValues } from "./registry";
 import type { StepDef, TriggerState, WorkflowConfig, WorkflowGraph } from "./types";
 
 /**
@@ -129,12 +129,11 @@ export function triggerInfo(
     case "app_event_trigger": {
       const spec = getTrigger(String(start.event ?? ""));
       if (!spec) return undefined;
-      const interval = Number(start.interval_minutes);
       const watch = watchValues(start);
       // `state.lastError` is a string the background poller cached on its last
       // pass and can predate a since-saved fix — without this, a "Not set up
       // yet" reads as permanently broken until the next poll happens to run
-      // (which may be up to `interval` minutes away, or never, if the poller
+      // (which may be up to a whole cadence away, or never, if the poller
       // isn't scheduled in this environment). The live config is cheap to
       // check, so don't surface a config error the live config already fixed.
       const staleSetupError = error?.startsWith("Not set up yet") && missingWatch(start).length === 0;
@@ -149,7 +148,9 @@ export function triggerInfo(
         // limitation of the trigger, and re-enabling re-resolves it anyway.
         deliveryReason:
           state?.realtime?.mode === "poll" ? state.realtime.reason : undefined,
-        intervalMinutes: Number.isFinite(interval) && interval > 0 ? interval : 60,
+        // Shared with the sweep, so the cadence this screen reports is the one
+        // the poller will actually keep to.
+        intervalMinutes: pollMinutes(start),
         watching:
           (spec.watch ?? [])
             .map((w) => watch[w.key])
@@ -213,6 +214,8 @@ export function scheduleText(config: WorkflowConfig, state?: TriggerState | null
 
 /** Map a DB row to the exact shape the Automations pages render. */
 export function toWorkflowView(row: WorkflowRow): Workflow {
+  const config = row.config?.graph ? row.config : row.draft_config;
+  const graph = config?.graph;
   return {
     id: row.id,
     name: row.name,
@@ -222,8 +225,8 @@ export function toWorkflowView(row: WorkflowRow): Workflow {
     lastRun: relTime(row.last_run_at),
     runs: row.runs,
     success: row.success_rate ?? "—",
-    groups: row.config?.display?.groups ?? deriveDisplay(row.config.graph),
-    trigger: triggerInfo(row.config, row.trigger_state),
+    groups: config?.display?.groups ?? (graph ? deriveDisplay(graph) : []),
+    trigger: config ? triggerInfo(config, row.trigger_state) : undefined,
   };
 }
 

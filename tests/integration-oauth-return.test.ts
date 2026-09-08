@@ -95,3 +95,20 @@ test("a normal integration callback keeps its redirect behavior", async () => {
   assert.equal(res.status, 307);
   assert.match(res.headers.get("location") ?? "", /\/integrations\?connected=google_sheets/);
 });
+
+
+test("connections started without a return path land in Automata integrations", async () => {
+  connectArgs = [];
+  const res = await connect(new Request("https://zidaneai.com/api/integrations/connect", {
+    method: "POST",
+    body: JSON.stringify({ platform: "google_sheets" }),
+  }));
+  assert.equal(res.status, 200);
+  const callback = new URL(String(connectArgs[2]));
+  assert.equal(callback.searchParams.get("return"), "/app/integrations");
+});
+
+test("a callback without a return path lands in Automata integrations", async () => {
+  const res = await GET({ nextUrl: new URL("https://zidaneai.com/api/integrations/callback?platform=google_sheets") } as never);
+  assert.equal(new URL(res.headers.get("location")!).pathname, "/app/integrations");
+});

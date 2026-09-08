@@ -110,7 +110,6 @@ export async function renderCarouselPdf(
 
   // Imported lazily: this module is reachable from the publish path, and
   // Playwright must not be pulled into a bundle that never renders anything.
-  // @ts-expect-error optional playwright dependency
   const { chromium } = await import("playwright");
 
   const browser = await chromium.launch({ args: ["--no-sandbox"] });

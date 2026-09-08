@@ -41,7 +41,7 @@ test("the builder bounds provider calls inside the job lease", () => {
 });
 
 test("the unknown enqueue fallback is reserved for an unconfirmed enqueue", () => {
-  const source = readFileSync("src/app/(app)/workflows/builder-chat.tsx", "utf8");
+  const source = readFileSync("src/app/app/workflows/builder-chat.tsx", "utf8");
   const fallback = "I couldn't reach the builder — check that the app is running, then try again.";
   assert.equal(source.split(fallback).length - 1, 1);
 });

@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 test("the workflow editor does not expose or implement isolated module tests", () => {
-  const inspector = readFileSync("src/app/(app)/workflows/[id]/inspector.tsx", "utf8");
-  const page = readFileSync("src/app/(app)/workflows/[id]/page.tsx", "utf8");
+  const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
+  const page = readFileSync("src/app/app/workflows/[id]/page.tsx", "utf8");
   const migration = existsSync("supabase/migrations/20260901172234_workflow_editor_drafts.sql")
     ? readFileSync("supabase/migrations/20260901172234_workflow_editor_drafts.sql", "utf8")
     : readFileSync("supabase/migrations/20260901161922_workflow_editor_drafts.sql", "utf8");

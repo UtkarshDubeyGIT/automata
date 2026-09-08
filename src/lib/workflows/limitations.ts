@@ -5,6 +5,7 @@ import {
   getTool,
   getTrigger,
   isPlaceholder,
+  pollMinutes,
   SIMULATED_APPS,
   watchValues,
 } from "./registry";
@@ -63,18 +64,40 @@ export interface DeliveryState {
   reason?: string;
 }
 
+/**
+ * Which apps are ACTUALLY demo mode here, when the caller knows.
+ *
+ * `SIMULATED_APPS` is a static set and, for one member, a static answer to a
+ * question that is not static. `googlebusinessprofile` is in it because
+ * Composio has no toolkit for it — but we implement it ourselves, so
+ * `steps.ts` exempts it via `runsNatively()` and a deployment holding a Google
+ * client runs those steps for REAL. This module cannot call `runsNatively`
+ * (it reads `@/lib/env`, and `pure-modules.test.ts` pins this file as pure),
+ * so the resolved answer is passed in the way `delivery` already is.
+ *
+ * `null`/omitted falls back to the static set, which is right before the
+ * status rows land and for every caller that has no workspace to ask about.
+ */
+function demoSet(demoApps?: Iterable<string> | null): ReadonlySet<string> {
+  return demoApps ? new Set(demoApps) : SIMULATED_APPS;
+}
+
 /** Everything true-but-surprising about this graph, most consequential first. */
 export function limitations(
   graph: WorkflowGraph | undefined,
   delivery?: DeliveryState | null,
+  demoApps?: Iterable<string> | null,
 ): Limitation[] {
   if (!graph?.steps) return [];
+  const demo = demoSet(demoApps);
   const out: Limitation[] = [];
   const start = graph.steps[graph.start];
-  if (start && isTriggerType(start.type)) out.push(...triggerLimits(graph.start, start, delivery));
+  if (start && isTriggerType(start.type)) {
+    out.push(...triggerLimits(graph.start, start, delivery, demo));
+  }
   for (const [id, step] of Object.entries(graph.steps)) out.push(...stepLimits(graph, id, step));
   // One line per app, not one per step that touches it — see simulatedLimits.
-  out.push(...simulatedLimits(graph));
+  out.push(...simulatedLimits(graph, demo));
 
   // Simulated beats delivery beats provider: "this never really posts" changes
   // whether the automation is worth building at all, a delay changes when it is
@@ -112,7 +135,7 @@ function dedupe(items: Limitation[]): Limitation[] {
  * it is the sentence someone will actually read — and the count is the part
  * that carries information the trigger line doesn't.
  */
-function simulatedLimits(graph: WorkflowGraph): Limitation[] {
+function simulatedLimits(graph: WorkflowGraph, demo: ReadonlySet<string>): Limitation[] {
   const byApp = new Map<string, { triggerId?: string; steps: { id: string; title: string }[] }>();
   const entry = (app: string) => {
     const found = byApp.get(app) ?? { steps: [] };
@@ -123,12 +146,12 @@ function simulatedLimits(graph: WorkflowGraph): Limitation[] {
   const start = graph.steps[graph.start];
   if (start?.type === "app_event_trigger") {
     const spec = getTrigger(String(start.event ?? ""));
-    if (spec && SIMULATED_APPS.has(spec.app)) entry(spec.app).triggerId = graph.start;
+    if (spec && demo.has(spec.app)) entry(spec.app).triggerId = graph.start;
   }
   for (const [id, step] of Object.entries(graph.steps)) {
     if (step.type !== "app_action") continue;
     const spec = getTool(String(step.tool ?? ""), step.tool_spec);
-    if (!spec || !SIMULATED_APPS.has(spec.app)) continue;
+    if (!spec || !demo.has(spec.app)) continue;
     entry(spec.app).steps.push({ id, title: title(step, id) });
   }
 
@@ -190,8 +213,8 @@ function phrase(steps: { title: string }[]): string {
 }
 
 function cadence(step: StepDef): string {
-  const raw = Number(step.interval_minutes);
-  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 60;
+  // Shared with the sweep, so this sentence describes what actually happens.
+  const minutes = pollMinutes(step);
   if (minutes >= 120) return `every ${Math.round(minutes / 60)} hours`;
   if (minutes >= 60) return "every hour";
   return `every ${minutes} minutes`;
@@ -200,7 +223,8 @@ function cadence(step: StepDef): string {
 function triggerLimits(
   stepId: string,
   step: StepDef,
-  delivery?: DeliveryState | null,
+  delivery: DeliveryState | null | undefined,
+  demo: ReadonlySet<string>,
 ): Limitation[] {
   if (step.type !== "app_event_trigger") return [];
   const spec = getTrigger(String(step.event ?? ""));
@@ -211,7 +235,7 @@ function triggerLimits(
   // automation genuinely never starts on its own however it is configured —
   // and how fast it would poll is beside the point when nothing polls it.
   // Said once, with the steps it affects, by `simulatedLimits`.
-  if (SIMULATED_APPS.has(spec.app)) return [];
+  if (demo.has(spec.app)) return [];
 
   const every = cadence(step);
 

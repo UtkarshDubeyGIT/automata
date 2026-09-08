@@ -19,14 +19,15 @@ test("the Shopify WhatsApp template is an operational owner notification", () =>
   assert.match(String(writer.instruction), /do not add a promotion/i);
 
   const sender = Object.values(template.graph.steps).find(
-    (step) => step.type === "app_action" && step.tool === "WHATSAPP_SEND_MESSAGE",
+    (step) => step.type === "whatsapp_reminder",
   );
   assert.ok(sender);
-  const arguments_ = (sender.arguments ?? {}) as Record<string, unknown>;
-  assert.equal(arguments_.to_number, "", "the owner chooses their own recipient number");
+  assert.equal(sender.message, "{{steps.write_alert.result.message}}");
+  assert.equal(sender.to_number, undefined, "native reminders use the workspace owner's verified profile");
+  assert.equal(sender.arguments, undefined, "order customer phone numbers are never passed to the reminder service");
 
   assert.deepEqual(
     requiredAppsOf(template.graph).map((app) => app.app),
-    ["shopify", "whatsapp"],
+    ["shopify"],
   );
 });

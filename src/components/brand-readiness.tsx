@@ -91,7 +91,7 @@ export function BrandGap({
         like your business.
       </div>
       <Link
-        href="/settings"
+        href="/app/settings"
         className="flex-none text-[12px] font-semibold text-brand hover:underline"
       >
         Add details

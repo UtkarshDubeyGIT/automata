@@ -942,6 +942,10 @@ export interface ExecuteResponse {
   successful: boolean;
   error?: string | null;
   data?: Record<string, unknown>;
+  /** See `PublishRetryDisposition`. Absent means the default, `"retry"`. */
+  retry?: "retry" | "never" | "defer";
+  /** Opaque resume state for a `"defer"`. */
+  resume?: Record<string, string>;
 }
 
 /**
@@ -1488,14 +1492,75 @@ export interface PostInput {
     /** JSON/editor-friendly alias accepted for webhook-built workflows. */
     dm_user?: string;
     pageId?: string;
+    /**
+     * Publisher state, not a user setting: a LinkedIn video URN left by an
+     * attempt that finished uploading while LinkedIn was still transcoding.
+     * `publishDuePosts` writes it back onto the row and hands it in again, so
+     * the retry waits for that asset instead of uploading a second copy.
+     */
+    linkedinVideoUrn?: string;
   };
 }
+
+/**
+ * What a caller may do about a publish that did not succeed.
+ *
+ * This exists because "failed" was the only thing the publish boundary could
+ * say, and two of the platform paths need to say something else:
+ *
+ *  - `"never"` — the platform may ALREADY HAVE the content. A YouTube resumable
+ *    session that returned 2xx without an id has accepted the bytes and very
+ *    likely published a public video; sending it again manufactures duplicates
+ *    on the customer's channel. Fail it immediately, do not spend the retry
+ *    budget producing more copies.
+ *  - `"defer"` — not a failure at all. The work is in flight on the platform's
+ *    side (LinkedIn is still transcoding a video we finished uploading). The
+ *    row goes back in the queue WITHOUT burning an attempt, and `resume` carries
+ *    the state that lets the next sweep pick up where this one stopped instead
+ *    of re-uploading from the first byte.
+ *
+ * `"retry"` is the default and the pre-existing behaviour: transient, back in
+ * the queue, attempt counted, ceiling applies.
+ */
+export type PublishRetryDisposition = "retry" | "never" | "defer";
 
 export interface PostResult {
   ok: boolean;
   externalId?: string;
   simulated?: boolean;
   error?: string;
+  retry?: PublishRetryDisposition;
+  /**
+   * Opaque state to hand back on the next attempt. Merged into the scheduled
+   * post's `options`, which is also how it comes back in — see the LinkedIn
+   * branch of `dispatch` and `linkedinVideoUrn`.
+   */
+  resume?: Record<string, string>;
+}
+
+/**
+ * Read a retry disposition off a THROWN error.
+ *
+ * The publish paths are split: some branches return `{ successful: false }` and
+ * some throw. Both need to be able to say "do not send this again" or "we are
+ * waiting, not failing", and an error whose only channel is a string cannot —
+ * which is exactly what let a YouTube upload that had already published be
+ * retried four more times. Errors that know their own disposition set these
+ * properties; anything else falls through to the default.
+ */
+function publishDisposition(err: unknown): {
+  retry?: PublishRetryDisposition;
+  resume?: Record<string, string>;
+} {
+  const candidate = err as { retry?: unknown; resume?: unknown } | null;
+  const out: { retry?: PublishRetryDisposition; resume?: Record<string, string> } = {};
+  if (candidate?.retry === "never" || candidate?.retry === "defer" || candidate?.retry === "retry") {
+    out.retry = candidate.retry;
+  }
+  if (candidate?.resume && typeof candidate.resume === "object") {
+    out.resume = candidate.resume as Record<string, string>;
+  }
+  return out;
 }
 
 class ComposioProvider {
@@ -1717,11 +1782,19 @@ class ComposioProvider {
     try {
       const res = await this.dispatch(input);
       if (!res.successful) {
-        return { ok: false, error: res.error ?? "Post failed" };
+        return {
+          ok: false,
+          error: res.error ?? "Post failed",
+          ...(res.retry ? { retry: res.retry } : {}),
+          ...(res.resume ? { resume: res.resume } : {}),
+        };
       }
       return { ok: true, externalId: extractId(res.data) };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      // A thrown error may still know whether it is safe to try again — the
+      // LinkedIn media path raises a deferral this way rather than unwinding
+      // an upload it has already paid for.
+      return { ok: false, error: (err as Error).message, ...publishDisposition(err) };
     }
   }
 
@@ -1756,6 +1829,12 @@ class ComposioProvider {
             author,
             commentary,
             media: attachment,
+            // Set by a previous attempt that deferred while LinkedIn was still
+            // transcoding. It rides in on the post's stored `options`, which is
+            // where `publishDuePosts` writes the `resume` state back to.
+            ...(options?.linkedinVideoUrn
+              ? { resumeVideoUrn: options.linkedinVideoUrn }
+              : {}),
           });
           return { successful: true, data: { id: published.id } };
         }
@@ -1842,8 +1921,15 @@ class ComposioProvider {
         } catch (err) {
           // A failed upload is reported, never retried here: a resumable
           // session that got as far as accepting bytes may have published the
-          // video even though the response never reached us.
-          return { successful: false, error: (err as Error).message };
+          // video even though the response never reached us. That was true and
+          // useless while the only thing crossing this boundary was a string —
+          // the retry lives one layer up, in `publishDuePosts`. The disposition
+          // now travels with the error so the layer that CAN act on it does.
+          return {
+            successful: false,
+            error: (err as Error).message,
+            ...publishDisposition(err),
+          };
         }
       }
 

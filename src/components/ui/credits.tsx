@@ -34,14 +34,19 @@ export type BillableReason =
   | "workflow_build"
   | "goal_plan";
 
+import { planById } from "@/lib/billing/plans";
+
 interface Price {
   reason: BillableReason;
   label: string;
   credits: number;
 }
 
-interface CreditsState {
+export interface CreditsState {
   credits: number;
+  plan: string;
+  planName: string;
+  planCredits: number;
   prices: Record<string, number>;
   loading: boolean;
   /** Price of an action, times however many units it produces. */
@@ -62,30 +67,34 @@ const CreditsContext = React.createContext<CreditsState | null>(null);
  */
 export function CreditsProvider({
   initialCredits = 0,
+  initialPlan = "starter",
   children,
 }: {
   initialCredits?: number;
+  initialPlan?: string;
   children: React.ReactNode;
 }) {
   const [credits, setCredits] = React.useState(initialCredits);
+  const [plan, setPlan] = React.useState(initialPlan);
   const [prices, setPrices] = React.useState<Record<string, number>>({});
   const [loading, setLoading] = React.useState(true);
 
   const read = React.useCallback(async (): Promise<{
     credits: number;
+    plan: string;
     prices: Record<string, number>;
   } | null> => {
     try {
       const res = await fetch("/api/credits");
       if (!res.ok) return null;
-      const data = (await res.json()) as { credits?: number; prices?: Price[] };
+      const data = (await res.json()) as { credits?: number; plan?: string; prices?: Price[] };
       const map: Record<string, number> = {};
       for (const p of data.prices ?? []) map[p.reason] = p.credits;
-      return { credits: data.credits ?? 0, prices: map };
+      return { credits: data.credits ?? 0, plan: data.plan ?? initialPlan, prices: map };
     } catch {
       return null;
     }
-  }, []);
+  }, [initialPlan]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -93,6 +102,7 @@ export function CreditsProvider({
       if (cancelled) return;
       if (next) {
         setCredits(next.credits);
+        setPlan(next.plan);
         setPrices(next.prices);
       }
       setLoading(false);
@@ -106,15 +116,22 @@ export function CreditsProvider({
     const next = await read();
     if (next) {
       setCredits(next.credits);
+      setPlan(next.plan);
       setPrices(next.prices);
     }
   }, [read]);
 
   const value = React.useMemo<CreditsState>(() => {
+    const planObj = planById(plan);
+    const planName = planObj?.name ?? (plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : "Starter");
+    const planCredits = planObj?.credits ?? 1000;
     const quote = (reason: BillableReason, quantity = 1) =>
       (prices[reason] ?? 0) * Math.max(1, Math.round(quantity));
     return {
       credits,
+      plan,
+      planName,
+      planCredits,
       prices,
       loading,
       quote,
@@ -127,7 +144,7 @@ export function CreditsProvider({
       },
       refresh,
     };
-  }, [credits, prices, loading, refresh]);
+  }, [credits, plan, prices, loading, refresh]);
 
   return <CreditsContext.Provider value={value}>{children}</CreditsContext.Provider>;
 }
@@ -139,6 +156,9 @@ export function useCredits(): CreditsState {
   // simply prices nothing, rather than throwing and taking the screen with it.
   return {
     credits: 0,
+    plan: "starter",
+    planName: "Starter",
+    planCredits: 1000,
     prices: {},
     loading: true,
     quote: () => 0,
@@ -197,7 +217,7 @@ export function CostChip({
   );
 
   return short ? (
-    <Link href="/billing" className={cn(base, "transition-colors hover:border-warning")}>
+    <Link href="/app/billing" className={cn(base, "transition-colors hover:border-warning")}>
       {body}
     </Link>
   ) : (

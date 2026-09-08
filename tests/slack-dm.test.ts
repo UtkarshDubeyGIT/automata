@@ -41,7 +41,7 @@ test("Slack step without DM user or channel reports missing destination", async 
 
 test("inspector exposes Slack channel configuration and variable-enabled messages", async () => {
   const { readFileSync } = await import("node:fs");
-  const inspector = readFileSync("src/app/(app)/workflows/[id]/inspector.tsx", "utf8");
+  const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
   assert.match(inspector, /isSlack \? \(\s*<SlackStepFields/);
   assert.match(inspector, /function SlackDmField/);
   assert.match(inspector, /function SlackStepFields/);

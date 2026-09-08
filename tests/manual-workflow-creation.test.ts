@@ -15,8 +15,8 @@ test("the manual creation path starts from one valid manual trigger", () => {
 });
 
 test("the Automations tab offers the blank workflow as Add manually", () => {
-  const page = readFileSync("src/app/(app)/workflows/page.tsx", "utf8");
-  const editor = readFileSync("src/app/(app)/workflows/[id]/page.tsx", "utf8");
+  const page = readFileSync("src/app/app/workflows/page.tsx", "utf8");
+  const editor = readFileSync("src/app/app/workflows/[id]/page.tsx", "utf8");
 
   assert.match(page, /const MANUAL_TEMPLATE = TEMPLATES\.find/);
   assert.match(page, /startTemplate\(MANUAL_TEMPLATE, true\)/);
@@ -26,7 +26,7 @@ test("the Automations tab offers the blank workflow as Add manually", () => {
 });
 
 test("the creation screen offers one natural manual alternative before templates", () => {
-  const page = readFileSync("src/app/(app)/workflows/page.tsx", "utf8");
+  const page = readFileSync("src/app/app/workflows/page.tsx", "utf8");
 
   assert.match(page, /data-create-manually/);
   assert.match(page, /Prefer to build step by step\?/);

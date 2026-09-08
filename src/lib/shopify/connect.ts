@@ -82,7 +82,7 @@ export async function attachStore(
   const install = await readInstall(shop);
   if (!install) throw new Error(`No stored Shopify install for ${shop}`);
   if (install.workspaceId && install.workspaceId !== workspaceId) {
-    throw new Error(`${shop} is already connected to another ZidaneAI account`);
+    throw new Error(`${shop} is already connected to another Automata account`);
   }
 
   const { accountId } = await socialProvider.adoptConnection(entityId, SLUG, (fields) =>
@@ -90,7 +90,7 @@ export async function attachStore(
   );
 
   const claimed = await claimInstall(shop, workspaceId);
-  if (!claimed) throw new Error(`${shop} is already connected to another ZidaneAI account`);
+  if (!claimed) throw new Error(`${shop} is already connected to another Automata account`);
 
   return { accountId };
 }

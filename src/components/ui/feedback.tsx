@@ -31,18 +31,38 @@ export function ProgressBar({
   );
 }
 
+/**
+ * A hint attached to the control it describes.
+ *
+ * Opens on keyboard focus as well as hover — a tooltip that only answers a
+ * mouse is a tooltip half the people who need it cannot read. `wide` is for
+ * a sentence rather than a label: the default stays on one line, which is
+ * right for "Pause" and wrong for "Zidane runs none of its remaining actions
+ * until you resume it."
+ */
 export function Tooltip({
   content,
   children,
+  side = "top",
+  wide = false,
 }: {
   content: React.ReactNode;
   children: React.ReactNode;
+  side?: "top" | "bottom";
+  wide?: boolean;
 }) {
   return (
     <span className="group relative inline-flex">
       {children}
       <span
-        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-inverse px-2.5 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+        role="tooltip"
+        className={cn(
+          "pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 rounded-md bg-inverse px-2.5 py-1.5",
+          "text-[12px] font-medium leading-snug text-white opacity-0 shadow-lg",
+          "transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100",
+          side === "bottom" ? "top-full mt-2" : "bottom-full mb-2",
+          wide ? "w-[240px] whitespace-normal text-center" : "whitespace-nowrap",
+        )}
       >
         {content}
       </span>

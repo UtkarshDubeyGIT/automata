@@ -321,7 +321,8 @@ export const TEMPLATES: WorkflowTemplate[] = [
           stage: "Fetch",
           toolkit: "shopify",
           tool: "SHOPIFY_GET_ORDER_LIST",
-          arguments: { limit: 50, status: "any" },
+          // The provider declares no input fields for this tool.
+          arguments: {},
           next: "summarize_week",
         },
         summarize_week: {
@@ -494,22 +495,10 @@ export const TEMPLATES: WorkflowTemplate[] = [
           next: "send_alert",
         },
         send_alert: {
-          type: "app_action",
+          type: "whatsapp_reminder",
           title: "Send it on WhatsApp",
-          stage: "Act",
-          toolkit: "whatsapp",
-          tool: "WHATSAPP_SEND_MESSAGE",
-          // Both blank on purpose — the step shows "Needs setup" until you fill
-          // them, which is correct: only you know which business number sends
-          // and which number receives. Run WHATSAPP_GET_PHONE_NUMBERS once to
-          // find phone_number_id. WhatsApp only delivers free text inside 24
-          // hours of that number messaging your business, which is why this
-          // template alerts YOU rather than the customer.
-          arguments: {
-            phone_number_id: "",
-            to_number: "",
-            text: "{{steps.write_alert.result.message}}",
-          },
+          stage: "Notify",
+          message: "{{steps.write_alert.result.message}}",
           next: null,
         },
       },

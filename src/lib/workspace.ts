@@ -25,6 +25,29 @@ const ANONYMOUS_CONTEXT: RequestContext = {
   entityId: null,
 };
 
+async function workspaceForUser(supabase: ServerSupabase, userId: string): Promise<string | null> {
+  const { data: member } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (member?.workspace_id) return member.workspace_id;
+
+  // Support both Automata workspaces and existing Zidane workspaces. Every
+  // lookup remains scoped to the authenticated user through the RLS client.
+  for (const ownerColumn of ["created_by", "owner_id"]) {
+    const { data: workspace } = await supabase
+      .from("workspaces")
+      .select("id")
+      .eq(ownerColumn, userId)
+      .limit(1)
+      .maybeSingle();
+    if (workspace?.id) return workspace.id;
+  }
+  return null;
+}
+
 export async function resolveRequestContext(): Promise<RequestContext> {
   if (!supabaseConfigured) return PREVIEW_CONTEXT;
   try {
@@ -35,27 +58,13 @@ export async function resolveRequestContext(): Promise<RequestContext> {
     } = await supabase.auth.getUser();
 
     if (user) {
-      const { data: member } = await supabase
-        .from("workspace_members")
-        .select("workspace_id")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
-
-      const { data: ws } = member?.workspace_id
-        ? { data: { id: member.workspace_id } }
-        : await supabase
-            .from("workspaces")
-            .select("id")
-            .eq("created_by", user.id)
-            .limit(1)
-            .maybeSingle();
+      const workspaceId = await workspaceForUser(supabase, user.id);
 
       return {
         supabase,
         userId: user.id,
-        workspaceId: ws?.id ?? null,
-        entityId: ws?.id ?? user.id,
+        workspaceId,
+        entityId: workspaceId ?? user.id,
       };
     }
 
@@ -97,17 +106,12 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
     } = await supabase.auth.getUser();
     if (!user) return DEMO;
 
-    const { data: member } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle();
+    const workspaceId = await workspaceForUser(supabase, user.id);
 
     const { data: ws } = await supabase
       .from("workspaces")
       .select("id, name, plan")
-      .eq("id", member?.workspace_id ?? "")
+      .eq("id", workspaceId ?? "")
       .limit(1)
       .maybeSingle();
 

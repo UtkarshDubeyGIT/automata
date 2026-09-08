@@ -467,10 +467,19 @@ export function setupGaps(graph: WorkflowGraph): Record<string, string[]> {
  * automation impossible to try end to end. So the honest place to handle it is
  * the button — name the irreversible steps and let the person decide.
  *
- * A read is not listed: it changes nothing. Neither is an app with no Composio
- * toolkit, which always runs simulated whatever the account looks like.
+ * A read is not listed: it changes nothing. Neither is an app that really is
+ * demo mode here — but that is a question about THIS deployment, not a
+ * property of the app, so the answer is passed in. `googlebusinessprofile` is
+ * why: it is in `SIMULATED_APPS` because Composio has no toolkit for it, yet
+ * we implement it ourselves, so with a Google client configured
+ * "Post positive review reply" publishes a real, public reply under the
+ * business's name. Reading the static set alone, this function left that step
+ * out of the very dialog whose job is to name it, and Run went ahead without
+ * ever mentioning it. Omitted/`null` keeps the static set, which is the right
+ * answer for a caller that cannot resolve a workspace.
  */
-export function liveWrites(graph: WorkflowGraph): string[] {
+export function liveWrites(graph: WorkflowGraph, demoApps?: Iterable<string> | null): string[] {
+  const demo = demoApps ? new Set(demoApps) : SIMULATED_APPS;
   const out: string[] = [];
   for (const [id, step] of Object.entries(graph.steps)) {
     const title = typeof step.title === "string" && step.title.trim() ? step.title.trim() : id;
@@ -480,7 +489,7 @@ export function liveWrites(graph: WorkflowGraph): string[] {
     }
     if (step.type !== "app_action") continue;
     const spec = getTool(String(step.tool ?? ""), step.tool_spec);
-    if (!spec || spec.kind === "read" || SIMULATED_APPS.has(spec.app)) continue;
+    if (!spec || spec.kind === "read" || demo.has(spec.app)) continue;
     out.push(`${title} — ${spec.desc} (${appLabel(spec.app)})`);
   }
   return out;

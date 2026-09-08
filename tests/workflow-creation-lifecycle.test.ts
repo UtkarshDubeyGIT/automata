@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const page = readFileSync("src/app/(app)/workflows/page.tsx", "utf8");
-const chat = readFileSync("src/app/(app)/workflows/builder-chat.tsx", "utf8");
+const page = readFileSync("src/app/app/workflows/page.tsx", "utf8");
+const chat = readFileSync("src/app/app/workflows/builder-chat.tsx", "utf8");
 const connections = readFileSync("src/components/connect-apps.tsx", "utf8");
 
 test("template creation takes a synchronous lock before connection preflight", () => {

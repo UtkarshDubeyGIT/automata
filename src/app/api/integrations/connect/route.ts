@@ -54,7 +54,7 @@ export async function POST(req: Request) {
   // goal console has to come back to the goal console — bouncing the user to
   // Integrations loses the operation they were in the middle of. Same-origin
   // only: this ends up as a redirect target.
-  const returnTo = safeNext(body.returnTo, "/integrations");
+  const returnTo = safeNext(body.returnTo, "/app/integrations");
 
   // Google Business Profile has no Composio toolkit, so its handshake is ours.
   // It still answers HERE, in the same shape, because the Integrations screen

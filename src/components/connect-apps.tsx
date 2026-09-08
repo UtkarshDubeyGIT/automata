@@ -12,6 +12,7 @@ import {
 } from "@/lib/social/oauth-return";
 import {
   connectionsOf,
+  statusOf,
   unconnected,
   type AppConnection,
   type IntegrationRow,
@@ -74,9 +75,19 @@ export function useAppConnections(apps: RequiredApp[]) {
       try {
         const res = await fetch("/api/integrations/connect");
         const data = (await res.json()) as { integrations?: IntegrationRow[]; live?: boolean };
+        let nativeRows: IntegrationRow[] = [];
+        // Web research runs on the app's own Firecrawl key, so its row is a
+        // server fact rather than something this workspace connected.
+        if (apps.some((app) => app.app === "firecrawl")) {
+          const native = await fetch("/api/integrations/firecrawl");
+          const nativeData = (await native.json().catch(() => ({}))) as { configured?: boolean };
+          if (native.ok) {
+            nativeRows = [{ platform: "firecrawl", status: nativeData.configured ? "connected" : "none" }];
+          }
+        }
         // An install with no COMPOSIO_API_KEY simulates every action (steps.ts),
         // so no row from it can honestly be called a live connection.
-        latest.current = { rows: data.integrations ?? [], live: data.live !== false };
+        latest.current = { rows: [...(data.integrations ?? []), ...nativeRows], live: data.live !== false };
         if (alive.current) {
           setRows(latest.current.rows);
           setLive(latest.current.live);
@@ -92,7 +103,7 @@ export function useAppConnections(apps: RequiredApp[]) {
       inFlight.current = null;
     });
     return inFlight.current;
-  }, []);
+  }, [apps]);
 
   const refresh = useCallback(async () => {
     await load();
@@ -162,6 +173,18 @@ export function useAppConnections(apps: RequiredApp[]) {
         return;
       }
       if (data.connected) mark(data.platform, "connected");
+      // Authorized, but the account cannot do the job — a personal Google
+      // login that owns no business listing is the case this exists for. The
+      // row is honestly green (the grant is real); this is the only thing that
+      // says the automation will still fail, and it says it now rather than
+      // after someone approves a reply that cannot be posted.
+      if (data.warning) {
+        toast({
+          title: "Connected, but this account can't be used yet",
+          description: data.warning,
+          tone: "warning",
+        });
+      }
       void load().then(() => {
         // A status request that was already in flight can have started before
         // OAuth finished. Re-apply the verified success after it settles so a
@@ -174,11 +197,25 @@ export function useAppConnections(apps: RequiredApp[]) {
       channel.removeEventListener("message", onMessage);
       channel.close();
     };
-  }, [apps, load, mark]);
+  }, [apps, load, mark, toast]);
 
   const connect = useCallback(
     async (app: RequiredApp) => {
-      if (busy || app.simulated) return;
+      if (busy) return;
+      /*
+       * Gate on the RESOLVED status, never on the static `simulated` flag.
+       *
+       * The two disagree for exactly one app, and it is the one whose OAuth
+       * client we own. `googlebusinessprofile` is permanently in
+       * SIMULATED_APPS because it has no Composio toolkit and never will — but
+       * on a deployment that HAS a Google client, the connect endpoint states a
+       * "none" row and `statusOf` resolves it to a perfectly connectable app.
+       * So `AppStatus` rendered a Connect button while this handler returned on
+       * the flag: a button that did nothing at all, and not even a toast to say
+       * why. The button and the handler now read the same mapper, so they
+       * cannot drift apart again.
+       */
+      if (statusOf(app, latest.current.rows, latest.current.live) === "simulated") return;
       setBusy(app.app);
       try {
         const res = await fetch("/api/integrations/connect", {
@@ -198,23 +235,38 @@ export function useAppConnections(apps: RequiredApp[]) {
         const data = (await res.json()) as {
           connected?: boolean;
           redirectUrl?: string;
+          simulated?: boolean;
           needsCredentials?: boolean;
           keyFallback?: boolean;
           error?: string;
         };
+        if (data.simulated) {
+          // Reachable only when the status rows are still in flight or have
+          // gone stale, so the button was offered for an app this deployment
+          // holds no credentials for. Say that, rather than a bare red
+          // "couldn't connect" that reads as a fault the user could retry.
+          mark(app.app, "simulated");
+          toast({
+            title: `${app.label} runs in demo mode here`,
+            description:
+              "This deployment has no credentials for it, so its steps produce realistic results without reaching the real account.",
+            tone: "warning",
+          });
+          return;
+        }
         if (data.needsCredentials) {
           if (data.keyFallback) {
             keyOffer.current.add(app.app);
             toast({
               title: `${app.label} has no one-tap login`,
-              description: "Press Connect again to use your own API key instead.",
+              description: "You can still connect it with your own API key. Press Connect again to open the secure key form.",
               tone: "warning",
             });
             return;
           }
           toast({
             title: `${app.label} needs its own OAuth app`,
-            description: data.error ?? "Add your developer-app credentials, then retry.",
+            description: data.error ?? "An administrator must add this app's OAuth credentials before it can be connected.",
             tone: "warning",
           });
           return;
@@ -245,7 +297,7 @@ export function useAppConnections(apps: RequiredApp[]) {
     [busy, mark, toast],
   );
 
-  return { connections, missing, busy, connect, refresh, resolve };
+  return { connections, missing, busy, connect, refresh, resolve, mark };
 }
 
 function withStatus(
@@ -366,12 +418,33 @@ function AppStatus({
       </span>
     );
   }
+  if (app.status === "unknown") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-muted">
+        <Icon name="refresh" size={13} className="animate-spin" />
+        Checking…
+      </span>
+    );
+  }
+  // Web research is switched on for the whole app, not per workspace. There is
+  // no key to paste and no account to authorize, so a Connect button here would
+  // send the user looking for a setting that does not exist.
+  if (app.app === "firecrawl") {
+    return (
+      <span
+        title="Web research is set up by whoever runs this app. It isn't available right now."
+        className="inline-flex items-center gap-1.5 rounded-full border border-line bg-inset px-2 py-0.5 text-[11.5px] font-semibold text-ink-muted"
+      >
+        <Icon name="info" size={12} />
+        Unavailable
+      </span>
+    );
+  }
   return (
     <Button
       size="sm"
       variant={app.status === "none" ? "secondary" : "ghost"}
       loading={busy}
-      disabled={app.status === "unknown"}
       onClick={onConnect}
     >
       Connect

@@ -44,3 +44,38 @@ export function canActivateWorkflow(planId: PlanId, activeCount: number): boolea
   const limit = PLANS[planId].activeWorkflowLimit;
   return limit === null || activeCount < limit;
 }
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  priceMonthly: number;
+  credits: number;
+  features: string[];
+  highlighted?: boolean;
+}
+
+/** Zidane's billing components consume this view of Automata's price book. */
+export const BILLING_PLANS: BillingPlan[] = Object.values(PLANS).map((plan) => ({
+  id: plan.id,
+  name: plan.name,
+  priceMonthly: plan.monthlyPrice,
+  credits: plan.monthlyCredits,
+  highlighted: plan.id === "pro",
+  features: [
+    `${plan.monthlyCredits.toLocaleString("en-US")} credits / month`,
+    plan.activeWorkflowLimit === null ? "Unlimited active workflows" : `${plan.activeWorkflowLimit} active workflows`,
+    `${plan.memberLimit} workspace ${plan.memberLimit === 1 ? "member" : "members"}`,
+    `${plan.retentionDays} days of run history`,
+  ],
+}));
+
+/** Existing Zidane workspaces keep their recorded subscription when opened here. */
+const LEGACY_PLANS: BillingPlan[] = [
+  { id: "starter", name: "Starter", priceMonthly: 29, credits: 1000, features: [] },
+  { id: "growth", name: "Growth Plan", priceMonthly: 99, credits: 3000, features: [] },
+  { id: "scale", name: "Scale", priceMonthly: 299, credits: 12000, features: [] },
+];
+
+export function planById(id: string): BillingPlan | undefined {
+  return BILLING_PLANS.find((plan) => plan.id === id) ?? LEGACY_PLANS.find((plan) => plan.id === id);
+}

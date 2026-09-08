@@ -234,7 +234,7 @@ export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunRes
       runId: run.id,
       kind: "workflow_failure",
       idempotencyKey: `workflow-failure:${run.id}`,
-      body: `A ZidaneAI workflow failed: ${result.error ?? "The run could not complete."}\n\nOpen the workflow run for details.`,
+      body: `A Automata workflow failed: ${result.error ?? "The run could not complete."}\n\nOpen the workflow run for details.`,
     }).catch((error) => console.error("[workflows] could not queue WhatsApp failure alert:", error));
   } else if (result.status === "waiting") {
     const { data: waiting } = await admin.from("workflow_runs").select("log").eq("id", run.id).maybeSingle();
@@ -247,7 +247,7 @@ export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunRes
         stepId: waitingLog.pending.stepId,
         kind: "workflow_approval",
         idempotencyKey: `workflow-approval:${run.id}:${waitingLog.pending.stepId}`,
-        body: `A ZidaneAI workflow is waiting for your approval: ${waitingLog.pending.prompt}\n\nOpen the workflow run to review it.`,
+        body: `A Automata workflow is waiting for your approval: ${waitingLog.pending.prompt}\n\nOpen the workflow run to review it.`,
       }).catch((error) => console.error("[workflows] could not queue WhatsApp approval alert:", error));
     }
   }

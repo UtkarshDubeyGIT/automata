@@ -90,11 +90,11 @@ test("the pure workflow modules the editor lints on stay pure", () => {
 
 test("browser workflow components never reach a provider client", () => {
   const components = [
-    "app/(app)/workflows/approval-preview.tsx",
-    "app/(app)/workflows/workflow-logo.tsx",
-    "app/(app)/workflows/[id]/canvas.tsx",
-    "app/(app)/workflows/[id]/step-picker.tsx",
-    "app/(app)/workflows/[id]/inspector.tsx",
+    "app/app/workflows/approval-preview.tsx",
+    "app/app/workflows/workflow-logo.tsx",
+    "app/app/workflows/[id]/canvas.tsx",
+    "app/app/workflows/[id]/step-picker.tsx",
+    "app/app/workflows/[id]/inspector.tsx",
     "app/(app)/integrations/page.tsx",
     "components/connect-apps.tsx",
   ];

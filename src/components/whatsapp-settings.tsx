@@ -151,7 +151,7 @@ export function WhatsAppSettings() {
                   </Field>
                 </>
               )}
-              <Checkbox checked={consent} onChange={setConsent} label="I agree to receive ZidaneAI workflow reminders on WhatsApp." />
+              <Checkbox checked={consent} onChange={setConsent} label="I agree to receive Automata workflow reminders on WhatsApp." />
               <div className="flex gap-2">
                 <Button onClick={verify} loading={busy} disabled={!consent || (mode === "sms" && !code.trim())}>
                   {mode === "sandbox" ? "I joined the Sandbox" : "Verify number and enable"}
@@ -166,7 +166,7 @@ export function WhatsAppSettings() {
           <div className="text-[13px] text-ink-muted">{profile?.phone_e164}</div>
           {[
             ["workflowReminders", "Workflow reminders", "Summaries, failures, and approval alerts from workflows that use WhatsApp.", profile?.workflow_reminders],
-            ["generalReminders", "General reminders", "ZidaneAI reminders that are not tied to a workflow.", profile?.general_reminders],
+            ["generalReminders", "General reminders", "Automata reminders that are not tied to a workflow.", profile?.general_reminders],
           ].map(([key, title, description, checked]) => (
             <div key={String(key)} className="flex items-center justify-between gap-4 rounded-control border border-line bg-card px-4 py-3">
               <div><div className="text-[13.5px] font-medium text-ink">{title}</div><div className="text-[12.5px] text-ink-subtle">{description}</div></div>

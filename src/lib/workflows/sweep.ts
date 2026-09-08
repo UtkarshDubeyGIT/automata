@@ -1,7 +1,7 @@
 import { executeTool, socialProvider } from "@/lib/social/composio";
 import { dueSlot, safeTimeZone } from "./blocks";
 import { appEventKey, claimRun, scheduleKey } from "./claim";
-import { getTrigger, missingWatch, SIMULATED_APPS, watchValues } from "./registry";
+import { getTrigger, missingWatch, pollMinutes, SIMULATED_APPS, watchValues } from "./registry";
 import { executeNativeTool, runsNatively as nativePoll } from "./native-tools";
 import type { StepDef, TriggerState, WorkflowConfig } from "./types";
 
@@ -166,8 +166,10 @@ export async function sweepTriggers(
     }
 
     // Honor the trigger's cadence: skip if checked more recently than that.
-    const interval = Number(start.interval_minutes);
-    const minutes = Number.isFinite(interval) && interval > 0 ? interval : 60;
+    // `pollMinutes` is shared with the editor's card and the limitations panel
+    // so the cadence shown and the cadence obeyed cannot drift, and applies the
+    // 15-minute floor the beat imposes anyway.
+    const minutes = pollMinutes(start);
     const last = state.lastCheckedAt;
     if (last && now.getTime() - new Date(last).getTime() < minutes * 60_000 - 30_000) continue;
 

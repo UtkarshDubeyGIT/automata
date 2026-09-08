@@ -110,7 +110,7 @@ export function verifyState(state: string): OAuthState | null {
     if (Date.now() - parsed.at > STATE_TTL_MS) return null;
     return {
       workspaceId: parsed.workspaceId,
-      returnTo: parsed.returnTo || "/integrations",
+      returnTo: parsed.returnTo || "/app/integrations",
       popup: !!parsed.popup,
     };
   } catch {
@@ -153,8 +153,28 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
   return (await res.json().catch(() => ({}))) as TokenResponse;
 }
 
+/**
+ * What the post-handshake lookup learned, for a caller that has to tell the
+ * user something.
+ *
+ * `listing: false, checked: true` is the case this type exists for: the grant
+ * is real and banked, but the Google account behind it manages no business on
+ * Maps, so every step against it will fail. Saying nothing here is how that
+ * turns up much later — for a personal Google account, one failed run AFTER a
+ * human had read and approved a drafted reply.
+ */
+export interface ConnectOutcome {
+  /** A usable business location was found. */
+  listing: boolean;
+  /** Google answered the lookup at all. `false` means we could not ask. */
+  checked: boolean;
+}
+
 /** Finish the handshake and store the refresh token for this workspace. */
-export async function completeConnect(workspaceId: string, code: string): Promise<void> {
+export async function completeConnect(
+  workspaceId: string,
+  code: string,
+): Promise<ConnectOutcome> {
   const token = await tokenRequest({
     code,
     client_id: env.googleClientId,
@@ -198,11 +218,22 @@ export async function completeConnect(workspaceId: string, code: string): Promis
   try {
     const resolved = await discoverLocation(tokens);
     if (resolved.accountName) {
-      await saveCredential(workspaceId, PROVIDER, { ...tokens, ...resolved });
+      await saveCredential(workspaceId, PROVIDER, {
+        ...tokens,
+        accountName: resolved.accountName,
+        locationName: resolved.locationName,
+      });
     }
+    // Still a successful CONNECTION either way — the caller decides what to
+    // say about a grant that cannot reach a listing.
+    return {
+      checked: resolved.checked,
+      listing: !!(resolved.accountName && resolved.locationName),
+    };
   } catch (err) {
     // Worth seeing in the log, never worth failing the connection over.
     console.error("[business-profile] connected, but location lookup failed:", err);
+    return { checked: false, listing: false };
   }
 }
 
@@ -273,18 +304,25 @@ async function freshToken(tokens: StoredTokens): Promise<string | null> {
   return refreshed.access_token ?? null;
 }
 
+/**
+ * `checked` separates "Google answered, and this login owns no listing" from
+ * "we never got to ask". Both leave `accountName` empty, and they need
+ * opposite responses: the first is a wrong-account mistake the user can fix in
+ * thirty seconds, the second is a transient failure that must not be reported
+ * as one.
+ */
 async function discoverLocation(
   tokens: StoredTokens,
-): Promise<{ accountName?: string; locationName?: string }> {
+): Promise<{ checked: boolean; accountName?: string; locationName?: string }> {
   const token = await freshToken(tokens);
-  if (!token) return {};
+  if (!token) return { checked: false };
 
   const accounts = await call<{ accounts?: { name?: string }[] }>(
     token,
     `${ACCOUNTS}/accounts`,
   );
   const accountName = accounts.accounts?.[0]?.name;
-  if (!accountName) return {};
+  if (!accountName) return { checked: true };
 
   // `readMask` is required — omitting it is a 400, not a default.
   const locations = await call<{ locations?: { name?: string }[] }>(
@@ -292,7 +330,7 @@ async function discoverLocation(
     `${INFORMATION}/${accountName}/locations?readMask=name,title&pageSize=100`,
   );
   const locationName = locations.locations?.[0]?.name;
-  return { accountName, locationName: locationName ?? undefined };
+  return { checked: true, accountName, locationName: locationName ?? undefined };
 }
 
 export interface BusinessReview {

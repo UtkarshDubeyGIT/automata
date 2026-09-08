@@ -70,7 +70,7 @@ export function WhatsAppNodeStatus() {
         <Icon name={state === "ready" ? "check-circle" : "info"} size={14} className="mt-0.5 flex-none" />
         <div className="text-[12.5px] leading-relaxed text-ink-muted">
           {copy}{" "}
-          {state !== "ready" && <Link href="/settings" className="font-medium text-brand hover:underline">Open settings</Link>}
+          {state !== "ready" && <Link href="/app/settings" className="font-medium text-brand hover:underline">Open settings</Link>}
         </div>
       </div>
     </div>
