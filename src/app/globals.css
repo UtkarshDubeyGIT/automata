@@ -196,13 +196,25 @@
   --space-15: 160px;
   --container-max: 1200px;
   --container-wide: 1360px;
+}
 
-  /* Semantic colour aliases mirrored from @theme.
-     These point at the SEMANTIC tokens, never at raw ramp steps or literals —
-     that indirection is what lets `.dark` flip the whole app from one place.
-     (They used to resolve straight to --color-gray-900 / #ffffff, which meant
-     every var() consumer, including the `body` rule below, stayed light no
-     matter what the theme said.) */
+/* Semantic colour aliases mirrored from @theme.
+
+   These point at the SEMANTIC tokens, never at raw ramp steps or literals —
+   that indirection is what lets `.dark` flip the whole app from one place.
+
+   The selector has to list the light shells too, not just `:root`. A var()
+   is resolved against the element the DECLARATION sits on, so an alias
+   declared only on :root freezes at whatever <html> resolved it to — in dark
+   mode the auth and marketing shells kept the dark ink and dark card fills
+   while `.theme-light` repainted their background light, which is how
+   "Sign in to Automata" ended up near-white on near-white. Re-declaring the
+   same aliases on those shells makes them resolve a second time, against the
+   light --color-* set the shell itself installs. */
+:root,
+.theme-light,
+.marketing-shell,
+.legal-page {
   --brand: var(--color-brand);
   --brand-hover: var(--color-brand-hover);
   --brand-active: var(--color-brand-active);
@@ -232,20 +244,22 @@
   --border-strong: var(--color-line-strong);
   --border-focus: var(--color-focus);
 
-  --success: var(--color-green-600);
-  --success-surface: var(--color-green-50);
-  --success-border: var(--color-green-100);
-  --warning: var(--color-amber-600);
-  --warning-surface: var(--color-amber-50);
-  --warning-border: var(--color-amber-100);
-  --danger: var(--color-red-600);
-  --danger-surface: var(--color-red-50);
-  --danger-border: var(--color-red-100);
+  --success: var(--color-success);
+  --success-surface: var(--color-success-surface);
+  --success-border: var(--color-success-border);
+  --warning: var(--color-warning);
+  --warning-surface: var(--color-warning-surface);
+  --warning-border: var(--color-warning-border);
+  --danger: var(--color-danger);
+  --danger-surface: var(--color-danger-surface);
+  --danger-border: var(--color-danger-border);
 
   --overlay-scrim: rgba(0, 0, 0, 0.48);
   --overlay-soft: rgba(0, 0, 0, 0.04);
   --ring: 0 0 0 3px var(--color-ring);
+}
 
+:root {
   /* radius mirror */
   --radius-control: 10px;
   --radius-card: 14px;
@@ -360,9 +374,16 @@
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* Automata public/auth compatibility aliases, all rooted in the shared theme. */
+/* Automata public/auth compatibility aliases, all rooted in the shared theme.
+   Same rule as the semantic mirrors above: the light shells re-declare them so
+   they resolve against their own tokens rather than <html>'s. */
 :root {
   color-scheme: light;
+}
+:root,
+.theme-light,
+.marketing-shell,
+.legal-page {
   --ink: var(--text-primary);
   --muted: var(--text-secondary);
   --line: var(--border-subtle);
@@ -525,4 +546,17 @@
   /* The dark <body> must not show through around these shells. */
   background-color: var(--color-page);
   color: var(--color-ink);
+}
+
+/* ...and neither must the canvas behind them. <html> keeps the dark token set,
+   so --surface-page there is near-black: in dark mode the scrollbar gutter and
+   the rubber-band area beside a light auth or legal page showed as a dark
+   strip. This is the same pin marketing.css applies for .marketing-shell, and
+   it has to name a literal ramp step — the shell's own --color-page is a
+   descendant's variable, invisible from <html>. */
+html:has(.theme-light),
+body:has(.theme-light),
+html:has(.legal-page),
+body:has(.legal-page) {
+  background-color: var(--color-gray-50);
 }

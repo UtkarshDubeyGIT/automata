@@ -89,13 +89,20 @@ export interface ResponseSegment {
   b?: boolean;
 }
 
-/** Light-theme tile colors: [background, foreground] as CSS var references. */
+/**
+ * Tile colors: [background, foreground] as CSS var references.
+ *
+ * Both halves have to come from the semantic layer. The background already
+ * flipped with the theme while the foreground was pinned to a ramp step tuned
+ * for a white page, so a dark run surface got a dark chip with 600-shade text
+ * sitting on it.
+ */
 const TILE: Record<TileColor, [string, string]> = {
-  indigo: ["var(--brand-subtle)", "var(--color-indigo-600)"],
-  amber: ["var(--warning-surface)", "var(--color-amber-600)"],
-  tan: ["var(--surface-inset)", "var(--color-gray-600)"],
-  green: ["var(--success-surface)", "var(--color-green-600)"],
-  red: ["var(--danger-surface)", "var(--color-red-600)"],
+  indigo: ["var(--brand-subtle)", "var(--brand)"],
+  amber: ["var(--warning-surface)", "var(--warning)"],
+  tan: ["var(--surface-inset)", "var(--text-secondary)"],
+  green: ["var(--success-surface)", "var(--success)"],
+  red: ["var(--danger-surface)", "var(--danger)"],
   violet: ["var(--color-indigo-100)", "var(--color-indigo-500)"],
 };
 
