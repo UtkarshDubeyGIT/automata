@@ -208,8 +208,31 @@ export async function updatePassword(
   redirect("/login?notice=password_updated" as Route);
 }
 
-export async function signInWithGoogle(): Promise<never> {
-  redirect("/login?notice=google_disabled" as Route);
+/**
+ * Driven by its own small form, so it is a plain form action rather than a
+ * `useActionState` reducer: there is nothing to type and nothing to echo back.
+ */
+export async function signInWithGoogle(formData: FormData): Promise<void> {
+  const dest = safeNext(value(formData, "next"));
+
+  if (!isSupabaseConfigured()) redirect(dest as Route);
+
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    // Google returns to Supabase, which returns here with `?code=`.
+    options: { redirectTo: await callbackUrl(dest) },
+  });
+
+  // The provider being switched off in the Supabase dashboard shows up here,
+  // not at the callback. Say so rather than bouncing to a blank consent page.
+  if (error || !data.url) {
+    console.error("[auth] google sign-in unavailable", { code: error?.code, status: error?.status });
+    redirect("/login?notice=google_disabled" as Route);
+  }
+
+  // An absolute, off-origin URL — Google's consent screen.
+  redirect(data.url as Route);
 }
 
 export async function signOut() {

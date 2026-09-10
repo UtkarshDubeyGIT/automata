@@ -6,6 +6,7 @@ import { useActionState } from "react";
 import { PasswordInput } from "@/components/ui";
 import { signIn } from "../actions";
 import { AuthAlert } from "../auth-alert";
+import { GoogleButton } from "../google-button";
 import { IDLE } from "../form-state";
 import { SubmitButton } from "../submit-button";
 
@@ -19,6 +20,7 @@ export function LoginForm({ next }: { next: string }) {
   return (
     <>
       <AuthAlert state={state} next={next} />
+      <GoogleButton next={next} />
       <form action={formAction} className="auth-form">
         {/* Re-validated server-side through safeNext — this is user input. */}
         <input type="hidden" name="next" value={next} />

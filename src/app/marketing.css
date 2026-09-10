@@ -241,6 +241,14 @@ body:has(.marketing-shell) {
 .auth-form .password-toggle:hover { color: var(--text-secondary); background: rgba(23, 23, 23, .05); }
 .auth-form .password-toggle:focus-visible { outline: 3px solid var(--color-indigo-200); outline-offset: 2px; }
 .auth-form .auth-submit:hover { background: var(--brand-hover); transform: none; }
+/* Google sign-in sits above the email form, with a rule between the two. */
+.auth-oauth { display: grid; }
+.auth-oauth .auth-oauth__button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 44px; border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--surface-card); color: var(--text-primary); font-size: 14px; font-weight: 500; transition: var(--transition-control); }
+.auth-oauth .auth-oauth__button:hover { background: var(--surface-hover); transform: none; }
+.auth-oauth .auth-oauth__button:focus-visible { border-color: var(--border-focus); box-shadow: var(--ring); outline: none; }
+.auth-oauth .auth-oauth__button[disabled] { opacity: .7; cursor: progress; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--text-tertiary); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-subtle); }
 .auth-alert { margin-bottom: 20px; padding: 12px 14px; border-radius: var(--radius-control); background: var(--success-surface); color: var(--success); font-size: 13px; line-height: 1.6; }
 .auth-alert.error { background: var(--danger-surface); color: var(--danger); }
 .auth-alert.preview { background: var(--warning-surface); color: var(--warning); }

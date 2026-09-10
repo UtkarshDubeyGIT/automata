@@ -88,7 +88,7 @@ export function friendlyAuthError(error: AuthError | null | undefined): Friendly
 export const NOTICE_COPY: Record<string, string> = {
   verify_failed: "That sign-in link couldn't be verified. It may have expired — request a new one.",
   link_expired: "That link has expired. Request a new one below.",
-  google_disabled: "Google sign-in isn't enabled here. Use your email and password.",
+  google_disabled: "Google sign-in isn't available right now. Use your email and password.",
   confirmed: "Email confirmed. Sign in to continue.",
   password_updated: "Password updated. Sign in with your new password.",
   signed_out: "You've been signed out.",

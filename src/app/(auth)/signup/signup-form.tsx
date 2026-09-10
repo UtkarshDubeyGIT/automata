@@ -6,6 +6,7 @@ import { useActionState } from "react";
 import { PasswordInput } from "@/components/ui";
 import { signUp } from "../actions";
 import { AuthAlert } from "../auth-alert";
+import { GoogleButton } from "../google-button";
 import { IDLE } from "../form-state";
 import { SubmitButton } from "../submit-button";
 
@@ -32,6 +33,7 @@ export function SignupForm({ next }: { next: string }) {
   return (
     <>
       <AuthAlert state={state} next={next} />
+      <GoogleButton next={next} label="Sign up with Google" />
       <form action={formAction} className="auth-form">
         <input type="hidden" name="next" value={next} />
         <label htmlFor="fullName">

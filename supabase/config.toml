@@ -164,6 +164,8 @@ site_url = "http://64.227.146.141"
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = [
+  "https://automata.doubtbuddy.com/auth/callback",
+  "https://automata.doubtbuddy.com/auth/confirm",
   "http://64.227.146.141/auth/callback",
   "http://64.227.146.141/auth/confirm",
   "http://localhost:3000/auth/callback",
@@ -338,6 +340,16 @@ max_frequency = "5s"
 # Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
+# Google sign-in. The hosted project reads its credentials from the Supabase
+# dashboard (Authentication -> Sign In / Providers); this block only configures
+# `supabase start` locally. Secrets stay in the environment, never in git.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# Required for Google sign-in against a local Supabase.
+skip_nonce_check = true
+
 [auth.external.apple]
 enabled = false
 client_id = ""
