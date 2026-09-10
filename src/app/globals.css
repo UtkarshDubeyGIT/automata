@@ -560,3 +560,31 @@ html:has(.legal-page),
 body:has(.legal-page) {
   background-color: var(--color-gray-50);
 }
+
+/* A barely-there dot wash for the automations canvas.
+
+   Rendered as a sibling of <main> (from AppControls) rather than inside the
+   page: a backdrop painted inside <main> has to go negative-z to sit under its
+   own siblings, which also drops it under the shell's opaque page fill, so
+   nothing shows. Out here it is z-0 against main's z-10.
+
+   Fixed rather than tiled on the scrolling container, so the texture stays put
+   instead of sliding under the content as you scroll.
+
+   The dots are color-mixed from --color-ink so one rule reads correctly in
+   both themes. It is deliberately near the threshold of visible — texture you
+   notice is texture that competes with the cards. */
+.grid-wash {
+  --grid-dot: color-mix(in srgb, var(--color-ink) 7%, transparent);
+  --grid-size: 26px;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+  /* Fades out down the page so the texture frames the top of the canvas
+     instead of running edge to edge behind long lists. */
+  mask-image: linear-gradient(to bottom, black 30%, transparent 85%);
+  -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 85%);
+}

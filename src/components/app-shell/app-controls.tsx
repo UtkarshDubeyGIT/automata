@@ -64,9 +64,25 @@ export function useDismissable(open: boolean, close: () => void) {
   return ref;
 }
 
+/**
+ * The graph-paper wash behind the automations canvas.
+ *
+ * It lives up here rather than inside the page because the page renders inside
+ * `<main>`, and a backdrop painted there has to go negative-z to sit under its
+ * own siblings — which then puts it under the shell's opaque page fill as well,
+ * so nothing shows. As a sibling of `<main>` it just needs z-0 against main's
+ * z-10, with no negative stacking anywhere.
+ */
+function GridWash() {
+  const pathname = usePathname();
+  if (!pathname.startsWith("/app/workflows")) return null;
+  return <div aria-hidden className="grid-wash" />;
+}
+
 export function AppControls({ userName, userEmail }: { userName: string; userEmail?: string }) {
   return (
     <>
+      <GridWash />
       {/*
         The controls float over the scrolling page, so content used to slide
         directly under the mark and the avatar and swallow them. This is the
