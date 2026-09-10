@@ -13,5 +13,5 @@ rsync -avz "$LOCAL_ENV" "$HOST:$REMOTE_DIR/.env.local"
 ssh "$HOST" "chmod 600 $REMOTE_DIR/.env.local"
 
 if [ "${RESTART:-1}" = "1" ]; then
-  ssh "$HOST" "cd $REMOTE_DIR && docker compose --env-file .env.local up -d --build && docker compose ps"
+  ssh "$HOST" "cd $REMOTE_DIR && docker compose --env-file .env.local up -d --build && docker compose --env-file .env.local ps"
 fi
