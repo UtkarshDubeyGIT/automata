@@ -67,6 +67,17 @@ export function useDismissable(open: boolean, close: () => void) {
 export function AppControls({ userName, userEmail }: { userName: string; userEmail?: string }) {
   return (
     <>
+      {/*
+        The controls float over the scrolling page, so content used to slide
+        directly under the mark and the avatar and swallow them. This is the
+        glass pane that keeps them readable: a blurred strip across the top,
+        masked to fade out at its lower edge so it reads as a soft gradient
+        rather than a bar with a hard line under it.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 z-[55] h-20 bg-page/60 backdrop-blur-xl md:h-24 [mask-image:linear-gradient(to_bottom,black_55%,transparent)] [-webkit-mask-image:linear-gradient(to_bottom,black_55%,transparent)]"
+      />
       {/* Losing the sidebar lost the only way back to the start of the app. */}
       <div className="fixed left-4 top-4 z-[60] md:left-6 md:top-6">
         <Logo href="/app/workflows" />
