@@ -4,6 +4,7 @@ import { INTEGRATION_BY_SLUG } from "@/lib/integrations/catalog";
 import { createConnectLink, listConnectedToolkits } from "@/lib/integrations/composio";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { publicUrl } from "@/lib/request";
 
 async function context() {
   const supabase = await createServerSupabaseClient();
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({})) as { app?: string };
   const app = body.app?.toLowerCase() ?? "";
   if (!INTEGRATION_BY_SLUG.has(app)) return NextResponse.json({ error: "That integration is not in the MVP catalog." }, { status: 400 });
-  const callback = new URL("/api/integrations/callback", request.url);
+  const callback = publicUrl("/api/integrations/callback", request);
   callback.searchParams.set("app", app);
   try {
     const link = await createConnectLink(ctx.workspaceId, app, callback.toString());

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { safeNext } from "@/lib/auth/redirects";
+import { publicUrl } from "@/lib/request";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
@@ -13,15 +14,15 @@ export async function GET(request: NextRequest) {
   const providerError = params.get("error_description") ?? params.get("error");
   if (providerError) {
     console.error("[auth] callback returned an error", { providerError });
-    return NextResponse.redirect(new URL("/login?notice=link_expired", request.url));
+    return NextResponse.redirect(publicUrl("/login?notice=link_expired", request));
   }
 
   if (code) {
     const supabase = await createServerSupabaseClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(new URL(dest, request.url));
+    if (!error) return NextResponse.redirect(publicUrl(dest, request));
     console.error("[auth] code exchange failed", { code: error.code, status: error.status });
   }
 
-  return NextResponse.redirect(new URL("/login?notice=verify_failed", request.url));
+  return NextResponse.redirect(publicUrl("/login?notice=verify_failed", request));
 }

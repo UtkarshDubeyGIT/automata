@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import { friendlyAuthError } from "@/lib/auth/errors";
 import { safeNext } from "@/lib/auth/redirects";
+import { publicOrigin } from "@/lib/request";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { AuthFormState } from "./form-state";
@@ -20,8 +21,13 @@ function secret(formData: FormData, key: string): string {
 }
 
 async function origin(): Promise<string> {
+  // The configured public origin wins: behind the proxy it is the only thing
+  // that names the host the browser can actually reach, and it keeps the link
+  // we hand Supabase identical to the one /auth/callback redirects against.
+  const configured = publicOrigin();
+  if (configured) return configured;
   const requestHeaders = await headers();
-  return requestHeaders.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return requestHeaders.get("origin") ?? "http://localhost:3000";
 }
 
 async function callbackUrl(dest: string): Promise<string> {

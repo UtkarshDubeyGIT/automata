@@ -26,10 +26,17 @@ mock.module("next/navigation", {
   },
 });
 
+// The Origin header is deliberately wrong here: behind the proxy the callback
+// has to be built from the configured public URL, not from what the request
+// claims, or the code comes back to a host the browser cannot reach.
 mock.module("next/headers", {
   namedExports: {
-    headers: async () => new Headers({ origin: "https://automata.doubtbuddy.com" }),
+    headers: async () => new Headers({ origin: "https://localhost:3000" }),
   },
+});
+
+mock.module("@/lib/env", {
+  namedExports: { env: { appUrl: "https://automata.doubtbuddy.com" } },
 });
 
 let oauth: { url: string | null; error: { code?: string; status?: number } | null } = {

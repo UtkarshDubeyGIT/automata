@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { stripeClient, stripePrice } from "@/lib/billing/stripe";
 import { billingWorkspace } from "@/lib/billing/workspace";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { publicUrl } from "@/lib/request";
 
 export async function POST(request: NextRequest) {
   const stripe = stripeClient();
@@ -25,8 +26,8 @@ export async function POST(request: NextRequest) {
     client_reference_id: workspace.id,
     line_items: [{ price, quantity: 1 }],
     allow_promotion_codes: true,
-    success_url: `${request.nextUrl.origin}/app/billing?checkout=success`,
-    cancel_url: `${request.nextUrl.origin}/app/billing?checkout=cancelled`,
+    success_url: publicUrl("/app/billing?checkout=success", request).toString(),
+    cancel_url: publicUrl("/app/billing?checkout=cancelled", request).toString(),
     subscription_data: { metadata: { workspace_id: workspace.id, plan: body.plan } },
     metadata: { workspace_id: workspace.id, plan: body.plan },
   });
