@@ -9,9 +9,10 @@ const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8
 
 test("Vikunja is a permanent integration with its own icon", () => {
   assert.equal(INTEGRATION_BY_SLUG.get("vikunja")?.name, "Vikunja");
-  assert.match(toolkitLogo("vikunja"), /vikunja\.doubtbuddy\.com/);
+  assert.match(toolkitLogo("vikunja"), /vikunja\.io/);
   assert.match(page, /vikunja:\s*\{/);
   assert.match(page, /Connect Vikunja/);
+  assert.equal(toolkitLogo("vikunja", "https://tasks.example.com/"), "https://tasks.example.com/images/icons/favicon.svg");
 });
 
 test("workflow setup loads Vikunja projects instead of asking for a numeric id", () => {
@@ -21,7 +22,8 @@ test("workflow setup loads Vikunja projects instead of asking for a numeric id",
 });
 
 test("Vikunja connection UI links to token settings and offers Manage when connected", () => {
-  assert.match(page, /vikunja\.doubtbuddy\.com\/user\/settings\/api-tokens/);
+  assert.match(page, /Vikunja app URL/);
+  assert.match(page, /instanceUrl:\s*vikunjaInstanceUrl/);
   assert.match(page, />Manage</);
   assert.match(page, /\/api\/integrations\/vikunja/);
   assert.match(page, /type="password"/);

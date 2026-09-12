@@ -8,7 +8,7 @@ import {
 
 test("Vikunja client authenticates and lists writable projects", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const client = createVikunjaClient("secret-token", async (input, init) => {
+  const client = createVikunjaClient("https://tasks.example.com/", "secret-token", async (input, init) => {
     calls.push({ url: String(input), init });
     return Response.json([
       { id: 21, title: "Operations", is_archived: false, max_permission: 1 },
@@ -20,13 +20,13 @@ test("Vikunja client authenticates and lists writable projects", async () => {
   const projects = await client.listProjects();
 
   assert.deepEqual(projects.map((project) => project.id), [21]);
-  assert.equal(calls[0]?.url, "https://vikunja.doubtbuddy.com/api/v1/projects?expand=permissions&per_page=100");
+  assert.equal(calls[0]?.url, "https://tasks.example.com/api/v1/projects?expand=permissions&per_page=100");
   assert.equal(new Headers(calls[0]?.init?.headers).get("authorization"), "Bearer secret-token");
 });
 
 test("Vikunja client creates an unassigned task in the selected project", async () => {
   let request: { url: string; init?: RequestInit } | undefined;
-  const client = createVikunjaClient("token", async (input, init) => {
+  const client = createVikunjaClient("https://tasks.example.com", "token", async (input, init) => {
     request = { url: String(input), init };
     return Response.json({ id: 88, title: "Send proposal", description: "Owner mentioned: Alex" }, { status: 201 });
   });
@@ -37,7 +37,7 @@ test("Vikunja client creates an unassigned task in the selected project", async 
   });
 
   assert.equal(task.id, 88);
-  assert.equal(request?.url, "https://vikunja.doubtbuddy.com/api/v1/projects/21/tasks");
+  assert.equal(request?.url, "https://tasks.example.com/api/v1/projects/21/tasks");
   assert.equal(request?.init?.method, "PUT");
   assert.deepEqual(JSON.parse(String(request?.init?.body)), {
     title: "Send proposal",
@@ -46,7 +46,7 @@ test("Vikunja client creates an unassigned task in the selected project", async 
 });
 
 test("Vikunja client classifies rejected credentials without exposing the token", async () => {
-  const client = createVikunjaClient("never-print-this", async () =>
+  const client = createVikunjaClient("https://tasks.example.com", "never-print-this", async () =>
     Response.json({ code: 1011, message: "Wrong credentials: never-print-this" }, { status: 401 }),
   );
 
@@ -59,7 +59,7 @@ test("Vikunja client classifies rejected credentials without exposing the token"
 });
 
 test("Vikunja client distinguishes insufficient permissions", async () => {
-  const client = createVikunjaClient("token", async () =>
+  const client = createVikunjaClient("https://tasks.example.com", "token", async () =>
     Response.json({ code: 3001, message: "Forbidden" }, { status: 403 }),
   );
 
@@ -68,4 +68,15 @@ test("Vikunja client distinguishes insufficient permissions", async () => {
     assert.equal(error.kind, "permission");
     return true;
   });
+});
+
+test("Vikunja requires a secure deployed app URL", () => {
+  assert.throws(
+    () => createVikunjaClient("http://tasks.example.com", "token"),
+    /HTTPS Vikunja app URL/,
+  );
+  assert.throws(
+    () => createVikunjaClient("https://user:pass@tasks.example.com", "token"),
+    /HTTPS Vikunja app URL/,
+  );
 });

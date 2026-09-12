@@ -42,11 +42,13 @@ export async function GET(req?: Request) {
 export async function POST(req: Request) {
   const workspaceId = await workspace();
   if (!workspaceId) return NextResponse.json({ error: UNAUTHORIZED }, { status: 401 });
-  const body = await req.json().catch(() => null) as { token?: unknown } | null;
+  const body = await req.json().catch(() => null) as { instanceUrl?: unknown; token?: unknown } | null;
+  const instanceUrl = typeof body?.instanceUrl === "string" ? body.instanceUrl.trim() : "";
   const token = typeof body?.token === "string" ? body.token.trim() : "";
+  if (!instanceUrl) return NextResponse.json({ error: "Paste your deployed Vikunja app URL." }, { status: 400 });
   if (!token) return NextResponse.json({ error: "Paste a Vikunja API token to connect." }, { status: 400 });
   try {
-    return NextResponse.json(await connectVikunja(workspaceId, token));
+    return NextResponse.json(await connectVikunja(workspaceId, instanceUrl, token));
   } catch (error) {
     return failure(error);
   }

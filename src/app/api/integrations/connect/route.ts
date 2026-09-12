@@ -166,9 +166,13 @@ function businessProfileRow(
 }
 
 async function vikunjaRow(workspaceId: string | null) {
-  if (!workspaceId) return { platform: "vikunja", status: "none" };
+  if (!workspaceId) return { platform: "vikunja", status: "none", instanceUrl: "" };
   const status = await vikunjaStatus(workspaceId);
-  return { platform: "vikunja", status: status.connected ? "connected" : "none" };
+  return {
+    platform: "vikunja",
+    status: status.connected ? "connected" : "none",
+    instanceUrl: status.instanceUrl,
+  };
 }
 
 /**

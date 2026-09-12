@@ -3,13 +3,15 @@ import { mock, test } from "node:test";
 
 let workspaceId: string | null = "workspace-1";
 let tokenSeen = "";
+let instanceUrlSeen = "";
 let disconnected = false;
 mock.module("@/lib/workspace", {
   namedExports: { resolveRequestContext: async () => ({ workspaceId, entityId: workspaceId }) },
 });
 mock.module("@/lib/integrations/vikunja-connection", {
   namedExports: {
-    connectVikunja: async (_workspace: string, token: string) => {
+    connectVikunja: async (_workspace: string, instanceUrl: string, token: string) => {
+      instanceUrlSeen = instanceUrl;
       tokenSeen = token;
       return { connected: true, projectCount: 2, lastTestedAt: "now" };
     },
@@ -30,13 +32,15 @@ test("Vikunja route requires a workspace", async () => {
 
 test("Vikunja route connects with a pasted token", async () => {
   tokenSeen = "";
+  instanceUrlSeen = "";
   const response = await route.POST(new Request("http://localhost/api/integrations/vikunja", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: "user-token" }),
+    body: JSON.stringify({ instanceUrl: "https://tasks.example.com", token: "user-token" }),
   }));
   assert.equal(response.status, 200);
   assert.equal(tokenSeen, "user-token");
+  assert.equal(instanceUrlSeen, "https://tasks.example.com");
   assert.equal((await response.json()).connected, true);
 });
 

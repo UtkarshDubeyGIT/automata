@@ -1,5 +1,4 @@
-const VIKUNJA_ORIGIN = "https://vikunja.doubtbuddy.com";
-const VIKUNJA_API = `${VIKUNJA_ORIGIN}/api/v1`;
+import { fetchPublicUrl } from "@/lib/net/public-fetch";
 
 export type VikunjaErrorKind = "credentials" | "permission" | "connection" | "provider";
 
@@ -40,7 +39,21 @@ export interface VikunjaTaskInput {
   description?: string;
 }
 
-type Fetcher = typeof fetch;
+type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
+
+export function normalizeVikunjaInstanceUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new VikunjaError("Enter a valid HTTPS Vikunja app URL.", "connection");
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    throw new VikunjaError("Enter a valid HTTPS Vikunja app URL.", "connection");
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  return `${url.origin}${path}`;
+}
 
 function providerMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
@@ -54,14 +67,16 @@ function classify(status: number): VikunjaErrorKind {
   return "provider";
 }
 
-export function createVikunjaClient(token: string, fetcher: Fetcher = fetch) {
+export function createVikunjaClient(instanceUrl: string, token: string, fetcher: Fetcher = fetchPublicUrl) {
+  const origin = normalizeVikunjaInstanceUrl(instanceUrl);
+  const api = `${origin}/api/v1`;
   const apiToken = token.trim();
   if (!apiToken) throw new VikunjaError("A Vikunja API token is required.", "credentials");
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     let response: Response;
     try {
-      response = await fetcher(`${VIKUNJA_API}${path}`, {
+      response = await fetcher(`${api}${path}`, {
         ...init,
         headers: {
           Accept: "application/json",
@@ -120,10 +135,9 @@ export function createVikunjaClient(token: string, fetcher: Fetcher = fetch) {
       return request<VikunjaTask>(`/tasks/${taskId}`);
     },
     taskUrl(taskId: number): string {
-      return `${VIKUNJA_ORIGIN}/tasks/${taskId}`;
+      return `${origin}/tasks/${taskId}`;
     },
   };
 }
 
 export const VIKUNJA_PROVIDER = "vikunja";
-export const VIKUNJA_INSTANCE_URL = VIKUNJA_ORIGIN;

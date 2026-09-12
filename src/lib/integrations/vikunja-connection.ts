@@ -1,10 +1,11 @@
 import { deleteCredential, readCredential, saveCredential } from "@/lib/credentials";
 import {
   createVikunjaClient,
-  VIKUNJA_INSTANCE_URL,
+  normalizeVikunjaInstanceUrl,
   VIKUNJA_PROVIDER,
   type VikunjaProject,
 } from "./vikunja";
+import { assertPublicUrl } from "@/lib/net/public-url";
 
 interface VikunjaCredential {
   token: string;
@@ -22,19 +23,23 @@ export interface VikunjaConnectionStatus {
 
 export async function connectVikunja(
   workspaceId: string,
+  instanceUrl: string,
   token: string,
-  fetcher: typeof fetch = fetch,
+  fetcher?: (input: string, init?: RequestInit) => Promise<Response>,
 ) {
-  const client = createVikunjaClient(token, fetcher);
+  const normalized = normalizeVikunjaInstanceUrl(instanceUrl);
+  const publicUrl = await assertPublicUrl(normalized);
+  if (!publicUrl) throw new Error("The Vikunja app URL must resolve to a public server.");
+  const client = createVikunjaClient(normalized, token, fetcher);
   const projects = await client.verify();
   const lastTestedAt = new Date().toISOString();
   await saveCredential(workspaceId, VIKUNJA_PROVIDER, {
     token: token.trim(),
-    instanceUrl: VIKUNJA_INSTANCE_URL,
+    instanceUrl: normalized,
     lastTestedAt,
     lastTestStatus: "connected",
   } satisfies VikunjaCredential);
-  return { connected: true as const, projectCount: projects.length, lastTestedAt };
+  return { connected: true as const, instanceUrl: normalized, projectCount: projects.length, lastTestedAt };
 }
 
 export async function vikunjaStatus(workspaceId: string): Promise<VikunjaConnectionStatus> {
@@ -42,13 +47,13 @@ export async function vikunjaStatus(workspaceId: string): Promise<VikunjaConnect
   return credential?.token
     ? {
         connected: true,
-        instanceUrl: VIKUNJA_INSTANCE_URL,
+        instanceUrl: credential.instanceUrl,
         lastTestedAt: credential.lastTestedAt ?? null,
         lastTestStatus: credential.lastTestStatus ?? null,
       }
     : {
         connected: false,
-        instanceUrl: VIKUNJA_INSTANCE_URL,
+        instanceUrl: "",
         lastTestedAt: null,
         lastTestStatus: null,
       };
@@ -66,10 +71,10 @@ async function credentialFor(workspaceId: string): Promise<VikunjaCredential> {
 
 export async function listVikunjaProjects(workspaceId: string): Promise<VikunjaProject[]> {
   const credential = await credentialFor(workspaceId);
-  return createVikunjaClient(credential.token).listProjects();
+  return createVikunjaClient(credential.instanceUrl, credential.token).listProjects();
 }
 
 export async function vikunjaClientFor(workspaceId: string) {
   const credential = await credentialFor(workspaceId);
-  return createVikunjaClient(credential.token);
+  return createVikunjaClient(credential.instanceUrl, credential.token);
 }

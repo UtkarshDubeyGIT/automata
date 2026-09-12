@@ -78,7 +78,7 @@ interface CatalogResponse {
 }
 
 /** Toolkit logo with a lettermark fallback for apps without one. */
-function Logo({ slug, name, size = 44 }: { slug: string; name: string; size?: number }) {
+function Logo({ slug, name, size = 44, instanceUrl }: { slug: string; name: string; size?: number; instanceUrl?: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -93,7 +93,7 @@ function Logo({ slug, name, size = 44 }: { slug: string; name: string; size?: nu
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={toolkitLogo(slug)}
+      src={toolkitLogo(slug, instanceUrl)}
       alt=""
       width={size}
       height={size}
@@ -113,6 +113,7 @@ export default function IntegrationsPage() {
   /** Native apps the server offered this workspace — see NATIVE_TOOLKITS. */
   const [nativeSlugs, setNativeSlugs] = useState<string[]>(["vikunja"]);
   const [vikunjaOpen, setVikunjaOpen] = useState(false);
+  const [vikunjaInstanceUrl, setVikunjaInstanceUrl] = useState("");
   const [vikunjaToken, setVikunjaToken] = useState("");
   const [vikunjaError, setVikunjaError] = useState("");
   /**
@@ -148,7 +149,7 @@ export default function IntegrationsPage() {
       .then((r) => r.json())
       .then(
         (data: {
-          integrations?: { platform: string; status: string }[];
+          integrations?: { platform: string; status: string; instanceUrl?: string }[];
           ownApps?: string[];
         }) => {
           const rows = data.integrations ?? [];
@@ -165,6 +166,7 @@ export default function IntegrationsPage() {
             }
           }
           setStatus(next);
+          setVikunjaInstanceUrl(rows.find((row) => row.platform === "vikunja")?.instanceUrl ?? "");
           setOwnApps(data.ownApps ?? []);
           // A card for every app the server is willing to connect — which for
           // the native ones is the only signal there is, since they can never
@@ -443,13 +445,14 @@ export default function IntegrationsPage() {
       const res = await fetch("/api/integrations/vikunja", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: vikunjaToken }),
+        body: JSON.stringify({ instanceUrl: vikunjaInstanceUrl, token: vikunjaToken }),
       });
-      const data = await res.json() as { connected?: boolean; error?: string };
+      const data = await res.json() as { connected?: boolean; instanceUrl?: string; error?: string };
       if (!res.ok || !data.connected) {
         setVikunjaError(data.error ?? "Vikunja could not be connected.");
         return;
       }
+      setVikunjaInstanceUrl(data.instanceUrl ?? vikunjaInstanceUrl.trim().replace(/\/+$/, ""));
       setStatus((current) => ({ ...current, vikunja: "connected" }));
       setVikunjaToken("");
       setVikunjaOpen(false);
@@ -476,6 +479,7 @@ export default function IntegrationsPage() {
         delete next[slug];
         return next;
       });
+      if (slug === "vikunja") setVikunjaInstanceUrl("");
       toast({ title: `${name} disconnected` });
     } catch {
       toast({ title: "Couldn't disconnect", description: "Please try again.", tone: "danger" });
@@ -590,7 +594,7 @@ export default function IntegrationsPage() {
               const meta = t.description || t.categories.join(", ");
               return (
                 <Card key={t.slug} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
-                  <Logo slug={t.slug} name={t.name} />
+                  <Logo slug={t.slug} name={t.name} instanceUrl={t.slug === "vikunja" ? vikunjaInstanceUrl : undefined} />
                   {/* The name gets the whole first line. Sharing it with the
                       tool count cost ~70px that the count would never give
                       back — it is `flex-none`, so the name absorbed every
@@ -654,21 +658,23 @@ export default function IntegrationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={() => setVikunjaOpen(false)}>
           <Card className="w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="vikunja-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-start gap-3">
-              <Logo slug="vikunja" name="Vikunja" size={48} />
+              <Logo slug="vikunja" name="Vikunja" size={48} instanceUrl={vikunjaInstanceUrl} />
               <div className="min-w-0 flex-1">
                 <h2 id="vikunja-dialog-title" className="text-[18px] font-semibold text-ink">{status.vikunja === "connected" ? "Manage Vikunja" : "Connect Vikunja"}</h2>
-                <p className="mt-1 text-[13px] text-ink-subtle">Use an API token from your Vikunja dashboard. The token is encrypted and scoped to this workspace.</p>
+                <p className="mt-1 text-[13px] text-ink-subtle">Enter your deployed Vikunja app URL and an API token. The connection is encrypted and scoped to this workspace.</p>
               </div>
             </div>
             <div className="mt-5 flex flex-col gap-2">
+              <label htmlFor="vikunja-instance-url" className="text-[13px] font-medium text-ink">Vikunja app URL</label>
+              <Input id="vikunja-instance-url" type="url" autoComplete="url" value={vikunjaInstanceUrl} onChange={(event) => setVikunjaInstanceUrl(event.target.value)} placeholder="https://tasks.example.com" />
               <label htmlFor="vikunja-token" className="text-[13px] font-medium text-ink">API token</label>
               <Input id="vikunja-token" type="password" autoComplete="off" value={vikunjaToken} onChange={(event) => setVikunjaToken(event.target.value)} placeholder={status.vikunja === "connected" ? "Paste a replacement token" : "Paste your Vikunja API token"} />
               {vikunjaError ? <p className="text-[12px] text-danger" role="alert">{vikunjaError}</p> : null}
-              <a className="text-[12px] font-medium text-brand hover:underline" href="https://vikunja.doubtbuddy.com/user/settings/api-tokens" target="_blank" rel="noreferrer">Get an API token from Vikunja</a>
+              {vikunjaInstanceUrl.trim().startsWith("https://") ? <a className="text-[12px] font-medium text-brand hover:underline" href={`${vikunjaInstanceUrl.trim().replace(/\/+$/, "")}/user/settings/api-tokens`} target="_blank" rel="noreferrer">Get an API token from this Vikunja instance</a> : null}
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setVikunjaOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={pending === "vikunja"} disabled={!vikunjaToken.trim()} onClick={saveVikunja}>{status.vikunja === "connected" ? "Update connection" : "Connect Vikunja"}</Button>
+              <Button variant="primary" loading={pending === "vikunja"} disabled={!vikunjaInstanceUrl.trim() || !vikunjaToken.trim()} onClick={saveVikunja}>{status.vikunja === "connected" ? "Update connection" : "Connect Vikunja"}</Button>
             </div>
           </Card>
         </div>

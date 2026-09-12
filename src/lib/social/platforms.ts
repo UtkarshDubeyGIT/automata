@@ -102,9 +102,10 @@ export function slackTarget(options?: {
  * logo host only knows Composio's own names: a `social_post` step saved as "x"
  * asked for a logo that doesn't exist and fell back to a generic glyph.
  */
-export function toolkitLogo(slug: string): string {
+export function toolkitLogo(slug: string, instanceUrl?: string): string {
   if (normalizeSlug(slug) === "vikunja") {
-    return "https://vikunja.doubtbuddy.com/images/icons/favicon.svg";
+    const base = instanceUrl?.trim().replace(/\/+$/, "");
+    return base ? `${base}/images/icons/favicon.svg` : "https://vikunja.io/images/icons/favicon.svg";
   }
   return `https://logos.composio.dev/api/${normalizeSlug(slug)}`;
 }

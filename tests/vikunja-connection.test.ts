@@ -15,13 +15,16 @@ mock.module("@/lib/credentials", {
     },
   },
 });
+mock.module("@/lib/net/public-url", {
+  namedExports: { assertPublicUrl: async (url: string) => url },
+});
 
 const connection = await import("@/lib/integrations/vikunja-connection");
 
 test("connecting Vikunja verifies before storing and never returns the token", async () => {
   stored = null;
   let verified = false;
-  const result = await connection.connectVikunja("workspace-1", "api-token", async () => {
+  const result = await connection.connectVikunja("workspace-1", "https://tasks.example.com/", "api-token", async () => {
     verified = true;
     return Response.json([{ id: 21, title: "Operations", max_permission: 1 }]);
   });
@@ -32,7 +35,7 @@ test("connecting Vikunja verifies before storing and never returns the token", a
   assert.equal("token" in result, false);
   assert.deepEqual(stored, {
     token: "api-token",
-    instanceUrl: "https://vikunja.doubtbuddy.com",
+    instanceUrl: "https://tasks.example.com",
     lastTestedAt: result.lastTestedAt,
     lastTestStatus: "connected",
   });
@@ -41,7 +44,7 @@ test("connecting Vikunja verifies before storing and never returns the token", a
 test("failed verification stores nothing", async () => {
   stored = null;
   await assert.rejects(
-    connection.connectVikunja("workspace-1", "bad-token", async () =>
+    connection.connectVikunja("workspace-1", "https://tasks.example.com", "bad-token", async () =>
       Response.json({ message: "Nope" }, { status: 401 }),
     ),
   );
