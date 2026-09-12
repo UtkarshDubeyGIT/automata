@@ -13,6 +13,7 @@ export interface IntegrationDefinition {
 }
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
+  { slug: "vikunja", name: "Vikunja", shortName: "VK", description: "Create and track tasks from your automations.", category: "Data", color: "#196AFF", verified: true, triggerCount: 0, actionCount: 4 },
   { slug: "gmail", name: "Gmail", shortName: "GM", description: "Route, summarize, draft, and send email.", category: "Google", color: "#EA4335", verified: true, triggerCount: 3, actionCount: 8 },
   { slug: "googlesheets", name: "Google Sheets", shortName: "GS", description: "Watch rows and keep operational data in sync.", category: "Google", color: "#0F9D58", verified: true, triggerCount: 4, actionCount: 18 },
   { slug: "googledrive", name: "Google Drive", shortName: "GD", description: "Move, organize, and share files automatically.", category: "Google", color: "#4285F4", verified: true, triggerCount: 3, actionCount: 15 },

@@ -30,6 +30,52 @@ export interface WorkflowTemplate {
 
 export const TEMPLATES: WorkflowTemplate[] = [
   {
+    id: "notetaker-vikunja-tasks",
+    name: "Turn meeting actions into Vikunja tasks",
+    description: "Receive a completed Notetaker transcript, extract every action item, and create one unassigned Vikunja task per item.",
+    icon: "check-square",
+    app: "vikunja",
+    apps: ["vikunja"],
+    category: "Project management",
+    risk: "external_write",
+    setupMinutes: 4,
+    tags: ["Notetaker", "Meeting", "Tasks", "Vikunja"],
+    graph: {
+      start: "meeting_complete",
+      steps: {
+        meeting_complete: {
+          type: "webhook_trigger",
+          title: "When the transcript is ready",
+          stage: "Trigger",
+          secret: "",
+          next: "extract_actions",
+        },
+        extract_actions: {
+          type: "meeting_summary",
+          title: "Extract meeting action items",
+          stage: "Extract",
+          transcript_field: "transcript",
+          extract_action_items: true,
+          next: "create_tasks",
+        },
+        create_tasks: {
+          type: "app_action",
+          title: "Create Vikunja tasks",
+          stage: "Create",
+          toolkit: "vikunja",
+          tool: "VIKUNJA_CREATE_TASKS",
+          arguments: {
+            project_id: "",
+            items: "{{steps.extract_actions.actionItems}}",
+            meeting_title: "{{steps.meeting_complete.body.title}}",
+            meeting_id: "{{steps.meeting_complete.body.meeting_id}}",
+          },
+          next: null,
+        },
+      },
+    },
+  },
+  {
     id: "meeting-whatsapp-summary",
     name: "Meeting brief on WhatsApp",
     description:

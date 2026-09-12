@@ -103,6 +103,9 @@ export function slackTarget(options?: {
  * asked for a logo that doesn't exist and fell back to a generic glyph.
  */
 export function toolkitLogo(slug: string): string {
+  if (normalizeSlug(slug) === "vikunja") {
+    return "https://vikunja.doubtbuddy.com/images/icons/favicon.svg";
+  }
   return `https://logos.composio.dev/api/${normalizeSlug(slug)}`;
 }
 

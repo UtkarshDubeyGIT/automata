@@ -166,6 +166,7 @@ export function Inspector(props: InspectorProps) {
               const googleSheetKeys = toolSpec?.app === "googlesheets"
                 ? googleSheetDestinationKeys(toolSpec.argHint)
                 : [];
+              const hasVikunjaProject = toolSpec?.app === "vikunja" && toolSpec.required.includes("project_id");
               const pickers = f.key === "arguments"
                 ? [
                     hasRepoArgs ? (
@@ -179,11 +180,15 @@ export function Inspector(props: InspectorProps) {
                         onPatch={props.onPatch}
                       />
                     ) : null,
+                    hasVikunjaProject ? (
+                      <VikunjaProjectField key="vikunja-project" step={step} onPatch={props.onPatch} />
+                    ) : null,
                   ].filter(Boolean)
                 : [];
               const hiddenKeys = [
                 ...(hasRepoArgs ? GITHUB_REPO_ARGS : []),
                 ...googleSheetKeys,
+                ...(hasVikunjaProject ? ["project_id"] : []),
               ];
               const field =
                 f.kind === "cases" ? (
@@ -1958,6 +1963,53 @@ function argumentExamples(argHint: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function VikunjaProjectField({
+  step,
+  onPatch,
+}: {
+  step: StepDef;
+  onPatch: (patch: Record<string, unknown>) => void;
+}) {
+  const [projects, setProjects] = useState<Array<{ id: number; title: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const arguments_ = (step.arguments as Record<string, unknown>) ?? {};
+  const selected = String(arguments_.project_id ?? "");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/integrations/vikunja?projects=1")
+      .then(async (response) => {
+        const data = await response.json() as { projects?: Array<{ id: number; title: string }>; error?: string };
+        if (!response.ok) throw new Error(data.error ?? "Connect Vikunja to choose a project.");
+        if (!cancelled) setProjects(data.projects ?? []);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Could not load Vikunja projects.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Field label="Vikunja project" hint={error || "Choose the fixed project where this automation creates tasks."}>
+      <Select
+        value={selected}
+        disabled={loading || !!error}
+        onChange={(event) => onPatch({
+          arguments: { ...arguments_, project_id: event.target.value ? Number(event.target.value) : "" },
+        })}
+      >
+        <option value="">{loading ? "Loading Vikunja projects…" : "Choose a Vikunja project"}</option>
+        {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+      </Select>
+      {error ? <a href="/app/integrations?q=vikunja" className="text-[12px] font-medium text-brand hover:underline">Connect Vikunja</a> : null}
+    </Field>
+  );
 }
 
 /** Required app inputs, expressed as choices rather than provider parameters. */

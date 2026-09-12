@@ -105,6 +105,7 @@ export function pollMinutes(step: Record<string, unknown>): number {
 
 /** Display labels for apps that appear in workflows (fallback: title-case slug). */
 export const APP_LABELS: Record<string, string> = {
+  vikunja: "Vikunja",
   googlebusinessprofile: "Google Business Profile",
   gmail: "Gmail",
   notion: "Notion",
@@ -717,6 +718,86 @@ export function triggersForPrompt(): string {
 }
 
 export const TOOLS: Record<string, ToolSpec> = {
+  VIKUNJA_LIST_PROJECTS: {
+    app: "vikunja",
+    kind: "read",
+    external: false,
+    required: [],
+    desc: "List writable, non-archived projects from the workspace's connected Vikunja account.",
+    argHint: "{}",
+    outputSchema: {
+      type: "object",
+      properties: { projects: { type: "array" }, text: { type: "string" } },
+    },
+  },
+  VIKUNJA_CREATE_TASK: {
+    app: "vikunja",
+    kind: "write",
+    external: true,
+    required: ["project_id", "title"],
+    desc: "Create one unassigned task in a selected Vikunja project. Put any owner or deadline mentioned in the meeting in the description instead of assigning it or setting a due date.",
+    argHint: '{"project_id":"","title":"","description":""}',
+    inputSchema: {
+      type: "object",
+      required: ["project_id", "title"],
+      properties: {
+        project_id: { type: "integer", minimum: 1 },
+        title: { type: "string", minLength: 1 },
+        description: { type: "string" },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "integer" },
+        task_url: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        project_id: { type: "integer" },
+      },
+    },
+  },
+  VIKUNJA_CREATE_TASKS: {
+    app: "vikunja",
+    kind: "write",
+    external: true,
+    required: ["project_id", "items"],
+    desc: "Create one unassigned Vikunja task per structured meeting action item. Empty item lists create nothing. Meeting owners and deadlines stay in task descriptions.",
+    argHint: '{"project_id":"","items":"","meeting_title":"","meeting_id":""}',
+    inputSchema: {
+      type: "object",
+      required: ["project_id", "items"],
+      properties: {
+        project_id: { type: "integer", minimum: 1 },
+        items: { type: "array", maxItems: 50 },
+        meeting_title: { type: "string" },
+        meeting_id: { type: "string" },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        tasks: { type: "array" },
+        failed: { type: "array" },
+        created_count: { type: "integer" },
+        failed_count: { type: "integer" },
+        text: { type: "string" },
+      },
+    },
+  },
+  VIKUNJA_GET_TASK: {
+    app: "vikunja",
+    kind: "read",
+    external: false,
+    required: ["task_id"],
+    desc: "Read one Vikunja task by numeric id for verification or reconciliation.",
+    argHint: '{"task_id":""}',
+    inputSchema: {
+      type: "object",
+      required: ["task_id"],
+      properties: { task_id: { type: "integer", minimum: 1 } },
+    },
+  },
   METAADS_GET_INSIGHTS: {
     app: "metaads",
     kind: "read",

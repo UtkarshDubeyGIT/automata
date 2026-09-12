@@ -58,7 +58,7 @@ export interface AppConnection extends RequiredApp {
  * Apps connected through us rather than through Composio, so their status
  * comes from our own server rather than a Composio connection listing.
  */
-export const SERVER_OWNED_APPS = new Set(["firecrawl", "googlebusinessprofile"]);
+export const SERVER_OWNED_APPS = new Set(["firecrawl", "googlebusinessprofile", "vikunja"]);
 
 /** One row of `GET /api/integrations/connect`. */
 export interface IntegrationRow {

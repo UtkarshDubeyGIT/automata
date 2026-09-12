@@ -20,6 +20,7 @@ import {
   readCachedIntegrations,
   syncConnections,
 } from "@/lib/social/integrations-store";
+import { disconnectVikunja, vikunjaStatus } from "@/lib/integrations/vikunja-connection";
 
 /**
  * Every handler here is scoped by `ctx.entityId` — the Composio entity, i.e.
@@ -70,6 +71,16 @@ export async function POST(req: Request) {
       connected: false,
       simulated: false,
       needsCredentials: false,
+    });
+  }
+
+  if (slug === "vikunja") {
+    return NextResponse.json({
+      connected: false,
+      simulated: false,
+      needsCredentials: true,
+      keyFallback: true,
+      error: "Paste an API token from your Vikunja dashboard.",
     });
   }
 
@@ -154,6 +165,12 @@ function businessProfileRow(
   return [{ platform: "googlebusinessprofile", status: connected ? "connected" : "none" }];
 }
 
+async function vikunjaRow(workspaceId: string | null) {
+  if (!workspaceId) return { platform: "vikunja", status: "none" };
+  const status = await vikunjaStatus(workspaceId);
+  return { platform: "vikunja", status: status.connected ? "connected" : "none" };
+}
+
 /**
  * Connection state: live from Composio when reachable (reconciling the cache
  * along the way), otherwise served from the cache so an outage or preview
@@ -168,7 +185,7 @@ export async function GET() {
   // this brand-new account's.
   if (!ctx.entityId) {
     return NextResponse.json({
-      integrations: [],
+      integrations: [{ platform: "vikunja", status: "none" }],
       live: socialProvider.live,
       ownApps: ownAppChannels(),
     });
@@ -177,7 +194,7 @@ export async function GET() {
   if (!socialProvider.live) {
     const cached = await readCachedIntegrations(ctx);
     return NextResponse.json({
-      integrations: [...cached, ...businessProfileRow(cached)],
+      integrations: [...cached, ...businessProfileRow(cached), await vikunjaRow(ctx.workspaceId)],
       live: false,
       ownApps: ownAppChannels(),
     });
@@ -203,6 +220,7 @@ export async function GET() {
         })),
         ...own,
         ...businessProfileRow(cached),
+        await vikunjaRow(ctx.workspaceId),
       ],
       live: true,
       ownApps: ownAppChannels(),
@@ -210,7 +228,7 @@ export async function GET() {
   } catch {
     const cached = await readCachedIntegrations(ctx);
     return NextResponse.json({
-      integrations: [...cached, ...businessProfileRow(cached)],
+      integrations: [...cached, ...businessProfileRow(cached), await vikunjaRow(ctx.workspaceId)],
       live: true,
       ownApps: ownAppChannels(),
     });
@@ -236,6 +254,8 @@ export async function DELETE(req: Request) {
     // place — a "disconnect" that revokes nothing is worse than no button.
     if (slug === "googlebusinessprofile") {
       await disconnectBusinessProfile(ctx.workspaceId ?? "");
+    } else if (slug === "vikunja") {
+      await disconnectVikunja(ctx.workspaceId ?? "");
     } else {
       await socialProvider.disconnectPlatform(ctx.entityId, slug);
     }

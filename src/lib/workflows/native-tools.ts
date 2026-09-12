@@ -5,6 +5,10 @@ import {
   replyToReview,
   type BusinessReview,
 } from "@/lib/google/business-profile";
+import {
+  listVikunjaProjects,
+  vikunjaClientFor,
+} from "@/lib/integrations/vikunja-connection";
 
 /**
  * Tools we implement ourselves instead of calling Composio for.
@@ -27,7 +31,7 @@ import {
  */
 
 /** Apps whose tools run through this module rather than Composio. */
-const NATIVE_APPS = new Set(["googlebusinessprofile"]);
+const NATIVE_APPS = new Set(["googlebusinessprofile", "vikunja"]);
 
 /**
  * Can this app run for real here and now?
@@ -40,6 +44,7 @@ const NATIVE_APPS = new Set(["googlebusinessprofile"]);
 export function runsNatively(app: string): boolean {
   if (!NATIVE_APPS.has(app)) return false;
   if (app === "googlebusinessprofile") return businessProfileConfigured;
+  if (app === "vikunja") return true;
   return false;
 }
 
@@ -83,6 +88,110 @@ export async function executeNativeTool(
   args: Record<string, unknown>,
 ): Promise<ExecuteResponse | null> {
   switch (slug) {
+    case "VIKUNJA_LIST_PROJECTS": {
+      try {
+        const projects = await listVikunjaProjects(workspaceId);
+        return {
+          successful: true,
+          data: {
+            projects: projects.map(({ id, title }) => ({ id, title })),
+            text: projects.length
+              ? projects.map((project) => `${project.id}: ${project.title}`).join("\n")
+              : "No writable Vikunja projects are available.",
+          },
+        };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not list Vikunja projects.");
+      }
+    }
+
+    case "VIKUNJA_CREATE_TASK": {
+      const projectId = Number(args.project_id ?? args.projectId);
+      const title = String(args.title ?? "").trim();
+      const description = String(args.description ?? "").trim();
+      if (!Number.isSafeInteger(projectId) || projectId <= 0) return failure("project_id is required to create a Vikunja task.");
+      if (!title) return failure("title is required to create a Vikunja task.");
+      try {
+        const client = await vikunjaClientFor(workspaceId);
+        const task = await client.createTask(projectId, { title, description });
+        return {
+          successful: true,
+          data: {
+            task_id: task.id,
+            title: task.title,
+            description: task.description ?? description,
+            project_id: projectId,
+            task_url: client.taskUrl(task.id),
+          },
+        };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not create the Vikunja task.");
+      }
+    }
+
+    case "VIKUNJA_CREATE_TASKS": {
+      const projectId = Number(args.project_id ?? args.projectId);
+      if (!Number.isSafeInteger(projectId) || projectId <= 0) return failure("project_id is required to create Vikunja tasks.");
+      if (!Array.isArray(args.items)) return failure("items must be an array of meeting action items.");
+      if (args.items.length > 50) return failure("A meeting may create at most 50 Vikunja tasks.");
+      const meetingTitle = String(args.meeting_title ?? "").trim();
+      const meetingId = String(args.meeting_id ?? "").trim();
+      const context = [
+        meetingTitle ? `Meeting: ${meetingTitle}` : "",
+        meetingId ? `Meeting ID: ${meetingId}` : "",
+      ].filter(Boolean).join("\n");
+      try {
+        const client = await vikunjaClientFor(workspaceId);
+        const tasks: Record<string, unknown>[] = [];
+        const failed: Record<string, unknown>[] = [];
+        for (let index = 0; index < args.items.length; index++) {
+          const raw = args.items[index];
+          if (!raw || typeof raw !== "object") {
+            failed.push({ index, error: "Action item must be an object." });
+            continue;
+          }
+          const item = raw as { title?: unknown; description?: unknown };
+          const title = typeof item.title === "string" ? item.title.trim() : "";
+          if (!title) {
+            failed.push({ index, error: "Action item is missing a title." });
+            continue;
+          }
+          const itemDescription = typeof item.description === "string" ? item.description.trim() : "";
+          const description = [itemDescription, context].filter(Boolean).join("\n\n");
+          try {
+            const task = await client.createTask(projectId, { title, description });
+            tasks.push({ index, task_id: task.id, title: task.title, task_url: client.taskUrl(task.id) });
+          } catch (error) {
+            failed.push({ index, title, error: error instanceof Error ? error.message : "Task creation failed." });
+          }
+        }
+        return {
+          successful: true,
+          data: {
+            tasks,
+            failed,
+            created_count: tasks.length,
+            failed_count: failed.length,
+            text: `${tasks.length} Vikunja task(s) created${failed.length ? `; ${failed.length} item(s) failed` : ""}.`,
+          },
+        };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not create Vikunja tasks.");
+      }
+    }
+
+    case "VIKUNJA_GET_TASK": {
+      const taskId = Number(args.task_id ?? args.taskId);
+      if (!Number.isSafeInteger(taskId) || taskId <= 0) return failure("task_id is required to read a Vikunja task.");
+      try {
+        const client = await vikunjaClientFor(workspaceId);
+        const task = await client.getTask(taskId);
+        return { successful: true, data: { ...task, task_url: client.taskUrl(task.id) } };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not read the Vikunja task.");
+      }
+    }
+
     case "GOOGLEBUSINESS_GET_REVIEWS": {
       const limit = Number(args.limit ?? args.page_size ?? 20);
       const res = await listReviews(workspaceId, Number.isFinite(limit) ? limit : 20);

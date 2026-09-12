@@ -38,6 +38,16 @@ const CHANNELS = PLATFORMS.filter((p) => p.kind === "channel");
  * renders through exactly the same path as every other one.
  */
 const NATIVE_TOOLKITS: Record<string, ToolkitSummary> = {
+  vikunja: {
+    slug: "vikunja",
+    name: "Vikunja",
+    description: "Create and track tasks from meeting action items",
+    categories: ["project-management", "productivity"],
+    managed: false,
+    noAuth: false,
+    toolsCount: 4,
+    connectVia: "key",
+  },
   googlebusinessprofile: {
     slug: "googlebusinessprofile",
     name: "Google Business Profile",
@@ -101,7 +111,10 @@ export default function IntegrationsPage() {
   /** Curated channels we hold a developer app for — those are one tap too. */
   const [ownApps, setOwnApps] = useState<string[]>([]);
   /** Native apps the server offered this workspace — see NATIVE_TOOLKITS. */
-  const [nativeSlugs, setNativeSlugs] = useState<string[]>([]);
+  const [nativeSlugs, setNativeSlugs] = useState<string[]>(["vikunja"]);
+  const [vikunjaOpen, setVikunjaOpen] = useState(false);
+  const [vikunjaToken, setVikunjaToken] = useState("");
+  const [vikunjaError, setVikunjaError] = useState("");
   /**
    * Apps the server told us would accept a pasted key after all.
    *
@@ -156,9 +169,10 @@ export default function IntegrationsPage() {
           // A card for every app the server is willing to connect — which for
           // the native ones is the only signal there is, since they can never
           // appear in a Composio catalog page.
-          setNativeSlugs(
-            rows.map((r) => r.platform).filter((p) => p in NATIVE_TOOLKITS),
-          );
+          setNativeSlugs(Array.from(new Set([
+            "vikunja",
+            ...rows.map((r) => r.platform).filter((p) => p in NATIVE_TOOLKITS),
+          ])));
           pinConnected(Object.keys(next));
         },
       )
@@ -351,6 +365,11 @@ export default function IntegrationsPage() {
   );
 
   async function connect(slug: string, name: string, method: ConnectMethod) {
+    if (slug === "vikunja") {
+      setVikunjaError("");
+      setVikunjaOpen(true);
+      return;
+    }
     setPending(slug);
     try {
       const res = await fetch("/api/integrations/connect", {
@@ -417,13 +436,40 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function saveVikunja() {
+    setPending("vikunja");
+    setVikunjaError("");
+    try {
+      const res = await fetch("/api/integrations/vikunja", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: vikunjaToken }),
+      });
+      const data = await res.json() as { connected?: boolean; error?: string };
+      if (!res.ok || !data.connected) {
+        setVikunjaError(data.error ?? "Vikunja could not be connected.");
+        return;
+      }
+      setStatus((current) => ({ ...current, vikunja: "connected" }));
+      setVikunjaToken("");
+      setVikunjaOpen(false);
+      toast({ title: "Vikunja connected", description: "Your API token was verified and stored securely." });
+    } catch {
+      setVikunjaError("Vikunja could not be reached. Try again shortly.");
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function disconnect(slug: string, name: string) {
     setPending(slug);
     try {
-      await fetch("/api/integrations/connect", {
+      await fetch(slug === "vikunja" ? "/api/integrations/vikunja" : "/api/integrations/connect", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: slug }),
+        ...(slug === "vikunja" ? {} : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: slug }),
+        }),
       });
       setStatus((s) => {
         const next = { ...s };
@@ -579,6 +625,8 @@ export default function IntegrationsPage() {
                       method={method}
                       onConnect={() => connect(t.slug, t.name, method)}
                       onDisconnect={() => disconnect(t.slug, t.name)}
+                      onManage={t.slug === "vikunja" ? () => setVikunjaOpen(true) : undefined}
+                      connectLabel={t.slug === "vikunja" ? "Connect Vikunja" : undefined}
                     />
                   )}
                   </div>
@@ -602,6 +650,29 @@ export default function IntegrationsPage() {
           ) : null}
         </div>
       </section>
+      {vikunjaOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={() => setVikunjaOpen(false)}>
+          <Card className="w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="vikunja-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <Logo slug="vikunja" name="Vikunja" size={48} />
+              <div className="min-w-0 flex-1">
+                <h2 id="vikunja-dialog-title" className="text-[18px] font-semibold text-ink">{status.vikunja === "connected" ? "Manage Vikunja" : "Connect Vikunja"}</h2>
+                <p className="mt-1 text-[13px] text-ink-subtle">Use an API token from your Vikunja dashboard. The token is encrypted and scoped to this workspace.</p>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col gap-2">
+              <label htmlFor="vikunja-token" className="text-[13px] font-medium text-ink">API token</label>
+              <Input id="vikunja-token" type="password" autoComplete="off" value={vikunjaToken} onChange={(event) => setVikunjaToken(event.target.value)} placeholder={status.vikunja === "connected" ? "Paste a replacement token" : "Paste your Vikunja API token"} />
+              {vikunjaError ? <p className="text-[12px] text-danger" role="alert">{vikunjaError}</p> : null}
+              <a className="text-[12px] font-medium text-brand hover:underline" href="https://vikunja.doubtbuddy.com/user/settings/api-tokens" target="_blank" rel="noreferrer">Get an API token from Vikunja</a>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setVikunjaOpen(false)}>Cancel</Button>
+              <Button variant="primary" loading={pending === "vikunja"} disabled={!vikunjaToken.trim()} onClick={saveVikunja}>{status.vikunja === "connected" ? "Update connection" : "Connect Vikunja"}</Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -685,6 +756,8 @@ function CardActions({
   method,
   onConnect,
   onDisconnect,
+  onManage,
+  connectLabel,
 }: {
   state: Status | undefined;
   /** Names the icon-only button for screen readers and on hover. */
@@ -693,11 +766,14 @@ function CardActions({
   method: ConnectMethod;
   onConnect: () => void;
   onDisconnect: () => void;
+  onManage?: () => void;
+  connectLabel?: string;
 }) {
   if (state === "connected") {
     return (
       <div className="flex flex-none items-center gap-1.5">
         <Badge tone="success" dot>Connected</Badge>
+        {onManage ? <Button variant="secondary" size="sm" onClick={onManage}>Manage</Button> : null}
         {/* `Button` rather than `IconButton`: it carries the loading spinner,
             and an icon with no children renders as a compact square. */}
         <Button
@@ -725,7 +801,7 @@ function CardActions({
   }
   return (
     <Button variant="primary" size="sm" loading={pending} onClick={onConnect} className="flex-none">
-      {CONNECT_LABEL[method]}
+      {connectLabel ?? CONNECT_LABEL[method]}
     </Button>
   );
 }

@@ -19,6 +19,20 @@ interface Row {
 
 const opaque = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
+export function webhookDeliveryIdentity(
+  headers: Headers,
+  payload: Record<string, unknown>,
+): string | null {
+  const explicit = headers.get("x-webhook-id") ?? headers.get("x-delivery-id") ??
+    headers.get("x-github-delivery") ?? headers.get("idempotency-key");
+  if (explicit) return explicit;
+  if (typeof payload.id === "string" && payload.id) return payload.id;
+  const meetingId = typeof payload.meeting_id === "string" ? payload.meeting_id.trim() : "";
+  const eventType = [payload.event_type, payload.event, payload.type]
+    .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+  return meetingId && eventType ? `${meetingId}:${eventType.trim()}` : null;
+}
+
 export async function receiveWorkflowWebhook(req: NextRequest, id: string, token: string) {
   const admin = createAdminClient();
   const { data } = await admin
@@ -81,9 +95,7 @@ export async function receiveWorkflowWebhook(req: NextRequest, id: string, token
       return NextResponse.json({ error: "Delivery is outside the replay window" }, { status: 408 });
     }
   }
-  const delivery = req.headers.get("x-webhook-id") ?? req.headers.get("x-delivery-id") ??
-    req.headers.get("x-github-delivery") ?? req.headers.get("idempotency-key") ??
-    (typeof payload.id === "string" ? payload.id : null);
+  const delivery = webhookDeliveryIdentity(req.headers, payload);
   const claim = await claimRun({
     admin,
     workflowId: id,

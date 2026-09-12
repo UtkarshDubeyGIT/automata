@@ -8,6 +8,12 @@ mock.module("@/lib/ai/openai", {
     openaiConfigured: true,
     chat: async (messages: { role: string; content: string }[]) => {
       prompts.push(messages.at(-1)?.content ?? "");
+      if (messages[0]?.content.includes("action items as JSON")) {
+        return JSON.stringify({ items: [
+          { title: "Send proposal", description: "Owner mentioned: Alex\nDeadline mentioned: Friday" },
+          { title: "Book follow-up", description: "" },
+        ] });
+      }
       return prompts.length === 1 ? "notes from chunk one" :
         prompts.length === 2 ? "notes from chunk two" : "*Meeting summary*\n\n*Decisions*\nShip it.";
     },
@@ -28,6 +34,24 @@ mock.module("@/lib/supabase/server", {
 });
 
 const steps = await import("@/lib/workflows/steps");
+
+test("meeting summary can persist structured action items from the complete notes", async () => {
+  prompts = [];
+  const handler = (steps.HANDLERS as Record<string, typeof steps.HANDLERS.ai_step>).meeting_summary;
+  const out = await handler({
+    runId: "run-actions",
+    stepId: "extract",
+    step: { type: "meeting_summary", transcript_field: "transcript", extract_action_items: true },
+    data: { steps: {}, input: { meeting_id: "meet-3", title: "Product sync", transcript: "Alex will send the proposal by Friday." } },
+    entityId: "ws-1",
+    reads: new Set<string>(),
+  } as never) as { actionItems?: unknown[] };
+
+  assert.deepEqual(out.actionItems, [
+    { title: "Send proposal", description: "Owner mentioned: Alex\nDeadline mentioned: Friday" },
+    { title: "Book follow-up", description: "" },
+  ]);
+});
 
 test("meeting summary processes the complete webhook transcript in chunks", async () => {
   prompts = [];

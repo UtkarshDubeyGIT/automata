@@ -447,6 +447,7 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       "as meeting.transcription.completed, then publish {{steps.<id>.text}} to Slack.",
     config: {
       transcript_field: "top-level webhook body field containing the transcript; defaults to transcript",
+      extract_action_items: "when true, also returns a validated actionItems array",
     },
     routing: ["next"],
     defaults: { transcript_field: "transcript" },
@@ -460,11 +461,24 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
         placeholder: "transcript",
         hint: "The top-level field meet.doubtbuddy.com sends in the webhook body.",
       },
+      {
+        key: "extract_action_items",
+        label: "Extract action items",
+        kind: "select",
+        choices: [
+          { value: "false", label: "Summary only" },
+          { value: "true", label: "Summary and action items" },
+        ],
+        hint: "Returns structured task titles and descriptions for downstream task tools.",
+      },
     ],
     summary: (s) => `Summarizes webhook field “${str(s.transcript_field) || "transcript"}”`,
-    outputs: () => [
+    outputs: (s) => [
       { path: "text", label: "text — Slack-ready structured meeting summary" },
       { path: "meetingId", label: "meetingId — source meeting identifier" },
+      ...(s.extract_action_items === true || s.extract_action_items === "true"
+        ? [{ path: "actionItems", label: "actionItems — validated meeting tasks" }]
+        : []),
     ],
   },
 
@@ -1141,7 +1155,14 @@ export function outputKeys(step: StepDef): Set<string> {
         ? new Set(["result", "provider", "model", "stub_reason"])
         : new Set(["text", "provider", "model", "stub_reason"]);
     case "meeting_summary":
-      return new Set(["text", "meetingId", "provider", "model", "chunks"]);
+      return new Set([
+        "text",
+        "meetingId",
+        "provider",
+        "model",
+        "chunks",
+        ...(step.extract_action_items === true || step.extract_action_items === "true" ? ["actionItems"] : []),
+      ]);
     case "generate_image":
       return new Set(["url", "provider", "aspect"]);
     case "firecrawl":
