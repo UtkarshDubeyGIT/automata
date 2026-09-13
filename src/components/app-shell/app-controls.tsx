@@ -169,7 +169,7 @@ function AccountMenu({ userName, userEmail }: { userName: string; userEmail?: st
         aria-label="Account menu"
         className="relative flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
       >
-        <Avatar name={userName} size="md" status="online" />
+        <Avatar name={userName} size="md" />
         {waiting > 0 && (
           <span
             aria-hidden
