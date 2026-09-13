@@ -9,7 +9,8 @@ import { Icon } from "@/components/ui/icon";
 import { ProgressBar } from "@/components/ui/feedback";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { BILLING_PLANS } from "@/lib/billing/plans";
+import { BILLING_PLANS, PLANS } from "@/lib/billing/plans";
+import type { SpendSummary } from "@/lib/billing/spend";
 import { useCredits } from "@/components/ui/credits";
 
 interface InvoiceItem {
@@ -19,12 +20,6 @@ interface InvoiceItem {
   status: string;
   plan: string;
   url?: string;
-}
-
-interface UsageMetric {
-  label: string;
-  used: number;
-  of: number;
 }
 
 interface BillingData {
@@ -37,7 +32,7 @@ interface BillingData {
   renewalText: string;
   resetsInText: string;
   credits: number;
-  usage: UsageMetric[];
+  spend: SpendSummary;
   invoices: InvoiceItem[];
   hasCustomerPortal: boolean;
 }
@@ -105,7 +100,7 @@ export default function BillingPage() {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ plan: planId }),
       });
       if (res.ok) {
         const { url } = (await res.json()) as { url?: string };
@@ -126,23 +121,18 @@ export default function BillingPage() {
     }
   }
 
-  const currentPlanId = billing?.plan || livePlan || "starter";
-  const currentPlanName = billing?.planName || livePlanName || "Starter";
-  const currentPlanCredits = billing?.planCredits || livePlanCredits || 1000;
-  const currentPriceMonthly = billing?.priceMonthly ?? (currentPlanId === "growth" ? 99 : currentPlanId === "scale" ? 299 : 29);
+  const currentPlanId = billing?.plan || livePlan || PLANS.free.id;
+  const currentPlanName = billing?.planName || livePlanName || PLANS.free.name;
+  const currentPlanCredits = billing?.planCredits || livePlanCredits || PLANS.free.monthlyCredits;
+  const currentPriceMonthly = billing?.priceMonthly ?? PLANS.free.monthlyPrice;
   const isActive = billing?.status === "active";
   const renewalText =
     billing?.renewalText ||
     (isActive ? `$${currentPriceMonthly}/mo · renews monthly` : "Free starter grant · Upgrade to unlock full quota");
   const resetsInText = billing?.resetsInText || "One-time starter bonus";
 
-  const usageList: UsageMetric[] = billing?.usage?.length
-    ? billing.usage
-    : [
-        { label: "Content generations", used: 0, of: currentPlanCredits },
-        { label: "Video renders", used: 0, of: currentPlanId === "growth" ? 40 : currentPlanId === "scale" ? 150 : 10 },
-        { label: "Viral angle scans", used: 0, of: currentPlanId === "growth" ? 300 : currentPlanId === "scale" ? 1000 : 100 },
-      ];
+  const spend: SpendSummary = billing?.spend ?? { periodLabel: "Last 30 days", total: 0, refunded: 0, categories: [] };
+  const spendDebited = spend.categories.reduce((sum, c) => sum + c.credits, 0);
 
   const invoices = billing?.invoices ?? [];
 
@@ -199,23 +189,42 @@ export default function BillingPage() {
         </Card>
 
         <Card className="p-6">
-          <CardHeader title="This cycle's usage" icon={<Icon name="activity" size={18} />} />
-          <div className="mt-4 flex flex-col gap-4">
-            {usageList.map((u) => (
-              <div key={u.label}>
-                <div className="flex justify-between text-[13px]">
-                  <span className="text-ink">{u.label}</span>
-                  <span className="font-mono text-ink-subtle">
-                    {u.used}/{u.of}
-                  </span>
-                </div>
-                <ProgressBar
-                  value={u.of > 0 ? (u.used / u.of) * 100 : 0}
-                  className="mt-1.5"
-                />
-              </div>
-            ))}
+          <CardHeader
+            title="Where your credits went"
+            subtitle={spend.periodLabel}
+            icon={<Icon name="activity" size={18} />}
+          />
+          <div className="mt-4 flex items-baseline justify-between text-[13px]">
+            <span className="text-ink-subtle">Credits spent</span>
+            <span className="font-mono text-ink tabular-nums">{spend.total.toLocaleString()}</span>
           </div>
+          {spend.categories.length > 0 ? (
+            <div className="mt-4 flex flex-col gap-4">
+              {spend.categories.map((c) => (
+                <div key={c.key}>
+                  <div className="flex justify-between text-[13px]">
+                    <span className="text-ink">
+                      {c.label}
+                      <span className="ml-1.5 text-ink-subtle">· {c.count}</span>
+                    </span>
+                    <span className="font-mono text-ink-subtle tabular-nums">{c.credits.toLocaleString()}</span>
+                  </div>
+                  <ProgressBar
+                    value={spendDebited > 0 ? (c.credits / spendDebited) * 100 : 0}
+                    className="mt-1.5"
+                  />
+                </div>
+              ))}
+              {spend.refunded > 0 && (
+                <div className="flex justify-between text-[13px] text-ink-subtle">
+                  <span>Refunded</span>
+                  <span className="font-mono tabular-nums">-{spend.refunded.toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="mt-4 text-[13px] text-ink-subtle">No credits spent yet in this period.</p>
+          )}
         </Card>
       </div>
 
@@ -244,7 +253,7 @@ export default function BillingPage() {
                   <span className="text-[14px] text-ink-subtle">/mo</span>
                 </div>
                 <div className="mt-1 font-mono text-[13px] text-brand">
-                  {p.credits.toLocaleString()} credits / mo
+                  {p.credits.toLocaleString()} {p.id === "free" ? "credits to start" : "credits / mo"}
                 </div>
                 <ul className="mt-5 flex flex-1 flex-col gap-2.5">
                   {p.features.map((f) => (

@@ -157,7 +157,7 @@ export function SpaceLanding() {
               <Link className={styles.ghost} href="/app/workflows/daily-pipeline-digest"><Play size={15} fill="currentColor" /> Watch a real run</Link>
             </div>
             <ul className={`${styles.rise} mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-[var(--ink-subtle)]`}>
-              <li className="inline-flex items-center gap-2"><Check size={13} /> {PLANS.free.monthlyCredits.toLocaleString()} free credits a month</li>
+              <li className="inline-flex items-center gap-2"><Check size={13} /> {PLANS.free.monthlyCredits.toLocaleString()} free credits to start</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> Approval before every write</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> First workflow in minutes</li>
             </ul>

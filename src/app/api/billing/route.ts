@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveRequestContext, getWorkspaceContext } from "@/lib/workspace";
 import { getBalance } from "@/lib/credits";
 import { planById } from "@/lib/billing/plans";
+import { summarizeSpend, type SpendSummary } from "@/lib/billing/spend";
 import { stripeClient } from "@/lib/billing/stripe";
 import { supabaseConfigured } from "@/lib/env";
 
@@ -16,12 +17,6 @@ export interface InvoiceItem {
   url?: string;
 }
 
-export interface UsageMetric {
-  label: string;
-  used: number;
-  of: number;
-}
-
 export interface BillingResponse {
   plan: string;
   planName: string;
@@ -32,7 +27,7 @@ export interface BillingResponse {
   renewalText: string;
   resetsInText: string;
   credits: number;
-  usage: UsageMetric[];
+  spend: SpendSummary;
   invoices: InvoiceItem[];
   hasCustomerPortal: boolean;
 }
@@ -51,7 +46,7 @@ export async function GET() {
       renewalText: "Preview workspace",
       resetsInText: "Preview balance",
       credits: context.credits,
-      usage: [],
+      spend: summarizeSpend([], "Last 30 days"),
       invoices: [],
       hasCustomerPortal: false,
       demo: true,
@@ -109,49 +104,20 @@ export async function GET() {
     resetsInText = "Resets each billing cycle";
   }
 
-  // 4. Compute real cycle usage
-  const cycleStart = currentPeriodEnd
-    ? new Date(new Date(currentPeriodEnd).getTime() - 30 * 86_400_000).toISOString()
-    : new Date(Date.now() - 30 * 86_400_000).toISOString();
+  // 4. Credits actually debited this period, grouped by what they bought.
+  const cycleEnd = status === "active" && currentPeriodEnd ? new Date(currentPeriodEnd) : null;
+  const cycleStart = new Date((cycleEnd ?? new Date()).getTime() - 30 * 86_400_000).toISOString();
 
-  let contentCount = 0;
-  let videoCount = 0;
-  let scansCount = 0;
-
+  let ledgerRows: { reason: string; delta: number }[] = [];
   if (db) {
-    const [contentRes, videoRes, scansRes] = await Promise.all([
-      db.from("content_items")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspaceId)
-        .gte("created_at", cycleStart),
-      db.from("videos")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspaceId)
-        .gte("created_at", cycleStart),
-      db.from("credit_ledger")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspaceId)
-        .in("reason", ["viral_angle", "viral_query", "analytics_query", "trend_refresh"])
-        .gte("created_at", cycleStart),
-    ]);
-    contentCount = contentRes.count ?? 0;
-    videoCount = videoRes.count ?? 0;
-    scansCount = scansRes.count ?? 0;
+    const { data } = await db
+      .from("credit_ledger")
+      .select("reason, delta")
+      .eq("workspace_id", workspaceId)
+      .gte("created_at", cycleStart);
+    ledgerRows = data ?? [];
   }
-
-  // Plan limits representation
-  const limits: Record<string, { content: number; video: number; scans: number }> = {
-    starter: { content: 300, video: 10, scans: 100 },
-    growth: { content: 1000, video: 40, scans: 300 },
-    scale: { content: 4000, video: 150, scans: 1000 },
-  };
-  const planLimits = limits[planId] ?? limits.starter;
-
-  const usage: UsageMetric[] = [
-    { label: "Content generations", used: contentCount, of: planLimits.content },
-    { label: "Video renders", used: videoCount, of: planLimits.video },
-    { label: "Viral angle scans", used: scansCount, of: planLimits.scans },
-  ];
+  const spend = summarizeSpend(ledgerRows, cycleEnd ? "This billing cycle" : "Last 30 days");
 
   // 5. Invoices
   const invoices: InvoiceItem[] = [];
@@ -196,7 +162,7 @@ export async function GET() {
     renewalText,
     resetsInText,
     credits,
-    usage,
+    spend,
     invoices,
     hasCustomerPortal: Boolean(stripe && stripeCustomerId),
     demo: false,
