@@ -45,6 +45,18 @@ export function canActivateWorkflow(planId: PlanId, activeCount: number): boolea
   return limit === null || activeCount < limit;
 }
 
+/**
+ * True only for a real `workspaces.plan` enum value (free/pro/team).
+ *
+ * `planById` also matches legacy Zidane labels (starter/growth/scale) for
+ * display, but those are not valid values for the `plan_id` Postgres enum —
+ * writing one there throws 22P02. Callers that write to `workspaces.plan`
+ * must check this first rather than trust `planById`'s wider match.
+ */
+export function isPlanId(id: string): id is PlanId {
+  return Object.prototype.hasOwnProperty.call(PLANS, id);
+}
+
 export interface BillingPlan {
   id: string;
   name: string;

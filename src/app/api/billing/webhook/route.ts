@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { planForPrice, stripeClient } from "@/lib/billing/stripe";
-import { planById } from "@/lib/billing/plans";
+import { isPlanId, planById } from "@/lib/billing/plans";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { grantCredits } from "@/lib/credits";
 
@@ -19,15 +19,25 @@ async function saveSubscription(
 ) {
   const { error } = await db.from("billing_customers").upsert({ workspace_id: workspaceId, ...fields }, { onConflict: "workspace_id" });
   if (error) throw new Error(error.message);
-  const { error: workspaceError } = await db.from("workspaces").update({
-    plan: fields.plan,
+
+  // workspaces.plan is the strict `plan_id` enum (free/pro/team).
+  // billing_customers.plan (just written above) is plain text and can carry
+  // a legacy Zidane label (starter/growth/scale) for display — but writing
+  // that same label to the enum column throws 22P02. Leave the enum column
+  // untouched rather than crash the webhook into a permanent Stripe retry
+  // loop; the caller's own "free" fallback still governs anything else here.
+  const workspaceFields: Record<string, unknown> = {
     subscription_status: fields.status,
     stripe_customer_id: fields.stripe_customer_id,
     stripe_subscription_id: fields.stripe_subscription_id,
-  }).eq("id", workspaceId);
+  };
+  if (isPlanId(fields.plan)) workspaceFields.plan = fields.plan;
+
+  const { error: workspaceError } = await db.from("workspaces").update(workspaceFields).eq("id", workspaceId);
   if (!workspaceError) return;
   // Original Zidane workspaces store subscription fields in billing_customers.
   if (workspaceError.code !== "42703" && workspaceError.code !== "PGRST204") throw new Error(workspaceError.message);
+  if (!isPlanId(fields.plan)) return;
   const { error: planError } = await db.from("workspaces").update({ plan: fields.plan }).eq("id", workspaceId);
   if (planError) throw new Error(planError.message);
 }

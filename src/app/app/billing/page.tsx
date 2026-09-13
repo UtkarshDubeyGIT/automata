@@ -105,7 +105,7 @@ export default function BillingPage() {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ plan: planId }),
       });
       if (res.ok) {
         const { url } = (await res.json()) as { url?: string };
