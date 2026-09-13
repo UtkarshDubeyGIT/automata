@@ -7,6 +7,7 @@ import { toolkitLogo } from "@/lib/social/platforms";
 const page = readFileSync("src/components/integrations/integrations-page.tsx", "utf8");
 const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
 const dialog = readFileSync("src/components/integrations/vikunja-connect-dialog.tsx", "utf8");
+const connectApps = readFileSync("src/components/connect-apps.tsx", "utf8");
 
 test("Vikunja is a permanent integration with its own icon", () => {
   assert.equal(INTEGRATION_BY_SLUG.get("vikunja")?.name, "Vikunja");
@@ -31,4 +32,22 @@ test("Vikunja connection UI links to token settings and offers Manage when conne
   assert.match(page, />Manage</);
   assert.match(dialog, /\/api\/integrations\/vikunja/);
   assert.match(dialog, /type="password"/);
+});
+
+test("connecting Vikunja from a workflow panel updates the row that gates Save", () => {
+  // The badge and the "Waiting on Vikunja" / disabled Save state must read
+  // one source of truth: the dialog reports success through `onConnected`,
+  // and every caller feeds that into `useAppConnections.mark`. A private
+  // "connected" flag inside the panel turned the badge green while Save
+  // stayed locked on the hook's stale "none" row.
+  assert.doesNotMatch(connectApps, /vikunjaConnected/);
+  assert.match(connectApps, /onConnected=\{\(\) => onConnected\(vikunja\)\}/);
+  for (const file of [
+    "src/app/app/workflows/builder-chat.tsx",
+    "src/app/app/workflows/page.tsx",
+    "src/app/app/workflows/[id]/page.tsx",
+  ]) {
+    const source = readFileSync(file, "utf8");
+    assert.match(source, /onConnected=\{\(app\) => mark\(app\.app, "connected"\)\}/, file);
+  }
 });

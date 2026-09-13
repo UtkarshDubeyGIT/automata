@@ -340,6 +340,7 @@ export default function WorkflowDetailPage() {
     missing: unconnectedApps,
     busy: connectBusy,
     connect,
+    mark,
   } = useAppConnections(requiredApps);
 
   /**
@@ -1097,6 +1098,7 @@ export default function WorkflowDetailPage() {
           connections={connections}
           busy={connectBusy}
           onConnect={connect}
+          onConnected={(app) => mark(app.app, "connected")}
           note={
             unconnectedApps.length
               ? `Connect ${appList(unconnectedApps)} before switching this on. We'll return you here after setup; runs stop until the connection is ready.`

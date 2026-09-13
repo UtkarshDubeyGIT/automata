@@ -340,7 +340,7 @@ function WorkflowsContent() {
     }
     return [...seen.values()];
   }, []);
-  const { connections, busy: connectBusy, connect, resolve } = useAppConnections(templateApps);
+  const { connections, busy: connectBusy, connect, resolve, mark } = useAppConnections(templateApps);
 
   /** This template's accounts, in the order the template needs them. */
   const appsFor = useCallback(
@@ -973,6 +973,7 @@ function WorkflowsContent() {
           connections={gatedApps}
           busy={connectBusy}
           onConnect={connect}
+          onConnected={(app) => mark(app.app, "connected")}
           title="Accounts this template uses"
           note="Each provider opens in a new tab and returns you here. Your automation stays safely paused until every connection is ready."
         />

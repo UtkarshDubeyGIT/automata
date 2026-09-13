@@ -314,12 +314,20 @@ export function ConnectApps({
   connections,
   busy,
   onConnect,
+  onConnected,
   title = "Accounts this automation uses",
   note,
 }: {
   connections: AppConnection[];
   busy: string | null;
   onConnect: (app: RequiredApp) => void;
+  /**
+   * A key-entry dialog verified and saved a connection. The parent feeds this
+   * into `useAppConnections.mark` so the row that gates Save flips too — the
+   * dialog talks to its own route, not `/api/integrations/connect`, so the
+   * hook would otherwise never learn about it.
+   */
+  onConnected: (app: RequiredApp) => void;
   title?: string;
   /** Optional line under the header — what the missing ones cost. */
   note?: string;
@@ -331,9 +339,12 @@ export function ConnectApps({
    * second press to do. Intercepted here, before `onConnect` runs, so this
    * panel opens the same key-entry dialog the dedicated Integrations page
    * uses, instead of repeating the "press Connect again" toast forever.
+   * Success is reported through `onConnected`, never held here: a private
+   * "connected" flag would turn the badge green while the parent's row —
+   * the thing Save is gated on — still said "none".
    */
   const [vikunjaOpen, setVikunjaOpen] = useState(false);
-  const [vikunjaConnected, setVikunjaConnected] = useState(false);
+  const vikunja = connections.find((app) => app.app === "vikunja");
 
   if (!connections.length) return null;
   return (
@@ -345,30 +356,29 @@ export function ConnectApps({
         </div>
         {note && <p className="mt-1 text-[12px] leading-snug text-ink-subtle">{note}</p>}
       </div>
-      {connections.map((app, i) => {
-        const status = app.app === "vikunja" && vikunjaConnected ? "connected" : app.status;
-        return (
-          <div
-            key={app.app}
-            className={cn("flex items-center gap-3 px-3.5 py-2.5", i > 0 && "border-t border-line")}
-          >
-            <AppLogo app={app.app} />
-            <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{app.label}</span>
-            <AppStatus
-              app={{ ...app, status }}
-              busy={busy === app.app}
-              onConnect={() => (app.app === "vikunja" ? setVikunjaOpen(true) : onConnect(app))}
-            />
-          </div>
-        );
-      })}
-      <VikunjaConnectDialog
-        open={vikunjaOpen}
-        connected={false}
-        instanceUrl=""
-        onOpenChange={setVikunjaOpen}
-        onConnected={() => setVikunjaConnected(true)}
-      />
+      {connections.map((app, i) => (
+        <div
+          key={app.app}
+          className={cn("flex items-center gap-3 px-3.5 py-2.5", i > 0 && "border-t border-line")}
+        >
+          <AppLogo app={app.app} />
+          <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{app.label}</span>
+          <AppStatus
+            app={app}
+            busy={busy === app.app}
+            onConnect={() => (app.app === "vikunja" ? setVikunjaOpen(true) : onConnect(app))}
+          />
+        </div>
+      ))}
+      {vikunja && (
+        <VikunjaConnectDialog
+          open={vikunjaOpen}
+          connected={vikunja.status === "connected"}
+          instanceUrl=""
+          onOpenChange={setVikunjaOpen}
+          onConnected={() => onConnected(vikunja)}
+        />
+      )}
     </div>
   );
 }

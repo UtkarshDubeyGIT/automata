@@ -699,7 +699,7 @@ function AssistantMessage({
    * round-trip through the parent.
    */
   const apps = useMemo(() => msg.build?.requiredApps ?? [], [msg.build]);
-  const { connections, missing, busy, connect, resolve } = useAppConnections(apps);
+  const { connections, missing, busy, connect, resolve, mark } = useAppConnections(apps);
   /**
    * Unlike the accounts above this never blocks Save. A missing connection
    * means every run stops at the first step that needs it; a thin brand
@@ -782,6 +782,7 @@ function AssistantMessage({
             connections={connections}
             busy={busy}
             onConnect={connect}
+            onConnected={(app) => mark(app.app, "connected")}
             note={
               missing.length
                 ? `Connect ${appList(missing)} before saving. We'll open each provider in a new tab and bring you back here; runs stop until the connection is ready.`
