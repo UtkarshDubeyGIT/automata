@@ -18,6 +18,7 @@ import {
 import type { ConnectMethod, ToolkitSummary } from "@/lib/social/composio";
 import { cn } from "@/lib/utils";
 import { setupNotice } from "@/lib/setup-notice";
+import { VikunjaConnectDialog } from "@/components/integrations/vikunja-connect-dialog";
 
 type Status = "connected" | "pending";
 
@@ -114,8 +115,6 @@ export default function IntegrationsPage() {
   const [nativeSlugs, setNativeSlugs] = useState<string[]>(["vikunja"]);
   const [vikunjaOpen, setVikunjaOpen] = useState(false);
   const [vikunjaInstanceUrl, setVikunjaInstanceUrl] = useState("");
-  const [vikunjaToken, setVikunjaToken] = useState("");
-  const [vikunjaError, setVikunjaError] = useState("");
   /**
    * Apps the server told us would accept a pasted key after all.
    *
@@ -366,9 +365,31 @@ export default function IntegrationsPage() {
       cardRank(status[b.id], channelMethod(b.id, b.managedAuth, ownApps, keyOffer), false),
   );
 
+  /**
+   * Split into "already yours" (connected, mid-connect, or built directly
+   * into Automata) vs. "still to discover" — the page leads with the former
+   * so a returning user sees what's live before the ~1,400-app catalog.
+   */
+  const isLive = (state: Status | undefined) => state === "connected" || state === "pending";
+  const connectedChannelCards = channelCards.filter((c) => isLive(status[c.id]));
+  const discoverChannelCards = channelCards.filter(
+    (c) =>
+      !isLive(status[c.id]) &&
+      category === "all" &&
+      (!query ||
+        c.name.toLowerCase().includes(query) ||
+        c.id.includes(query) ||
+        c.description.toLowerCase().includes(query)),
+  );
+  const topCatalogItems = catalogItems.filter(
+    (t) => t.slug in NATIVE_TOOLKITS || isLive(status[t.slug]),
+  );
+  const discoverCatalogItems = catalogItems.filter(
+    (t) => !(t.slug in NATIVE_TOOLKITS) && !isLive(status[t.slug]),
+  );
+
   async function connect(slug: string, name: string, method: ConnectMethod) {
     if (slug === "vikunja") {
-      setVikunjaError("");
       setVikunjaOpen(true);
       return;
     }
@@ -438,32 +459,6 @@ export default function IntegrationsPage() {
     }
   }
 
-  async function saveVikunja() {
-    setPending("vikunja");
-    setVikunjaError("");
-    try {
-      const res = await fetch("/api/integrations/vikunja", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceUrl: vikunjaInstanceUrl, token: vikunjaToken }),
-      });
-      const data = await res.json() as { connected?: boolean; instanceUrl?: string; error?: string };
-      if (!res.ok || !data.connected) {
-        setVikunjaError(data.error ?? "Vikunja could not be connected.");
-        return;
-      }
-      setVikunjaInstanceUrl(data.instanceUrl ?? vikunjaInstanceUrl.trim().replace(/\/+$/, ""));
-      setStatus((current) => ({ ...current, vikunja: "connected" }));
-      setVikunjaToken("");
-      setVikunjaOpen(false);
-      toast({ title: "Vikunja connected", description: "Your API token was verified and stored securely." });
-    } catch {
-      setVikunjaError("Vikunja could not be reached. Try again shortly.");
-    } finally {
-      setPending(null);
-    }
-  }
-
   async function disconnect(slug: string, name: string) {
     setPending(slug);
     try {
@@ -490,6 +485,84 @@ export default function IntegrationsPage() {
 
   const connectedChannels = CHANNELS.filter((c) => status[c.id] === "connected").length;
 
+  function ChannelCard(ch: (typeof CHANNELS)[number]) {
+    const state = status[ch.id];
+    const method = channelMethod(ch.id, ch.managedAuth, ownApps, keyOffer);
+    return (
+      <Card key={`channel-${ch.id}`} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
+        <Logo slug={ch.id} name={ch.name} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold text-ink" title={ch.name}>
+            {ch.name}
+          </div>
+          <div className="truncate text-[13px] text-ink-subtle" title={ch.description}>
+            {ch.description}
+          </div>
+        </div>
+        <div className="col-span-2 justify-self-end sm:contents">
+          <CardActions
+            state={state}
+            name={ch.name}
+            pending={pending === ch.id}
+            method={method}
+            onConnect={() => connect(ch.id, ch.name, method)}
+            onDisconnect={() => disconnect(ch.id, ch.name)}
+          />
+        </div>
+      </Card>
+    );
+  }
+
+  function CatalogCard(t: ToolkitSummary) {
+    const state = status[t.slug];
+    const method = keyOffer[t.slug] ? "key" : t.connectVia;
+    const meta = t.description || t.categories.join(", ");
+    return (
+      <Card key={`catalog-${t.slug}`} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
+        <Logo slug={t.slug} name={t.name} instanceUrl={t.slug === "vikunja" ? vikunjaInstanceUrl : undefined} />
+        {/* The name gets the whole first line. Sharing it with the
+            tool count cost ~70px that the count would never give
+            back — it is `flex-none`, so the name absorbed every
+            squeeze and lost. Demoted to the meta line, where it sits
+            beside a description that can truncate harmlessly. */}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold text-ink" title={t.name}>
+            {t.name}
+          </div>
+          <div className="flex items-baseline gap-1.5 text-[13px] text-ink-subtle">
+            <span className="flex-none font-mono text-[11px] text-ink-muted">
+              {t.toolsCount} tools
+            </span>
+            {meta ? (
+              <>
+                <span aria-hidden className="flex-none text-ink-muted">·</span>
+                <span className="truncate" title={meta}>{meta}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <div className="col-span-2 justify-self-end sm:contents">
+          {t.noAuth ? (
+            // `flex-none`: without it the badge is shrinkable and its
+            // label wraps to two lines on a narrow card.
+            <Badge className="flex-none whitespace-nowrap">No auth needed</Badge>
+          ) : (
+            <CardActions
+              state={state}
+              name={t.name}
+              pending={pending === t.slug}
+              method={method}
+              onConnect={() => connect(t.slug, t.name, method)}
+              onDisconnect={() => disconnect(t.slug, t.name)}
+              onManage={t.slug === "vikunja" ? () => setVikunjaOpen(true) : undefined}
+              connectLabel={t.slug === "vikunja" ? "Connect Vikunja" : undefined}
+            />
+          )}
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
@@ -505,50 +578,31 @@ export default function IntegrationsPage() {
         </span>
       </div>
 
-      {/* Curated social channels */}
+      {/* Connected + custom — what's already yours */}
       <section className="flex min-w-0 flex-col gap-3">
         <div>
-          <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">Social channels</h2>
-          <p className="mt-0.5 text-[13px] text-ink-subtle">Where your automations post.</p>
+          <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">Connected &amp; custom</h2>
+          <p className="mt-0.5 text-[13px] text-ink-subtle">Live integrations, plus the ones built directly into Automata.</p>
         </div>
-        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {channelCards.map((ch) => {
-            const state = status[ch.id];
-            const method = channelMethod(ch.id, ch.managedAuth, ownApps, keyOffer);
-            return (
-              <Card key={ch.id} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
-                <Logo slug={ch.id} name={ch.name} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-semibold text-ink" title={ch.name}>
-                    {ch.name}
-                  </div>
-                  <div className="truncate text-[13px] text-ink-subtle" title={ch.description}>
-                    {ch.description}
-                  </div>
-                </div>
-                <div className="col-span-2 justify-self-end sm:contents">
-                <CardActions
-                  state={state}
-                  name={ch.name}
-                  pending={pending === ch.id}
-                  method={method}
-                  onConnect={() => connect(ch.id, ch.name, method)}
-                  onDisconnect={() => disconnect(ch.id, ch.name)}
-                />
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+        {connectedChannelCards.length === 0 && topCatalogItems.length === 0 ? (
+          <Card className="p-8 text-center text-[13px] text-ink-subtle">
+            Nothing connected yet — pick a channel or app below to get started.
+          </Card>
+        ) : (
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {connectedChannelCards.map(ChannelCard)}
+            {topCatalogItems.map(CatalogCard)}
+          </div>
+        )}
       </section>
 
-      {/* Full Composio catalog */}
+      {/* Full Composio catalog — everything not yet connected */}
       <section className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">All integrations</h2>
             <p className="mt-0.5 text-[13px] text-ink-subtle">
-              {total > 0 ? `${total.toLocaleString()} apps` : "Every app"} available through Composio — connected first, then most popular.
+              {total > 0 ? `${total.toLocaleString()} apps` : "Every app"} available through Composio — not yet connected, most popular first.
             </p>
           </div>
           <div className="w-full sm:w-72">
@@ -580,7 +634,7 @@ export default function IntegrationsPage() {
           ))}
         </div>
 
-        {catalogItems.length === 0 && !browsing ? (
+        {discoverChannelCards.length === 0 && discoverCatalogItems.length === 0 && !browsing ? (
           <Card className="p-8 text-center text-[13px] text-ink-subtle">
             {search.trim().toLowerCase().includes("firecrawl")
               ? "Web research is built in — Automata can already read the public web, with nothing to connect."
@@ -588,55 +642,8 @@ export default function IntegrationsPage() {
           </Card>
         ) : (
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {catalogItems.map((t) => {
-              const state = status[t.slug];
-              const method = keyOffer[t.slug] ? "key" : t.connectVia;
-              const meta = t.description || t.categories.join(", ");
-              return (
-                <Card key={t.slug} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
-                  <Logo slug={t.slug} name={t.name} instanceUrl={t.slug === "vikunja" ? vikunjaInstanceUrl : undefined} />
-                  {/* The name gets the whole first line. Sharing it with the
-                      tool count cost ~70px that the count would never give
-                      back — it is `flex-none`, so the name absorbed every
-                      squeeze and lost. Demoted to the meta line, where it sits
-                      beside a description that can truncate harmlessly. */}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-semibold text-ink" title={t.name}>
-                      {t.name}
-                    </div>
-                    <div className="flex items-baseline gap-1.5 text-[13px] text-ink-subtle">
-                      <span className="flex-none font-mono text-[11px] text-ink-muted">
-                        {t.toolsCount} tools
-                      </span>
-                      {meta ? (
-                        <>
-                          <span aria-hidden className="flex-none text-ink-muted">·</span>
-                          <span className="truncate" title={meta}>{meta}</span>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="col-span-2 justify-self-end sm:contents">
-                  {t.noAuth ? (
-                    // `flex-none`: without it the badge is shrinkable and its
-                    // label wraps to two lines on a narrow card.
-                    <Badge className="flex-none whitespace-nowrap">No auth needed</Badge>
-                  ) : (
-                    <CardActions
-                      state={state}
-                      name={t.name}
-                      pending={pending === t.slug}
-                      method={method}
-                      onConnect={() => connect(t.slug, t.name, method)}
-                      onDisconnect={() => disconnect(t.slug, t.name)}
-                      onManage={t.slug === "vikunja" ? () => setVikunjaOpen(true) : undefined}
-                      connectLabel={t.slug === "vikunja" ? "Connect Vikunja" : undefined}
-                    />
-                  )}
-                  </div>
-                </Card>
-              );
-            })}
+            {discoverChannelCards.map(ChannelCard)}
+            {discoverCatalogItems.map(CatalogCard)}
           </div>
         )}
 
@@ -654,31 +661,17 @@ export default function IntegrationsPage() {
           ) : null}
         </div>
       </section>
-      {vikunjaOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={() => setVikunjaOpen(false)}>
-          <Card className="w-full max-w-md p-6" role="dialog" aria-modal="true" aria-labelledby="vikunja-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start gap-3">
-              <Logo slug="vikunja" name="Vikunja" size={48} instanceUrl={vikunjaInstanceUrl} />
-              <div className="min-w-0 flex-1">
-                <h2 id="vikunja-dialog-title" className="text-[18px] font-semibold text-ink">{status.vikunja === "connected" ? "Manage Vikunja" : "Connect Vikunja"}</h2>
-                <p className="mt-1 text-[13px] text-ink-subtle">Enter your deployed Vikunja app URL and an API token. The connection is encrypted and scoped to this workspace.</p>
-              </div>
-            </div>
-            <div className="mt-5 flex flex-col gap-2">
-              <label htmlFor="vikunja-instance-url" className="text-[13px] font-medium text-ink">Vikunja app URL</label>
-              <Input id="vikunja-instance-url" type="url" autoComplete="url" value={vikunjaInstanceUrl} onChange={(event) => setVikunjaInstanceUrl(event.target.value)} placeholder="https://tasks.example.com" />
-              <label htmlFor="vikunja-token" className="text-[13px] font-medium text-ink">API token</label>
-              <Input id="vikunja-token" type="password" autoComplete="off" value={vikunjaToken} onChange={(event) => setVikunjaToken(event.target.value)} placeholder={status.vikunja === "connected" ? "Paste a replacement token" : "Paste your Vikunja API token"} />
-              {vikunjaError ? <p className="text-[12px] text-danger" role="alert">{vikunjaError}</p> : null}
-              {vikunjaInstanceUrl.trim().startsWith("https://") ? <a className="text-[12px] font-medium text-brand hover:underline" href={`${vikunjaInstanceUrl.trim().replace(/\/+$/, "")}/user/settings/api-tokens`} target="_blank" rel="noreferrer">Get an API token from this Vikunja instance</a> : null}
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setVikunjaOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={pending === "vikunja"} disabled={!vikunjaInstanceUrl.trim() || !vikunjaToken.trim()} onClick={saveVikunja}>{status.vikunja === "connected" ? "Update connection" : "Connect Vikunja"}</Button>
-            </div>
-          </Card>
-        </div>
-      ) : null}
+      <VikunjaConnectDialog
+        open={vikunjaOpen}
+        connected={status.vikunja === "connected"}
+        instanceUrl={vikunjaInstanceUrl}
+        onOpenChange={setVikunjaOpen}
+        onConnected={(url) => {
+          setVikunjaInstanceUrl(url);
+          setStatus((current) => ({ ...current, vikunja: "connected" }));
+          toast({ title: "Vikunja connected", description: "Your API token was verified and stored securely." });
+        }}
+      />
     </div>
   );
 }

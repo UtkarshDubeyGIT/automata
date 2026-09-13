@@ -18,6 +18,7 @@ import {
   type IntegrationRow,
   type RequiredApp,
 } from "@/lib/workflows/apps";
+import { VikunjaConnectDialog } from "@/components/integrations/vikunja-connect-dialog";
 
 /**
  * "Accounts this automation uses" — one row per third-party service, each
@@ -323,6 +324,17 @@ export function ConnectApps({
   /** Optional line under the header — what the missing ones cost. */
   note?: string;
 }) {
+  /**
+   * Vikunja has no OAuth app, so `onConnect` (the shared POST-based flow in
+   * `useAppConnections.connect`) can never finish it one-tap — the server
+   * always answers `keyFallback: true` and there is nothing more for a
+   * second press to do. Intercepted here, before `onConnect` runs, so this
+   * panel opens the same key-entry dialog the dedicated Integrations page
+   * uses, instead of repeating the "press Connect again" toast forever.
+   */
+  const [vikunjaOpen, setVikunjaOpen] = useState(false);
+  const [vikunjaConnected, setVikunjaConnected] = useState(false);
+
   if (!connections.length) return null;
   return (
     <div className="overflow-hidden rounded-card border border-line">
@@ -333,16 +345,30 @@ export function ConnectApps({
         </div>
         {note && <p className="mt-1 text-[12px] leading-snug text-ink-subtle">{note}</p>}
       </div>
-      {connections.map((app, i) => (
-        <div
-          key={app.app}
-          className={cn("flex items-center gap-3 px-3.5 py-2.5", i > 0 && "border-t border-line")}
-        >
-          <AppLogo app={app.app} />
-          <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{app.label}</span>
-          <AppStatus app={app} busy={busy === app.app} onConnect={() => onConnect(app)} />
-        </div>
-      ))}
+      {connections.map((app, i) => {
+        const status = app.app === "vikunja" && vikunjaConnected ? "connected" : app.status;
+        return (
+          <div
+            key={app.app}
+            className={cn("flex items-center gap-3 px-3.5 py-2.5", i > 0 && "border-t border-line")}
+          >
+            <AppLogo app={app.app} />
+            <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{app.label}</span>
+            <AppStatus
+              app={{ ...app, status }}
+              busy={busy === app.app}
+              onConnect={() => (app.app === "vikunja" ? setVikunjaOpen(true) : onConnect(app))}
+            />
+          </div>
+        );
+      })}
+      <VikunjaConnectDialog
+        open={vikunjaOpen}
+        connected={false}
+        instanceUrl=""
+        onOpenChange={setVikunjaOpen}
+        onConnected={() => setVikunjaConnected(true)}
+      />
     </div>
   );
 }
