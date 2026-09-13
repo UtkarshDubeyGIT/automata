@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Button, Dialog, Icon } from "@/components/ui";
+import { Button, Dialog } from "@/components/ui";
 import { useCredits } from "@/components/ui/credits";
 import { APP_WELCOME_KEY, hasSeen, markSeen, WELCOME_BONUS_CREDITS } from "@/lib/promo/welcome-bonus";
 
@@ -48,23 +48,18 @@ export function WelcomeBonusModal({ eligible }: { eligible: boolean }) {
           <Button onClick={close} iconRight="arrow-right">Start building</Button>
         }
       >
-        <div className="flex flex-col items-center gap-4 py-2 text-center">
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-brand-subtle text-brand">
-            <Icon name="sparkles" size={26} />
-          </span>
-          <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink">
-            Congratulations! 🎉
-          </h2>
-          <p className="max-w-[30rem] text-[15px] leading-relaxed text-ink-subtle">
-            Here are your {bonus} credits. Have fun building your automations or have fun automating your workflows.
+        <div className="flex flex-col items-center py-4 text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">Welcome gift</p>
+          {/* The number is the whole point of the dialog, so it is the hero —
+              not a card under a paragraph. */}
+          <p className="mt-3 font-display text-[56px] font-semibold leading-none tracking-[-0.03em] text-ink">
+            {Math.max(credits, WELCOME_BONUS_CREDITS).toLocaleString()}
+            <span className="ml-2 text-[18px] font-medium tracking-normal text-ink-subtle">credits</span>
           </p>
-          <div className="mt-2 rounded-card border border-brand-border bg-brand-subtle px-6 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">Your balance</p>
-            <p className="mt-1 font-display text-[34px] font-semibold tracking-[-0.02em] text-ink">
-              {Math.max(credits, WELCOME_BONUS_CREDITS).toLocaleString()}
-              <span className="ml-1.5 text-[15px] font-medium text-ink-subtle">credits</span>
-            </p>
-          </div>
+          <h2 className="mt-6 text-[22px] font-semibold tracking-[-0.01em] text-ink">Congratulations! 🎉</h2>
+          <p className="mt-1.5 max-w-[24rem] text-[15px] leading-relaxed text-ink-subtle">
+            Your {bonus} credits are ready — have fun automating your workflows.
+          </p>
         </div>
       </Dialog>
     </>
