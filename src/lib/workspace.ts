@@ -79,6 +79,8 @@ export interface WorkspaceContext {
   userEmail: string;
   workspaceId: string | null;
   workspaceName: string;
+  /** ISO timestamp of workspace creation; null in demo mode. Drives the first-time-user welcome. */
+  workspaceCreatedAt: string | null;
   plan: string;
   credits: number;
   onboarded: boolean;
@@ -90,6 +92,7 @@ const DEMO: WorkspaceContext = {
   userEmail: "alex@automata.local",
   workspaceId: null,
   workspaceName: "Automata Workspace",
+  workspaceCreatedAt: null,
   plan: "pro",
   credits: 2500,
   onboarded: true,
@@ -110,7 +113,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
 
     const { data: ws } = await supabase
       .from("workspaces")
-      .select("id, name, plan")
+      .select("id, name, plan, created_at")
       .eq("id", workspaceId ?? "")
       .limit(1)
       .maybeSingle();
@@ -128,6 +131,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
       userEmail: user.email ?? "",
       workspaceId: ws?.id ?? null,
       workspaceName: ws?.name ?? "My workspace",
+      workspaceCreatedAt: ws?.created_at ?? null,
       plan: ws?.plan ?? "free",
       credits,
       onboarded: true,

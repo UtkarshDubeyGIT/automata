@@ -10,9 +10,11 @@ import Link from "next/link";
 
 import { AuthOrbits } from "@/components/auth-orbits";
 import { LogoMark } from "@/components/logo";
+import { LandingPromoModal } from "@/components/promo/landing-promo-modal";
 import { ToolLogo } from "@/components/tool-logo";
 import { BRAND } from "@/config/brand";
 import { PLANS } from "@/lib/billing/plans";
+import { WELCOME_BONUS_CREDITS } from "@/lib/promo/welcome-bonus";
 import { INTEGRATIONS } from "@/lib/integrations/catalog";
 import { TEMPLATES } from "@/lib/workflows/templates";
 
@@ -115,6 +117,7 @@ export function SpaceLanding() {
 
   return (
     <main className={styles.page}>
+      <LandingPromoModal />
       <div className={styles.stars} aria-hidden="true" />
       <div className={styles.starsNear} aria-hidden="true" />
 
@@ -144,7 +147,7 @@ export function SpaceLanding() {
         />
         <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:pb-36 lg:pt-24">
           <div>
-            <p className={`${styles.eyebrow} ${styles.rise}`}><i /> Live automations, under your control</p>
+            <p className={`${styles.eyebrow} ${styles.rise}`}><i /> New: {WELCOME_BONUS_CREDITS.toLocaleString()} credit welcome bonus for every new account</p>
             <h1 className={`${styles.display} ${styles.rise} mt-6 text-[clamp(46px,7vw,88px)]`}>
               Tell it once.<br /><em>Watch work move.</em>
             </h1>
@@ -157,7 +160,7 @@ export function SpaceLanding() {
               <Link className={styles.ghost} href="/app/workflows/daily-pipeline-digest"><Play size={15} fill="currentColor" /> Watch a real run</Link>
             </div>
             <ul className={`${styles.rise} mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-[var(--ink-subtle)]`}>
-              <li className="inline-flex items-center gap-2"><Check size={13} /> {PLANS.free.monthlyCredits.toLocaleString()} free credits to start</li>
+              <li className="inline-flex items-center gap-2"><Check size={13} /> Start with {WELCOME_BONUS_CREDITS.toLocaleString()} free credits</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> Approval before every write</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> First workflow in minutes</li>
             </ul>

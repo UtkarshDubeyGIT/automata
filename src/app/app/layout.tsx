@@ -8,6 +8,8 @@ import { getWorkspaceContext } from "@/lib/workspace";
 import { ToastProvider } from "@/components/ui/toast";
 import { CreditsProvider } from "@/components/ui/credits";
 import { ThemeProvider } from "@/components/theme";
+import { WelcomeBonusModal } from "@/components/promo/welcome-bonus-modal";
+import { isNewWorkspace } from "@/lib/promo/welcome-bonus";
 
 /**
  * The product shell: no sidebar, no topbar, just the page under two floating
@@ -34,6 +36,7 @@ export default async function ProductLayout({ children }: { children: ReactNode 
                 appear underneath when focused. */}
             <a href="#main-content" className="sr-only z-[70] rounded-control bg-card px-4 py-3 text-brand focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to content</a>
             <AppControls userName={ctx.userName} userEmail={ctx.userEmail} />
+            <WelcomeBonusModal eligible={isNewWorkspace(ctx.workspaceCreatedAt)} />
             <main id="main-content" className="scroll-thin relative z-10 flex-1 overflow-y-auto overscroll-contain">
               {/* Top padding clears the floating controls. */}
               <div className="mx-auto max-w-[1360px] px-5 pb-6 pt-20 md:px-10 md:pb-9 md:pt-24">{children}</div>
