@@ -24,6 +24,7 @@ import { validateDraftEnvelope, type WorkflowPositions } from "@/lib/workflows/e
 import type { RunStatus, WorkflowGraph } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { canActivateWorkflow, isPlanId, PLANS } from "@/lib/billing/plans";
 
 /**
  * One automation.
@@ -137,6 +138,34 @@ export async function PATCH(
   // while any step is still missing required configuration.
   if (body.active === true) {
     const row = await getWorkflowRow(rc.supabase, id);
+
+    // Plan gate: an already-active workflow re-sending `active: true` is a
+    // no-op and must not get caught by its own count. A workflow that isn't
+    // active yet only counts every OTHER currently active workflow.
+    if (!row?.active) {
+      const { data: ws } = await rc.supabase
+        .from("workspaces")
+        .select("plan")
+        .eq("id", rc.workspaceId)
+        .maybeSingle();
+      const planId = ws?.plan && isPlanId(ws.plan) ? ws.plan : "free";
+      const { count } = await rc.supabase
+        .from("workflows")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", rc.workspaceId)
+        .eq("active", true);
+      if (!canActivateWorkflow(planId, count ?? 0)) {
+        const limit = PLANS[planId].activeWorkflowLimit;
+        return NextResponse.json(
+          {
+            error: `Your plan allows ${limit} active automation${limit === 1 ? "" : "s"} at a time — pause one or upgrade to activate another.`,
+            code: "plan_limit",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const gaps = row?.config?.graph ? setupGaps(row.config.graph) : {};
     const pending = gapCount(gaps);
     if (pending) {
