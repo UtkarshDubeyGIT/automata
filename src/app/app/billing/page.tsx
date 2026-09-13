@@ -132,7 +132,6 @@ export default function BillingPage() {
   const resetsInText = billing?.resetsInText || "One-time starter bonus";
 
   const spend: SpendSummary = billing?.spend ?? { periodLabel: "Last 30 days", total: 0, refunded: 0, categories: [] };
-  const spendDebited = spend.categories.reduce((sum, c) => sum + c.credits, 0);
 
   const invoices = billing?.invoices ?? [];
 
@@ -195,7 +194,7 @@ export default function BillingPage() {
             icon={<Icon name="activity" size={18} />}
           />
           <div className="mt-4 flex items-baseline justify-between text-[13px]">
-            <span className="text-ink-subtle">Credits spent</span>
+            <span className="text-ink-subtle">Credits charged</span>
             <span className="font-mono text-ink tabular-nums">{spend.total.toLocaleString()}</span>
           </div>
           {spend.categories.length > 0 ? (
@@ -210,15 +209,21 @@ export default function BillingPage() {
                     <span className="font-mono text-ink-subtle tabular-nums">{c.credits.toLocaleString()}</span>
                   </div>
                   <ProgressBar
-                    value={spendDebited > 0 ? (c.credits / spendDebited) * 100 : 0}
+                    value={spend.total > 0 ? (c.credits / spend.total) * 100 : 0}
                     className="mt-1.5"
                   />
                 </div>
               ))}
               {spend.refunded > 0 && (
-                <div className="flex justify-between text-[13px] text-ink-subtle">
-                  <span>Refunded</span>
-                  <span className="font-mono tabular-nums">-{spend.refunded.toLocaleString()}</span>
+                <div className="flex flex-col gap-1 border-t border-line pt-3 text-[13px]">
+                  <div className="flex justify-between text-ink-subtle">
+                    <span>Refunded</span>
+                    <span className="font-mono tabular-nums">-{spend.refunded.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-ink">
+                    <span>Net spent</span>
+                    <span className="font-mono tabular-nums">{Math.max(0, spend.total - spend.refunded).toLocaleString()}</span>
+                  </div>
                 </div>
               )}
             </div>

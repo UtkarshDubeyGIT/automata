@@ -7,6 +7,7 @@ export interface SpendCategory {
 
 export interface SpendSummary {
   periodLabel: string;
+  /** Gross credits charged; always equals the sum of `categories[].credits`. */
   total: number;
   refunded: number;
   categories: SpendCategory[];
@@ -39,6 +40,6 @@ export function summarizeSpend(rows: { reason: string; delta: number }[], period
   const categories = [...SPEND_CATEGORIES.map((c) => c.key), OTHER.key]
     .map((key) => buckets.get(key))
     .filter((c): c is SpendCategory => Boolean(c && c.credits > 0));
-  const debited = categories.reduce((sum, c) => sum + c.credits, 0);
-  return { periodLabel, total: Math.max(0, debited - refunded), refunded, categories };
+  const total = categories.reduce((sum, c) => sum + c.credits, 0);
+  return { periodLabel, total, refunded, categories };
 }

@@ -25,7 +25,8 @@ test("spend summary groups real ledger debits and ignores grants", () => {
     { key: "other", label: "Other", credits: 10, count: 1 },
   ]);
   assert.equal(spend.refunded, 25);
-  assert.equal(spend.total, 59);
+  assert.equal(spend.total, 84);
+  assert.equal(spend.total, spend.categories.reduce((sum, c) => sum + c.credits, 0));
 });
 
 test("spend summary is empty for a workspace that only holds its opening grant", () => {
