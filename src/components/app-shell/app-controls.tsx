@@ -167,9 +167,9 @@ function AccountMenu({ userName, userEmail }: { userName: string; userEmail?: st
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className="relative flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+        className="group relative flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
       >
-        <Avatar name={userName} size="md" />
+        <Avatar name={userName} size="md" hoverIcon="menu" />
         {waiting > 0 && (
           <span
             aria-hidden
