@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Icon, type IconName } from "@/components/ui/icon";
+import { Icon, IconTile, type IconName } from "@/components/ui/icon";
 import { useToast } from "@/components/ui/toast";
 import { useCredits } from "@/components/ui/credits";
 import { cn } from "@/lib/utils";
@@ -759,12 +759,7 @@ function AssistantMessage({
                   )}
                 >
                   <span className="w-4 font-mono text-[11px] text-ink-subtle">{i + 1}</span>
-                  <span
-                    className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[8px]"
-                    style={{ background: tc.bg, color: tc.fg }}
-                  >
-                    <Icon name={step.icon} size={15} />
-                  </span>
+                  <IconTile name={step.icon} bg={tc.bg} fg={tc.fg} size={30} iconSize={15} />
                   <span className="flex-1 truncate text-[13.5px] text-ink">{step.title}</span>
                   {step.kind === "hil" && (
                     <span className="rounded-full border border-brand-border bg-brand-subtle px-2 py-0.5 text-[11px] font-semibold text-brand">

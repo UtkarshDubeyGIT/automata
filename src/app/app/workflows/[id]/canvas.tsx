@@ -38,7 +38,7 @@ import {
   type XYPosition,
   type Viewport,
 } from "@xyflow/react";
-import { Icon } from "@/components/ui/icon";
+import { Icon, IconTile } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { tileColors } from "@/lib/data/workflows";
 import { toolkitLogo } from "@/lib/social/platforms";
@@ -822,12 +822,5 @@ export function StepTile({
       />
     );
   }
-  return (
-    <span
-      className={cn("flex flex-none items-center justify-center", round ? "rounded-full" : "rounded-[9px]")}
-      style={{ background: tc.bg, color: tc.fg, width: size, height: size }}
-    >
-      <Icon name={described.icon} size={Math.round(size * 0.52)} strokeWidth={1.9} />
-    </span>
-  );
+  return <IconTile name={described.icon} bg={tc.bg} fg={tc.fg} size={size} round={round} />;
 }

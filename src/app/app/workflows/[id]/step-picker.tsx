@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@/components/ui/icon";
+import { Icon, IconTile } from "@/components/ui/icon";
 import { Input } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import { tileColors } from "@/lib/data/workflows";
@@ -214,12 +214,7 @@ function BlockCard({ block, onPick }: { block: PaletteBlock; onPick: () => void 
           className="h-8 w-8 flex-none rounded-[8px] border border-line bg-card object-contain p-1"
         />
       ) : (
-        <span
-          className="flex h-8 w-8 flex-none items-center justify-center rounded-[8px]"
-          style={{ background: tc.bg, color: tc.fg }}
-        >
-          <Icon name={block.icon} size={16} />
-        </span>
+        <IconTile name={block.icon} bg={tc.bg} fg={tc.fg} size={32} iconSize={16} />
       )}
       <span className="min-w-0 flex-1">
         <span className="block text-[13.5px] font-semibold leading-tight text-ink">{block.label}</span>
