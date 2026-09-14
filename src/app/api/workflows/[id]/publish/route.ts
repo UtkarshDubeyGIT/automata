@@ -10,16 +10,13 @@ import { setupGaps, validateGraph } from "@/lib/workflows/validate";
 import type { WorkflowConfig } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
+import { readCachedIntegrations } from "@/lib/social/integrations-store";
 
 const FIRECRAWL_UNAVAILABLE = setupNotice(
   "Web research isn't available yet, so this automation can't be published. Please try again later.",
   "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
 );
-
-/** Firecrawl is server-owned, so its row is derived, never fetched. */
-function firecrawlRows() {
-  return [{ platform: "firecrawl", status: firecrawlConfigured ? "connected" : "none" }];
-}
 
 export async function POST(
   _req: NextRequest,
@@ -62,7 +59,10 @@ export async function POST(
   if (rc.entityId && socialProvider.live) {
     try {
       const connected = await socialProvider.listConnections(rc.entityId);
-      const missing = unconnected(connectionsOf(requiredAppsOf(graph), [...connected, ...firecrawlRows()], true));
+      // Apps we host ourselves are absent from every Composio listing; their
+      // rows come from our own server, exactly as the status endpoint says.
+      const own = await serverOwnedRows(rc, await readCachedIntegrations(rc));
+      const missing = unconnected(connectionsOf(requiredAppsOf(graph), [...connected, ...own], true));
       if (missing.length) {
         return NextResponse.json({ error: `Connect ${missing.map((item) => item.label).join(" and ")} before publishing` }, { status: 409 });
       }

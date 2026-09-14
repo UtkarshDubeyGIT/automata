@@ -20,7 +20,8 @@ import {
   readCachedIntegrations,
   syncConnections,
 } from "@/lib/social/integrations-store";
-import { disconnectVikunja, vikunjaStatus } from "@/lib/integrations/vikunja-connection";
+import { disconnectVikunja } from "@/lib/integrations/vikunja-connection";
+import { businessProfileRow, vikunjaRow } from "@/lib/integrations/server-owned-rows";
 
 /**
  * Every handler here is scoped by `ctx.entityId` — the Composio entity, i.e.
@@ -144,35 +145,6 @@ export async function POST(req: Request) {
  */
 function ownAppChannels(): string[] {
   return PLATFORMS.filter((p) => hasOwnOAuthApp(p.id)).map((p) => p.id);
-}
-
-/**
- * Google Business Profile's row, which Composio can never supply.
- *
- * It is stated EXPLICITLY rather than left absent, because absence already
- * means something: `statusOf` reads a missing row for this app as demo mode.
- * That is right when the deployment has no Google client, and wrong the moment
- * it does — a configured-but-unconnected workspace would be shown "Demo" and
- * never offered the Connect button that would fix it.
- */
-function businessProfileRow(
-  cached: { platform: string; status: string }[],
-): { platform: string; status: string }[] {
-  if (!businessProfileConfigured) return [];
-  const connected = cached.some(
-    (row) => row.platform === "googlebusinessprofile" && row.status === "connected",
-  );
-  return [{ platform: "googlebusinessprofile", status: connected ? "connected" : "none" }];
-}
-
-async function vikunjaRow(workspaceId: string | null) {
-  if (!workspaceId) return { platform: "vikunja", status: "none", instanceUrl: "" };
-  const status = await vikunjaStatus(workspaceId);
-  return {
-    platform: "vikunja",
-    status: status.connected ? "connected" : "none",
-    instanceUrl: status.instanceUrl,
-  };
 }
 
 /**

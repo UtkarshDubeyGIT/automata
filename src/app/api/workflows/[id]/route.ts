@@ -24,6 +24,9 @@ import { validateDraftEnvelope, type WorkflowPositions } from "@/lib/workflows/e
 import type { RunStatus, WorkflowGraph } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
+import { readCachedIntegrations } from "@/lib/social/integrations-store";
+import type { RequestContext } from "@/lib/workspace";
 import { canActivateWorkflow, isPlanId, PLANS } from "@/lib/billing/plans";
 
 /**
@@ -191,7 +194,7 @@ export async function PATCH(
     // create path now asks for those accounts up front — so the switch should
     // not be the one place that still lets it through. The editor gates this
     // client-side too; this is what makes it true of any caller.
-    const missing = await unconnectedApps(rc.entityId, row?.config?.graph);
+    const missing = await unconnectedApps(rc, row?.config?.graph);
     if (missing.length) {
       return NextResponse.json(
         {
@@ -339,20 +342,21 @@ export async function PUT(
  * fine — the run itself still pre-checks the connection (`steps.ts`) and
  * fails with the same sentence if they aren't.
  */
-async function unconnectedApps(entityId: string | null, graph?: WorkflowGraph) {
-  if (!graph || !entityId) return [];
+async function unconnectedApps(rc: RequestContext, graph?: WorkflowGraph) {
+  if (!graph || !rc.entityId) return [];
   const required = requiredAppsOf(graph);
-  // Web research is server-owned: its status is the app's own key, not
-  // anything this workspace connected.
-  const native = { platform: "firecrawl", status: firecrawlConfigured ? "connected" : "none" };
+  // Apps we host ourselves (web research, Vikunja, Business Profile) are
+  // absent from every Composio listing: their status is our own server's
+  // answer, the same one the status endpoint gives the editor.
+  const own = await serverOwnedRows(rc, await readCachedIntegrations(rc));
   if (!socialProvider.live) {
-    return unconnected(connectionsOf(required, [native], false));
+    return unconnected(connectionsOf(required, own, false));
   }
   try {
-    const rows = await socialProvider.listConnections(entityId);
-    return unconnected(connectionsOf(required, [...rows, native], true));
+    const rows = await socialProvider.listConnections(rc.entityId);
+    return unconnected(connectionsOf(required, [...rows, ...own], true));
   } catch {
-    return unconnected(connectionsOf(required, [native], false));
+    return unconnected(connectionsOf(required, own, false));
   }
 }
 
