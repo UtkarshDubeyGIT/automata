@@ -37,21 +37,39 @@ export interface ResolveScope {
  * it is where the simulation taint rule gets its input. An unresolved
  * reference contributes nothing: no value crossed, so nothing was inherited.
  */
+/**
+ * Look up one `{{...}}` path against the run context, without deciding how to
+ * render it — that choice differs between `interpolate` (always a string, so
+ * an object embedded in prose becomes JSON text) and `resolveDeep` (a step
+ * argument that IS `{{steps.x.y}}` and nothing else should keep its real
+ * type, so an array stays an array).
+ */
+function resolveReference(
+  path: string,
+  data: RunContext,
+  reads?: Set<string>,
+): { found: boolean; value: unknown } {
+  const parts = path.trim().split(".");
+  // `trigger.*` is the public authoring convention. Keep `steps.*` working
+  // for every existing graph while exposing the start payload generically.
+  let cur: unknown = parts[0] === "trigger" ? data.input : data;
+  if (parts[0] === "trigger") parts.shift();
+  for (const part of parts) {
+    if (cur && typeof cur === "object" && part in (cur as Record<string, unknown>)) {
+      cur = (cur as Record<string, unknown>)[part];
+    } else {
+      return { found: false, value: undefined };
+    }
+  }
+  if (reads && parts[0] === "steps" && parts[1]) reads.add(parts[1]);
+  return { found: true, value: cur };
+}
+
 export function interpolate(template: string, data: RunContext, reads?: Set<string>): string {
   return (template ?? "").replace(/\{\{(.*?)\}\}/g, (match, path: string) => {
-    const parts = path.trim().split(".");
-    // `trigger.*` is the public authoring convention. Keep `steps.*` working
-    // for every existing graph while exposing the start payload generically.
-    let cur: unknown = parts[0] === "trigger" ? data.input : data;
-    if (parts[0] === "trigger") parts.shift();
-    for (const part of parts) {
-      if (cur && typeof cur === "object" && part in (cur as Record<string, unknown>)) {
-        cur = (cur as Record<string, unknown>)[part];
-      } else {
-        return match; // unresolved refs are left literal
-      }
-    }
-    if (reads && parts[0] === "steps" && parts[1]) reads.add(parts[1]);
+    const resolved = resolveReference(path, data, reads);
+    if (!resolved.found) return match; // unresolved refs are left literal
+    const cur = resolved.value;
     if (cur && typeof cur === "object") {
       try {
         return JSON.stringify(cur);
@@ -63,6 +81,9 @@ export function interpolate(template: string, data: RunContext, reads?: Set<stri
   });
 }
 
+/** A step argument that is a single `{{...}}` reference and nothing else. */
+const WHOLE_REFERENCE = /^\{\{([^{}]+)\}\}$/;
+
 /**
  * Interpolate every string inside a value, however deeply nested, recording
  * what was read. `arguments` and `options` are author-supplied jsonb and can
@@ -71,7 +92,21 @@ export function interpolate(template: string, data: RunContext, reads?: Set<stri
  */
 export function resolveDeep(value: unknown, ctx: ResolveScope, depth = 0): unknown {
   if (depth > 8) return value;
-  if (typeof value === "string") return interpolate(value, ctx.data, ctx.reads);
+  if (typeof value === "string") {
+    // A step argument that IS a single reference (e.g. `items:
+    // "{{steps.extract.actionItems}}"`) resolves to the real value — an array
+    // stays an array. Without this, `resolveDeep` fed every string through
+    // `interpolate`, which always returns a string: an upstream array became
+    // its JSON-text rendering, so `Array.isArray(args.items)` downstream was
+    // permanently false and a tool requiring an array argument could never
+    // receive one, no matter what the upstream step produced.
+    const whole = value.match(WHOLE_REFERENCE);
+    if (whole) {
+      const resolved = resolveReference(whole[1], ctx.data, ctx.reads);
+      if (resolved.found) return resolved.value;
+    }
+    return interpolate(value, ctx.data, ctx.reads);
+  }
   if (Array.isArray(value)) return value.map((v) => resolveDeep(v, ctx, depth + 1));
   if (value && typeof value === "object") {
     return Object.fromEntries(
