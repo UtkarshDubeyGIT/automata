@@ -83,7 +83,8 @@ test("server render (no window) never shows the promo", () => {
 test("the in-app dialog carries the promised copy and is mounted for new users only", () => {
   const modal = readFileSync("src/components/promo/welcome-bonus-modal.tsx", "utf8");
   assert.match(modal, /Congratulations!/);
-  assert.match(modal, /Here are your \{bonus\} credits\. Have fun building your automations or have fun automating your workflows\./);
+  assert.match(modal, /Your \{bonus\} credits are ready — have fun automating your workflows\./);
+  assert.doesNotMatch(modal, /<Icon /, "the dialog leads with the number, not a decorative icon");
   assert.match(modal, /ConfettiBurst/);
   assert.match(modal, /markSeen\(APP_WELCOME_KEY\)/);
 
