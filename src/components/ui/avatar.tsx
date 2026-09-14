@@ -59,6 +59,8 @@ export function Avatar({
             <img
               src={src}
               alt={name}
+              // Google's photo CDN 403/429s when it sees our Referer header.
+              referrerPolicy="no-referrer"
               className="h-full w-full rounded-full object-cover"
             />
           ) : (

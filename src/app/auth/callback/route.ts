@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { safeNext } from "@/lib/auth/redirects";
+import { syncGoogleProfile } from "@/lib/auth/profile-sync";
 import { publicUrl } from "@/lib/request";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -19,8 +20,18 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = await createServerSupabaseClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(publicUrl(dest, request));
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      // Best-effort: a sync failure must never block sign-in.
+      if (data.user) {
+        try {
+          await syncGoogleProfile(supabase, data.user);
+        } catch (syncError) {
+          console.error("[auth] profile sync failed", syncError);
+        }
+      }
+      return NextResponse.redirect(publicUrl(dest, request));
+    }
     console.error("[auth] code exchange failed", { code: error.code, status: error.status });
   }
 

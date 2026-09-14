@@ -77,6 +77,7 @@ export async function resolveRequestContext(): Promise<RequestContext> {
 export interface WorkspaceContext {
   userName: string;
   userEmail: string;
+  userAvatarUrl: string | null;
   workspaceId: string | null;
   workspaceName: string;
   /** ISO timestamp of workspace creation; null in demo mode. Drives the first-time-user welcome. */
@@ -90,6 +91,7 @@ export interface WorkspaceContext {
 const DEMO: WorkspaceContext = {
   userName: "Alex Rivers",
   userEmail: "alex@automata.local",
+  userAvatarUrl: null,
   workspaceId: null,
   workspaceName: "Automata Workspace",
   workspaceCreatedAt: null,
@@ -120,7 +122,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("full_name")
+      .select("full_name, avatar_url")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -129,6 +131,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
     return {
       userName: profile?.full_name || user.email?.split("@")[0] || "there",
       userEmail: user.email ?? "",
+      userAvatarUrl: profile?.avatar_url ?? null,
       workspaceId: ws?.id ?? null,
       workspaceName: ws?.name ?? "My workspace",
       workspaceCreatedAt: ws?.created_at ?? null,

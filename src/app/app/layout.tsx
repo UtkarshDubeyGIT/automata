@@ -35,7 +35,7 @@ export default async function ProductLayout({ children }: { children: ReactNode 
             {/* z-[70]: above the floating cluster, which it would otherwise
                 appear underneath when focused. */}
             <a href="#main-content" className="sr-only z-[70] rounded-control bg-card px-4 py-3 text-brand focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to content</a>
-            <AppControls userName={ctx.userName} userEmail={ctx.userEmail} />
+            <AppControls userName={ctx.userName} userEmail={ctx.userEmail} userAvatarUrl={ctx.userAvatarUrl} />
             <WelcomeBonusModal eligible={isNewWorkspace(ctx.workspaceCreatedAt)} />
             <main id="main-content" className="scroll-thin relative z-10 flex-1 overflow-y-auto overscroll-contain">
               {/* Top padding clears the floating controls. */}

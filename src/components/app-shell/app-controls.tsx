@@ -79,7 +79,15 @@ function GridWash() {
   return <div aria-hidden className="grid-wash" />;
 }
 
-export function AppControls({ userName, userEmail }: { userName: string; userEmail?: string }) {
+export function AppControls({
+  userName,
+  userEmail,
+  userAvatarUrl,
+}: {
+  userName: string;
+  userEmail?: string;
+  userAvatarUrl?: string | null;
+}) {
   return (
     <>
       <GridWash />
@@ -100,7 +108,7 @@ export function AppControls({ userName, userEmail }: { userName: string; userEma
       </div>
       <div className="fixed right-4 top-4 z-[60] flex items-center gap-2 md:right-6 md:top-6">
         <NotificationsBell />
-        <AccountMenu userName={userName} userEmail={userEmail} />
+        <AccountMenu userName={userName} userEmail={userEmail} userAvatarUrl={userAvatarUrl} />
       </div>
     </>
   );
@@ -114,7 +122,15 @@ export function AppControls({ userName, userEmail }: { userName: string; userEma
  * the browser on the redirect rather than leaving a client-side router pointed
  * at a page the user can no longer load.
  */
-function AccountMenu({ userName, userEmail }: { userName: string; userEmail?: string }) {
+function AccountMenu({
+  userName,
+  userEmail,
+  userAvatarUrl,
+}: {
+  userName: string;
+  userEmail?: string;
+  userAvatarUrl?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const wrapRef = useDismissable(open, close);
@@ -169,7 +185,7 @@ function AccountMenu({ userName, userEmail }: { userName: string; userEmail?: st
         aria-label="Account menu"
         className="group relative flex items-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
       >
-        <Avatar name={userName} size="md" hoverIcon="menu" />
+        <Avatar name={userName} src={userAvatarUrl} size="md" hoverIcon="menu" />
         {waiting > 0 && (
           <span
             aria-hidden
