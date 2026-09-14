@@ -227,6 +227,7 @@ export default function WorkflowDetailPage() {
           const fetchedPositions = initialCanvasPositions(data.graph, data.positions ?? {});
           setSavedGraph(JSON.stringify(data.graph));
           setSavedPositions(JSON.stringify(fetchedPositions));
+          revisionRef.current = data.revision ?? 0;
           setRevision(data.revision ?? 0);
           setPublishedGraph(data.publishedGraph ?? data.graph);
           setSaveConflict(false);
@@ -618,7 +619,15 @@ export default function WorkflowDetailPage() {
       const storedPositions = data.positions ?? (JSON.parse(sentPositions) as WorkflowPositions);
       setSavedPositions(JSON.stringify(storedPositions));
       if (adopt.positions) setPositions(storedPositions);
-      setRevision(data.revision ?? revisionRef.current + 1);
+      // Write the ref NOW, not via the sync effect. A save queued behind this
+      // one (Cmd+S or the Save button during an auto-save) runs in the very
+      // next microtask — before React commits and the effect copies `revision`
+      // across — so it went out with the OLD baseRevision, the server's
+      // `.eq("draft_revision")` missed, and "Revision conflict" latched over a
+      // draft nobody else had touched.
+      const nextRevision = data.revision ?? revisionRef.current + 1;
+      revisionRef.current = nextRevision;
+      setRevision(nextRevision);
       setSaveConflict(false);
       setSaveError(null);
       if (!silent) {
@@ -887,6 +896,19 @@ export default function WorkflowDetailPage() {
       });
       return;
     }
+    // The switch runs what is SAVED and PUBLISHED. A project picked a moment
+    // ago lives only in this tab until it is saved, so the server would refuse
+    // over a field the user can see is filled. Under a conflict nothing can be
+    // saved, so say what to do; otherwise save first, as Publish does.
+    if (next && saveConflict) {
+      toast({
+        title: "Resolve the newer changes first",
+        description: "Reload the latest version or save this draft as a copy, then switch it on.",
+        tone: "warning",
+      });
+      return;
+    }
+    if (next && dirty && !(await save())) return;
     const previous = active;
     setActive(next);
     setTogglingActive(true);
@@ -900,6 +922,7 @@ export default function WorkflowDetailPage() {
         error?: string;
         demo?: boolean;
         gaps?: Record<string, string[]>;
+        publishFirst?: boolean;
       };
       if (!res.ok) {
         setActive(previous);
@@ -908,12 +931,24 @@ export default function WorkflowDetailPage() {
         const missing = Object.entries(data.gaps ?? {}).flatMap(([id, items]) =>
           items.map((item) => `${graph?.steps[id]?.title ?? id}: ${item}`),
         );
+        const missingText = missing.length
+          ? missing.slice(0, 3).join(" · ") +
+            (missing.length > 3 ? ` · and ${missing.length - 3} more` : "")
+          : "";
+        // The draft is complete; only the published version is behind. Naming
+        // the field would send the user back to a dropdown that already shows
+        // the right answer.
+        if (data.publishFirst) {
+          toast({
+            title: "Publish your draft first",
+            description: `The switch runs the published version, which still needs: ${missingText}`,
+            tone: "warning",
+          });
+          return;
+        }
         toast({
           title: "Can't switch this on yet",
-          description: missing.length
-            ? missing.slice(0, 3).join(" · ") +
-              (missing.length > 3 ? ` · and ${missing.length - 3} more` : "")
-            : data.error,
+          description: missingText || data.error,
           tone: "warning",
         });
         return;

@@ -169,10 +169,18 @@ export async function PATCH(
     const gaps = row?.config?.graph ? setupGaps(row.config.graph) : {};
     const pending = gapCount(gaps);
     if (pending) {
+      // The switch runs the PUBLISHED graph. When the draft already fills
+      // every gap, "Fill in project_id" points at a field the user can see is
+      // filled — the missing step is Publish, so say that instead.
+      const draftGraph = row?.draft_config?.graph;
+      const publishFirst = !!draftGraph && gapCount(setupGaps(draftGraph)) === 0;
       return NextResponse.json(
         {
-          error: `${pending} step${pending > 1 ? "s" : ""} still need${pending > 1 ? "" : "s"} setup`,
+          error: publishFirst
+            ? "Publish your draft first — the published version still needs setup."
+            : `${pending} step${pending > 1 ? "s" : ""} still need${pending > 1 ? "" : "s"} setup`,
           gaps,
+          publishFirst,
         },
         { status: 409 },
       );
