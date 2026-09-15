@@ -26,9 +26,13 @@ if(legacy.rows[0].active) throw Error('paused legacy graph became active');
 const actor='00000000-0000-4000-8000-000000000001';
 const other='00000000-0000-4000-8000-000000000002';
 await db.query("insert into auth.users(id,email) values($1,'owner@example.com'),($2,'other@example.com')",[actor,other]);
-let rows=await db.query('select id,owner_id from public.workspaces where created_by=$1',[actor]);
+let rows=await db.query('select id,owner_id,onboarded from public.workspaces where created_by=$1',[actor]);
 const workspace=rows.rows[0].id;
 if(rows.rows[0].owner_id!==actor) throw Error('owner id missing');
+// handle_new_user() inserts without naming `onboarded`, so the column default
+// is the only thing marking a workspace as never set up. If this regresses to
+// true, the first-run flow silently stops appearing for every new signup.
+if(rows.rows[0].onboarded!==false) throw Error('new workspace should start un-onboarded');
 await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);
 await db.exec('set role authenticated');
 rows=await db.query('select delta from public.credit_ledger where workspace_id=$1',[workspace]);
@@ -59,5 +63,5 @@ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);
 forbidden=false;
 try {await db.query("update public.workspaces set stripe_customer_id='cus_not_owned' where id=$1",[workspace]);} catch {forbidden=true;}
 if(!forbidden) throw Error('browser can forge billing customer');
-console.log('PASS signup, credit grant, workflow insert, timezone sync, paid build enqueue, service run insert/completion, cross-workspace isolation, browser ledger write denial');
+console.log('PASS signup, un-onboarded default, credit grant, workflow insert, timezone sync, paid build enqueue, service run insert/completion, cross-workspace isolation, browser ledger write denial');
 await db.close();

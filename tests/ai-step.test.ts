@@ -19,13 +19,14 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||= "anon-key";
 
 let sent: { role: string; content: string }[] = [];
 let profile: unknown = null;
+let reply = "a drafted post";
 
 mock.module("@/lib/ai/openai", {
   namedExports: {
     openaiConfigured: true,
     chat: async (messages: { role: string; content: string }[]) => {
       sent = messages;
-      return "a drafted post";
+      return reply;
     },
     explainAiError: (err: unknown) => String(err),
   },
@@ -67,12 +68,14 @@ const { recentStepOutputs } = await import("@/lib/workflows/store");
 async function draft(
   instruction = "Write a LinkedIn post customized to my business.",
   destination?: { platform: string | null; label: string; brief: string },
+  opts?: { reply?: string; step?: Record<string, unknown> },
 ) {
   sent = [];
+  reply = opts?.reply ?? "a drafted post";
   const out = await HANDLERS.ai_step({
     runId: "run-now",
     stepId: "draft_post",
-    step: { type: "ai_step", instruction },
+    step: { type: "ai_step", instruction, ...(opts?.step ?? {}) },
     data: { steps: {} },
     entityId: "ws-1",
     reads: new Set<string>(),
@@ -178,4 +181,77 @@ test("a draft with no known destination has no conventions invented for it", asy
   db = fakeDb({});
   const { system } = await draft();
   assert.doesNotMatch(system, /WHERE THIS IS PUBLISHED/);
+});
+
+/**
+ * House style, and specifically that it reaches the path that actually ships.
+ *
+ * Eleven of the twelve `ai_step` nodes in `templates.ts` are `output: "json"`,
+ * including the daily LinkedIn post, which drafts into `{ text }` and publishes
+ * `{{steps.draft_post.result.text}}`. A first cut of this feature sanitized text
+ * mode only and therefore sanitized nothing a user would ever see.
+ */
+
+const EM = "—";
+
+test("a json-mode draft is cleaned too, because that is what templates ship", async () => {
+  profile = null;
+  db = fakeDb({});
+  const { out } = await draft("Write today's post.", undefined, {
+    step: { output: "json", schema: { text: "the post body" } },
+    reply: `{"text":"We shipped it${EM}it works \u{1F525}\u{1F680}\u{1F389}"}`,
+  });
+  assert.deepEqual((out as { result: unknown }).result, { text: "We shipped it, it works" });
+});
+
+test("a json value with no prose in it is never rewritten", async () => {
+  profile = null;
+  db = fakeDb({});
+  const { out } = await draft("Classify it.", undefined, {
+    step: { output: "json", schema: { sentiment: "positive or negative" } },
+    reply: '{"sentiment":"positive","post_id":"abc-123"}',
+  });
+  // A downstream `branch` compares these against a literal.
+  assert.deepEqual((out as { result: unknown }).result, { sentiment: "positive", post_id: "abc-123" });
+});
+
+test("a text-mode draft is cleaned on the way out", async () => {
+  profile = null;
+  db = fakeDb({});
+  const { out } = await draft("Write today's post.", undefined, {
+    reply: `Ship it${EM}today. \u{1F525}\u{1F680}`,
+  });
+  assert.equal((out as { text: string }).text, "Ship it, today.");
+});
+
+test("the house style is the last layer, under the brand voice and the channel", async () => {
+  profile = { company: "Acme" };
+  db = fakeDb({});
+  const { system } = await draft("Write today's post.", {
+    platform: "linkedin",
+    label: "LinkedIn",
+    brief: "No markdown, no headings, 3,000 characters maximum.",
+  });
+  assert.match(system, /HOW TO WRITE/);
+  assert.ok(
+    system.indexOf("WHERE THIS IS PUBLISHED") < system.indexOf("HOW TO WRITE"),
+    "typing mechanics must not be read as outranking the channel's conventions",
+  );
+  // And it says so itself, so position is not the only thing carrying it.
+  assert.match(system, /Where the brand context or the channel/);
+});
+
+test("only a post read by an audience is told to end on a question", async () => {
+  profile = null;
+  db = fakeDb({});
+  const linkedin = await draft("Write it.", { platform: "linkedin", label: "LinkedIn", brief: "" });
+  assert.match(linkedin.system, /End on a real question/);
+
+  // A Slack message goes to colleagues, and colleagues do not get asked to engage.
+  const slack = await draft("Write it.", { platform: "slack", label: "Slack", brief: "" });
+  assert.doesNotMatch(slack.system, /End on a real question/);
+
+  // An operational alert with no known destination gets no closing question either.
+  const none = await draft("Write it.");
+  assert.doesNotMatch(none.system, /End on a real question/);
 });

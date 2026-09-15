@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { signOut as signOutAction } from "@/app/(auth)/actions";
 import { WhatsAppSettings } from "@/components/whatsapp-settings";
 import { NotificationSettings } from "@/components/notification-settings";
+import { PERSONAS, TONES } from "@/lib/onboarding/taxonomy";
 
 const TABS = [
   { id: "profile", label: "Profile" },
@@ -37,11 +38,22 @@ interface Settings {
   linkedinOrganizationId: string;
   /** IANA zone every scheduled automation is expressed in. */
   timezone: string;
+  persona: string;
+  audienceMode: string;
 }
+
+/**
+ * Which tier answered for a field, derived by the API rather than stored.
+ * "site" means the value came off the workspace's homepage and the user has
+ * never confirmed it, which is worth saying out loud before it grounds every
+ * generated post.
+ */
+type FieldSource = "user" | "site" | "none";
 
 /** GET /api/settings: the workspace's brand profile plus who is signed in. */
 interface Loaded {
   settings?: Settings;
+  sources?: Partial<Record<"description" | "tone" | "audience", FieldSource>>;
   email?: string | null;
   name?: string | null;
   avatarUrl?: string | null;
@@ -60,6 +72,8 @@ const EMPTY: Settings = {
   ga4PropertyId: "",
   linkedinOrganizationId: "",
   timezone: "UTC",
+  persona: "",
+  audienceMode: "",
 };
 
 /**
@@ -98,8 +112,17 @@ export default function SettingsPage() {
     name: "",
     avatarUrl: null,
   });
+  const [sources, setSources] = useState<Partial<Record<string, FieldSource>>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  /**
+   * The hint under a field we read off the site. It disappears as soon as the
+   * value is edited, because at that point it is the user's answer.
+   */
+  function siteHint(field: string, fallback?: string) {
+    return sources[field] === "site" ? "Pulled from your website — edit if that is not right." : fallback;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +135,7 @@ export default function SettingsPage() {
       .then((d: Loaded | null) => {
         if (cancelled) return;
         if (d?.settings) setSettings({ ...EMPTY, ...d.settings });
+        if (d?.sources) setSources(d.sources);
         if (d?.email) setEmail(d.email);
         setAccount({ name: d?.name ?? "", avatarUrl: d?.avatarUrl ?? null });
       })
@@ -128,6 +152,8 @@ export default function SettingsPage() {
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((s) => ({ ...s, [key]: value }));
+    // Once it has been touched it is no longer just what the site said.
+    setSources((prev) => (prev[key] === "site" ? { ...prev, [key]: "user" } : prev));
   }
 
   /**
@@ -201,12 +227,24 @@ export default function SettingsPage() {
             <Field label="Website" htmlFor="settings-website">
               <Input id="settings-website" value={settings.website} disabled={loading || !!loadError} placeholder="https://your-company.com" onChange={(e) => set("website", e.target.value)} />
             </Field>
-            <Field label="What does your business do?" htmlFor="settings-description" hint="Describe your product, what makes it useful, and the customers you help.">
+            <Field
+              label={settings.audienceMode === "solo" ? "What do you do?" : "What does your business do?"}
+              htmlFor="settings-description"
+              hint={siteHint("description", "Describe your product, what makes it useful, and the customers you help.")}
+            >
               <Textarea id="settings-description" rows={4} value={settings.description} disabled={loading || !!loadError} placeholder="We help teams..." onChange={(e) => set("description", e.target.value)} />
+            </Field>
+            <Field label="Which sounds most like you?" htmlFor="settings-persona" hint="Used to suggest automations that fit how you work.">
+              <Select id="settings-persona" value={settings.persona} disabled={loading || !!loadError} onChange={(e) => set("persona", e.target.value)}>
+                <option value="">Not set</option>
+                {PERSONAS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label} — {p.description}</option>
+                ))}
+              </Select>
             </Field>
           </div>
           <div className="mt-6">
-            <Button loading={saving} disabled={loading || !!loadError} onClick={() => save(["company", "language", "website", "description"])}>
+            <Button loading={saving} disabled={loading || !!loadError} onClick={() => save(["company", "language", "website", "description", "persona"])}>
               Save changes
             </Button>
           </div>
@@ -217,20 +255,39 @@ export default function SettingsPage() {
         <Card className="min-w-0 p-4 sm:p-6">
           <CardHeader title="Brand voice" subtitle="Your AI steps use this voice." />
           <div className="mt-6 grid min-w-0 max-w-xl grid-cols-1 gap-4">
-            <Field label="Default tone" htmlFor="settings-tone">
+            <Field label="Default tone" htmlFor="settings-tone" hint={siteHint("tone")}>
               <Select
                 id="settings-tone" value={settings.tone}
                 disabled={loading || !!loadError}
                 onChange={(e) => set("tone", e.target.value)}
               >
-                {!["founder", "professional", "bold", "educational"].includes(settings.tone) && <option value={settings.tone}>{settings.tone || "Choose a tone"}</option>}
-                <option value="founder">Founder-style</option>
-                <option value="professional">Professional</option>
-                <option value="bold">Bold</option>
-                <option value="educational">Educational</option>
+                {/* Anything not offered below — a legacy value, or a sentence
+                    read off the site — stays selectable rather than silently
+                    resetting to the first option on the next save. */}
+                {!TONES.some((t) => t.value === settings.tone) && (
+                  <option value={settings.tone}>{settings.tone || "Choose a tone"}</option>
+                )}
+                {TONES.map((t) => (
+                  <option key={t.id} value={t.value}>{t.label} — {t.description}</option>
+                ))}
               </Select>
             </Field>
-            <Field label="Who is your audience?" htmlFor="settings-audience">
+            <Field
+              label="Are you on your own, or with others?"
+              htmlFor="settings-audienceMode"
+              hint="Decides whether your AI writes “I” or “we”."
+            >
+              <Select
+                id="settings-audienceMode" value={settings.audienceMode}
+                disabled={loading || !!loadError}
+                onChange={(e) => set("audienceMode", e.target.value)}
+              >
+                <option value="">Not set</option>
+                <option value="solo">Just me</option>
+                <option value="team">I have a team or company</option>
+              </Select>
+            </Field>
+            <Field label="Who is your audience?" htmlFor="settings-audience" hint={siteHint("audience")}>
               <Input
                 id="settings-audience" value={settings.audience}
                 disabled={loading || !!loadError}
@@ -252,7 +309,7 @@ export default function SettingsPage() {
             <Button
               loading={saving}
               disabled={loading || !!loadError}
-              onClick={() => save(["tone", "audience", "voiceGuidelines"])}
+              onClick={() => save(["tone", "audience", "voiceGuidelines", "audienceMode"])}
             >
               Save brand voice
             </Button>

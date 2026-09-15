@@ -92,7 +92,11 @@ test("saving brand voice preserves product facts, artwork and channel data", asy
   assert.equal(next.tone, "educational");
   assert.equal(next.voiceGuidelines, "Use plain language");
   assert.equal(next.audience, "Founders");
-  assert.equal((next.analysis as Record<string, unknown>).targetAudience, "Founders");
+  // The website reading is left exactly as it was found. It used to be
+  // overwritten with whatever the user typed, which made the two tiers
+  // identical and destroyed the only signal distinguishing an answer from an
+  // observation — the thing /api/settings now reports as `sources`.
+  assert.equal((next.analysis as Record<string, unknown>).targetAudience, "Teams");
   assert.equal((next.analysis as Record<string, unknown>).description, "Operations software");
   assert.deepEqual(next.brandKit, profile.brandKit);
   assert.deepEqual(next.ads, profile.ads);
@@ -153,4 +157,55 @@ test("existing Zidane databases read and save their workspace-scoped scheduling 
   } finally {
     legacySchema = false;
   }
+});
+
+test("settings says which answers are the user's and which came off the website", async () => {
+  signedIn = true;
+  failure = false;
+  profile = {
+    company: "Acme",
+    // Told to us directly.
+    description: "Approval tools for agencies",
+    // Only ever read off the homepage — never confirmed by anyone.
+    analysis: { targetAudience: "Teams", voice: "plain-spoken" },
+  };
+
+  const data = await (await GET()).json();
+
+  assert.equal(data.sources.description, "user");
+  assert.equal(data.sources.audience, "site");
+  assert.equal(data.sources.tone, "site");
+  // The value still surfaces in the form; the label is what changes.
+  assert.equal(data.settings.audience, "Teams");
+  assert.equal(data.settings.tone, "plain-spoken");
+});
+
+test("a field nobody has answered is reported as unset rather than guessed", async () => {
+  signedIn = true;
+  failure = false;
+  profile = { company: "Acme" };
+
+  const data = await (await GET()).json();
+
+  assert.equal(data.sources.description, "none");
+  assert.equal(data.sources.tone, "none");
+  assert.equal(data.sources.audience, "none");
+});
+
+test("persona and solo-or-team round-trip, and reject values off the list", async () => {
+  signedIn = true;
+  failure = false;
+  writable = true;
+  profile = { company: "Acme" };
+  saved = null;
+
+  assert.equal((await patch({ persona: "wizard" })).status, 400);
+  assert.equal(saved, null);
+
+  const ok = await patch({ persona: "founder", audienceMode: "team" });
+
+  assert.equal(ok.status, 200);
+  const next = (saved as Record<string, unknown> | null)?.brand_profile as Record<string, unknown>;
+  assert.equal(next.persona, "founder");
+  assert.equal(next.audienceMode, "team");
 });

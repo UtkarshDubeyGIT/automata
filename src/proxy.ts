@@ -23,7 +23,11 @@ export async function proxy(request: NextRequest) {
 
   const { data } = await supabase.auth.getClaims();
   const signedIn = Boolean(data?.claims?.sub);
-  const isProductRoute = request.nextUrl.pathname.startsWith("/app");
+  // `/onboarding` sits outside `/app` so it can render full-bleed, free of the
+  // product shell's padded wrapper and fixed control cluster. It still needs
+  // the same signed-in guard, so it counts as a product route here.
+  const isProductRoute =
+    request.nextUrl.pathname.startsWith("/app") || request.nextUrl.pathname.startsWith("/onboarding");
   // /reset-password is deliberately absent: arriving there means holding a
   // recovery session, which counts as signed in, so bouncing it to /app would
   // make the reset link impossible to use.
@@ -47,5 +51,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/signup", "/forgot-password"],
+  matcher: ["/app/:path*", "/onboarding", "/login", "/signup", "/forgot-password"],
 };

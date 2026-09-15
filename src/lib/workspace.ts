@@ -26,10 +26,16 @@ const ANONYMOUS_CONTEXT: RequestContext = {
 };
 
 async function workspaceForUser(supabase: ServerSupabase, userId: string): Promise<string | null> {
+  // The `order` is load-bearing, not cosmetic. The signup trigger gives every
+  // user their own workspace, so anyone who also accepts an invitation holds
+  // two memberships, and an unordered `limit(1)` chose between them
+  // arbitrarily — the same person could resolve to a different workspace on
+  // consecutive requests. Oldest-first pins them to the one created at signup.
   const { data: member } = await supabase
     .from("workspace_members")
     .select("workspace_id")
     .eq("user_id", userId)
+    .order("joined_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (member?.workspace_id) return member.workspace_id;
@@ -46,6 +52,45 @@ async function workspaceForUser(supabase: ServerSupabase, userId: string): Promi
     if (workspace?.id) return workspace.id;
   }
   return null;
+}
+
+interface WorkspaceRow {
+  id: string;
+  name: string | null;
+  plan: string | null;
+  created_at: string | null;
+  onboarded: boolean | null;
+}
+
+type DatabaseError = { code?: string; message?: string } | null;
+
+function missingOnboarded(error: DatabaseError) {
+  return !!error && ["42703", "PGRST204"].includes(error.code ?? "") && /onboarded/i.test(error.message ?? "");
+}
+
+/**
+ * Zidane-baseline databases can lag the migration that adds `onboarded`.
+ * Selecting a column Postgres does not have fails the entire row, which would
+ * blank the workspace name, plan, and credit balance as a side effect — so
+ * retry without it and treat the flag as `true`, matching the fail-open
+ * posture of the DEMO context.
+ */
+async function readWorkspaceRow(supabase: ServerSupabase, workspaceId: string): Promise<WorkspaceRow | null> {
+  const full = await supabase
+    .from("workspaces")
+    .select("id, name, plan, created_at, onboarded")
+    .eq("id", workspaceId)
+    .limit(1)
+    .maybeSingle();
+  if (!missingOnboarded(full.error)) return (full.data as WorkspaceRow | null) ?? null;
+
+  const legacy = await supabase
+    .from("workspaces")
+    .select("id, name, plan, created_at")
+    .eq("id", workspaceId)
+    .limit(1)
+    .maybeSingle();
+  return legacy.data ? ({ ...(legacy.data as Omit<WorkspaceRow, "onboarded">), onboarded: true }) : null;
 }
 
 export async function resolveRequestContext(): Promise<RequestContext> {
@@ -113,12 +158,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
 
     const workspaceId = await workspaceForUser(supabase, user.id);
 
-    const { data: ws } = await supabase
-      .from("workspaces")
-      .select("id, name, plan, created_at")
-      .eq("id", workspaceId ?? "")
-      .limit(1)
-      .maybeSingle();
+    const ws = await readWorkspaceRow(supabase, workspaceId ?? "");
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -137,7 +177,9 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext> {
       workspaceCreatedAt: ws?.created_at ?? null,
       plan: ws?.plan ?? "free",
       credits,
-      onboarded: true,
+      // Absent row or a database that predates the column both fail open: a
+      // lookup problem must not trap a signed-in user in the first-run flow.
+      onboarded: ws?.onboarded ?? true,
       demo: false,
     };
   } catch {

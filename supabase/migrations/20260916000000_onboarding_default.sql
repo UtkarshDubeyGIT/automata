@@ -1,0 +1,12 @@
+-- First-run onboarding gate.
+--
+-- `onboarded` has existed since 20260902080000 with `default true`, which made
+-- it unusable as a first-run signal: `private.handle_new_user()` inserts into
+-- `public.workspaces` without naming the column, so every brand-new workspace
+-- was born already marked onboarded.
+--
+-- Flipping the default fixes that without touching the trigger. Existing rows
+-- keep their stored `true` and correctly skip the flow; only workspaces created
+-- from here on start un-onboarded. The column already appears in the
+-- `grant update(...)` list, so no grant change is needed.
+alter table public.workspaces alter column onboarded set default false;

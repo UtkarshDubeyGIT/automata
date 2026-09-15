@@ -69,6 +69,22 @@ const CHANNEL_BRIEF: Record<string, string> = {
     "No headings, no sign-off, no subject line.",
 };
 
+/**
+ * Channels whose posts are read by an audience, rather than by colleagues.
+ *
+ * The distinction only exists for one house-style rule: "end on a question"
+ * is right for a LinkedIn post and wrong for a Slack message, an email body or
+ * an operational WhatsApp alert. Slack is deliberately absent even though it
+ * has a CHANNEL_BRIEF entry — its brief already says "a colleague talking to
+ * colleagues", and colleagues do not get asked to engage.
+ */
+const AUDIENCE_CHANNELS = new Set(["linkedin", "twitter", "facebook", "instagram", "reddit"]);
+
+/** Takes a bare slug so a `social_post` step can ask without building a Destination. */
+export function writesForAnAudience(platform: string | null | undefined): boolean {
+  return !!platform && AUDIENCE_CHANNELS.has(platform);
+}
+
 /** Anything that sends. A read fetches, so nothing is being written for it. */
 function isDelivery(step: StepDef): boolean {
   if (step.type === "social_post") return true;

@@ -45,3 +45,24 @@ export const TONE_LABEL: Record<ContentTone, string> = {
   bold: "bold, contrarian, and opinionated",
   founder: "founder-to-founder, plain-spoken, and confident",
 };
+
+/**
+ * Formats that are a post an audience reads, rather than a component.
+ *
+ * Only used to decide whether the house style's "end on a real question" rule
+ * applies (see `./humanize`). Ending a `cta` line or a set of `hook` openers on
+ * a question is incoherent — they are fragments meant to be placed inside
+ * something else — and an `email` closes with a sign-off, not an engagement
+ * prompt.
+ */
+const AUDIENCE_FORMATS = new Set<ContentFormat>([
+  "tweet",
+  "thread",
+  "linkedin",
+  "caption",
+  "carousel",
+]);
+
+export function isAudienceFormat(format: ContentFormat): boolean {
+  return AUDIENCE_FORMATS.has(format);
+}

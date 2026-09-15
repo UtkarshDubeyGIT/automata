@@ -1,4 +1,5 @@
 import { chatJSON } from "./openai";
+import { humanStyleRules, sanitizeHumanParts, sanitizeHumanText } from "./humanize";
 
 /**
  * Formats, tones and their labels live in `./content-vocabulary`, which has no
@@ -12,7 +13,13 @@ export {
   type ContentFormat,
   type ContentTone,
 } from "./content-vocabulary";
-import { FORMAT_LABEL, TONE_LABEL, type ContentFormat, type ContentTone } from "./content-vocabulary";
+import {
+  FORMAT_LABEL,
+  isAudienceFormat,
+  TONE_LABEL,
+  type ContentFormat,
+  type ContentTone,
+} from "./content-vocabulary";
 
 export interface ContentVariation {
   text: string;
@@ -43,6 +50,9 @@ The BRAND CONTEXT above is authoritative. Write in THIS brand's voice, about THI
 }
 Write ${FORMAT_LABEL[input.format]}. Layer a ${TONE_LABEL[input.tone]} tone on top WITHOUT overriding the brand's own voice.
 Virality target: ${input.virality}/100 (higher = punchier, more contrarian hooks).
+
+${humanStyleRules({ closeOnQuestion: isAudienceFormat(input.format) })}
+
 Return strict JSON: {"variations":[{"text":"...","viralScore":0-100}]} with exactly ${count} variations.`;
 
   const user = input.topic?.trim()
@@ -57,7 +67,13 @@ Return strict JSON: {"variations":[{"text":"...","viralScore":0-100}]} with exac
       ],
       { temperature: 0.9, maxTokens: 1400 },
     );
-    if (out?.variations?.length) return out.variations.slice(0, count);
+    if (out?.variations?.length) {
+      // Each variation is a separate post, so each gets its own emoji budget.
+      return out.variations.slice(0, count).map((v) => ({
+        ...v,
+        text: sanitizeHumanText(String(v.text ?? "")),
+      }));
+    }
   } catch {
     // fall through to samples
   }
@@ -157,6 +173,8 @@ Rules for the carousel:
 - Headings are read at display size — they must work as standalone lines.
 - No slide numbers in the text (they are rendered separately), no markdown, no emoji unless the brand uses them.
 
+${humanStyleRules({ closeOnQuestion: true })}
+
 Return strict JSON: {"variations":[{"slides":[{"heading":"...","body":"..."}],"viralScore":0-100}]} with exactly ${count} variation(s).`;
 
   const user = input.topic?.trim() ? `Topic: ${input.topic}` : "Topic: what a solo founder can automate first";
@@ -178,9 +196,21 @@ Return strict JSON: {"variations":[{"slides":[{"heading":"...","body":"..."}],"v
           .filter((s) => s && typeof s.heading === "string" && s.heading.trim())
           .slice(0, MAX_SLIDES)
           .map((s) => ({
-            heading: String(s.heading).trim().slice(0, 120),
-            body: String(s.body ?? "").trim().slice(0, 400),
+            heading: String(s.heading).trim(),
+            body: String(s.body ?? "").trim(),
           }));
+        // A carousel is ONE post, so its slides share one emoji budget. Cleaned
+        // before `renderCarousel` joins them, so the "1 / 7" numbering it adds
+        // is never something the sanitizer has to see — and before the length
+        // clamp below, because replacing a dash with ". " makes a string LONGER
+        // and would push it back past a budget already enforced.
+        const flat = sanitizeHumanParts(slides.flatMap((slide) => [slide.heading, slide.body]));
+        for (let i = 0; i < slides.length; i++) {
+          slides[i] = {
+            heading: flat[i * 2].slice(0, 120),
+            body: flat[i * 2 + 1].slice(0, 400),
+          };
+        }
         return { slides, viralScore: Math.round(Number(v.viralScore) || 0) };
       })
       // A "carousel" of one slide is a post. Drop anything that short rather
@@ -202,7 +232,7 @@ function sampleCarousel(count: number): CarouselVariation[] {
     { heading: "Start with the measurement", body: "You cannot compound what you cannot see. One connected analytics source beats ten scheduled posts." },
     { heading: "Then automate the research", body: "Trends and hooks are the cheapest thing to run daily and the most expensive thing to skip." },
     { heading: "Automate creation last", body: "Once you know the angle, generating the asset is the easy part." },
-    { heading: "What would you automate first?", body: "Reply below — I read every one." },
+    { heading: "What would you automate first?", body: "Reply below. I read every one." },
   ];
   return Array.from({ length: count }, () => ({
     slides,

@@ -35,6 +35,23 @@ export interface BrandKit {
   capturedAt?: string;
 }
 
+/** Who the person setting up the workspace is. Captured in the first-run flow. */
+export type Persona =
+  | "founder"
+  | "freelancer"
+  | "marketer"
+  | "developer"
+  | "creator"
+  | "professional"
+  | "student";
+
+export interface OnboardingState {
+  /** Furthest step reached, so an abandoned run resumes where it stopped. */
+  step?: number;
+  completedAt?: string;
+  skipped?: boolean;
+}
+
 export interface BrandProfile {
   company?: string;
   website?: string;
@@ -46,6 +63,19 @@ export interface BrandProfile {
   voiceGuidelines?: string;
   productType?: string;
   language?: string;
+  /**
+   * Stored for segmentation and future template matching; deliberately NOT
+   * rendered into prompts. Telling a model "the user is a Student" changes its
+   * writing in ways nobody has specified.
+   */
+  persona?: Persona;
+  /**
+   * Whether the workspace speaks as a person or an organization. Unlike
+   * `persona`, this DOES reach the prompt — it picks first-person singular or
+   * plural, which is visible in every generated sentence.
+   */
+  audienceMode?: "solo" | "team";
+  onboarding?: OnboardingState;
   analysis?: WebsiteAnalysis;
   brandKit?: BrandKit;
   ads?: { metaAdAccountId?: string; googleAdsCustomerId?: string };
@@ -160,6 +190,11 @@ export function brandContext(
   if (language) lines.push(`Content Language: ${language}`);
   const voice = profile.tone || profile.analysis?.voice;
   if (voice) lines.push(`Brand Voice: ${voice}`);
+  // Whether the workspace speaks as a person or an organization. Without it the
+  // model guesses, and a solo freelancer ends up writing "our team is excited
+  // to announce" about themselves.
+  if (profile.audienceMode === "solo") lines.push("Voice Person: write as one person — I, my, me.");
+  if (profile.audienceMode === "team") lines.push("Voice Person: write as a company — we, our, us.");
   if (profile.voiceGuidelines) lines.push(`Voice Guidelines: ${profile.voiceGuidelines}`);
   return lines.length ? `\n[Brand Context]\n${lines.join("\n")}\n` : "";
 }

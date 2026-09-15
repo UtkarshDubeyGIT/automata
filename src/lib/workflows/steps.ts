@@ -1,4 +1,5 @@
 import { chat, explainAiError, openaiConfigured } from "@/lib/ai/openai";
+import { humanStyleRules, sanitizeHumanJson, sanitizeHumanText } from "@/lib/ai/humanize";
 import { env, supabaseConfigured, twilioConfigured } from "@/lib/env";
 import { socialProvider, executeTool, type PostInput } from "@/lib/social/composio";
 import { normalizePostMedia, normalizePostMediaList, type WebsiteLinkStyle } from "@/lib/social/post-media";
@@ -39,7 +40,7 @@ import {
 } from "@/lib/video/higgsfield";
 import { queueVideos, startRendering } from "@/lib/video/queue";
 import { runFirecrawl, type FirecrawlOperation, type FirecrawlResult } from "@/lib/integrations/firecrawl";
-import type { Destination } from "./destination";
+import { writesForAnAudience, type Destination } from "./destination";
 import type { AwaitingState, RunContext, StepDef, StepType } from "./types";
 import { setupNotice } from "@/lib/setup-notice";
 import {
@@ -389,6 +390,20 @@ const aiStep: StepHandler = async (ctx) => {
   }
 
   /**
+   * HOW to write it, as distinct from what to say and where it lands.
+   *
+   * Last on purpose, and the block says so in its own first line: the brand
+   * voice above is authoritative, the channel brief is the conventions of the
+   * room, and these are only mechanics on top of both.
+   *
+   * Both output modes, not just text. Eleven of the twelve `ai_step` nodes in
+   * `templates.ts` are `output: "json"` — including the daily LinkedIn post,
+   * which drafts into `{ text }` and publishes `{{...result.text}}`. Styling
+   * text mode alone would have styled almost nothing that ships.
+   */
+  system += `\n\n${humanStyleRules({ closeOnQuestion: writesForAnAudience(ctx.destination?.platform) })}`;
+
+  /**
    * Something that differs between runs.
    *
    * A manual or schedule trigger contributes no data, so the whole prompt was
@@ -438,9 +453,22 @@ const aiStep: StepHandler = async (ctx) => {
         },
       );
       if (outKind === "json") {
-        return { result: extractJson(raw), provider: "openai", model: env.openaiModel, ...ground };
+        // Prose leaves only — `sanitizeHumanJson` leaves a value with no
+        // whitespace alone, so an id, a slug or an enum a downstream `branch`
+        // compares against a literal is never rewritten.
+        return {
+          result: sanitizeHumanJson(extractJson(raw)),
+          provider: "openai",
+          model: env.openaiModel,
+          ...ground,
+        };
       }
-      return { text: raw.trim(), provider: "openai", model: env.openaiModel, ...ground };
+      return {
+        text: sanitizeHumanText(raw.trim()),
+        provider: "openai",
+        model: env.openaiModel,
+        ...ground,
+      };
     } catch (err) {
       last = err;
     }
@@ -958,7 +986,8 @@ const socialPost: StepHandler = async (ctx) => {
       const system =
         "You are a step inside an automation workflow. Follow the instruction and write the message. " +
         "Respond with plain text only, concise. Never apologize, never ask for more information." +
-        (brand ? `\n\n${brand}` : "");
+        (brand ? `\n\n${brand}` : "") +
+        `\n\n${humanStyleRules({ closeOnQuestion: writesForAnAudience(platform) })}`;
       const res = await chat([
         { role: "system", content: system },
         {
@@ -968,7 +997,7 @@ const socialPost: StepHandler = async (ctx) => {
             workflowAIContext(ctx.data),
         },
       ]);
-      text = res.trim() || instruction;
+      text = sanitizeHumanText(res.trim()) || instruction;
     }
   }
   // Guard rail for auto-approved flows: never publish empty text, unresolved

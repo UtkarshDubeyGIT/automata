@@ -5,6 +5,7 @@ import { AppControls } from "@/components/app-shell/app-controls";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { shouldOnboard } from "@/lib/onboarding/gate";
 import { ToastProvider } from "@/components/ui/toast";
 import { CreditsProvider } from "@/components/ui/credits";
 import { ThemeProvider } from "@/components/theme";
@@ -27,6 +28,11 @@ export default async function ProductLayout({ children }: { children: ReactNode 
     if (!data?.claims?.sub) redirect("/login");
   }
   const ctx = await getWorkspaceContext();
+  // Server-side, before anything renders. Bouncing from a client effect would
+  // flash the workflows list at someone who has never seen the product, and
+  // gating in proxy.ts instead would put a database round-trip on every single
+  // /app navigation in the Edge runtime.
+  if (shouldOnboard(ctx)) redirect("/onboarding");
   return (
     <ThemeProvider>
       <ToastProvider>

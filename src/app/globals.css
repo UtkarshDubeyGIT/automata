@@ -257,6 +257,21 @@
   --overlay-scrim: rgba(0, 0, 0, 0.48);
   --overlay-soft: rgba(0, 0, 0, 0.04);
   --ring: 0 0 0 3px var(--color-ring);
+
+  /* Onboarding option-card tints.
+     The product is deliberately monochrome, but the first-run persona and tone
+     cards are the one place a glance has to separate seven peers at once, and
+     an icon alone does not carry that. Scoped to the first-run flow.
+     Both halves are declared, and both flip in `.dark`. Pinning a foreground
+     while the surface follows the theme is the exact bug documented in
+     src/lib/data/workflows.ts:91 — a dark chip with 600-shade text on it. */
+  --onboard-amber: #fef6e7;        --onboard-amber-fg: #b45309;
+  --onboard-rose: #fdf0f1;         --onboard-rose-fg: #be123c;
+  --onboard-blue: #eef4fd;         --onboard-blue-fg: #1d4ed8;
+  --onboard-green: #eef7f0;        --onboard-green-fg: #15803d;
+  --onboard-violet: #f4f0fd;       --onboard-violet-fg: #6d28d9;
+  --onboard-teal: #eaf6f6;         --onboard-teal-fg: #0f766e;
+  --onboard-slate: #f2f3f5;        --onboard-slate-fg: #475569;
 }
 
 :root {
@@ -460,6 +475,16 @@
   --color-danger: #f87171;
   --color-danger-surface: #2e1416;
   --color-danger-border: #522225;
+
+  /* Onboarding tints: surfaces become tinted darks and the foregrounds lift,
+     the same treatment the status ramps get directly above. */
+  --onboard-amber: #2e2210;        --onboard-amber-fg: #fbbf24;
+  --onboard-rose: #2e1518;         --onboard-rose-fg: #fb7185;
+  --onboard-blue: #14203a;         --onboard-blue-fg: #60a5fa;
+  --onboard-green: #0e2a1b;        --onboard-green-fg: #4ade80;
+  --onboard-violet: #201a37;       --onboard-violet-fg: #a78bfa;
+  --onboard-teal: #0d2a29;         --onboard-teal-fg: #2dd4bf;
+  --onboard-slate: #22242a;        --onboard-slate-fg: #a0a4ad;
 
   /* Black shadows are invisible on a near-black page. Dark elevation reads
      through a hairline top border plus a deeper, higher-alpha shadow. */

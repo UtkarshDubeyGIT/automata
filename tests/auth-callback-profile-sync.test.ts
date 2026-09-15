@@ -73,7 +73,7 @@ function request(query: string) {
 }
 
 test("a successful Google callback refreshes the profile before redirecting", async () => {
-  db.replace("profiles", [{ id: "user-1", full_name: "Old Name", avatar_url: "https://old.example/a.png" }]);
+  db.replace("profiles", [{ id: "user-1", full_name: null, avatar_url: "https://old.example/a.png" }]);
   exchange = { user: googleUser(), error: null };
 
   const res = await GET(request("?code=abc&next=%2Fapp%2Fworkflows"));
@@ -81,6 +81,17 @@ test("a successful Google callback refreshes the profile before redirecting", as
   assert.equal(res.headers.get("location"), "https://automata.doubtbuddy.com/app/workflows");
   const [profile] = db.table("profiles");
   assert.equal(profile.full_name, "Ada Lovelace");
+  assert.equal(profile.avatar_url, "https://lh3.googleusercontent.com/a/ada");
+});
+
+test("signing in again does not undo a name the user changed during onboarding", async () => {
+  db.replace("profiles", [{ id: "user-1", full_name: "Ada L.", avatar_url: "https://old.example/a.png" }]);
+  exchange = { user: googleUser(), error: null };
+
+  await GET(request("?code=abc"));
+
+  const [profile] = db.table("profiles");
+  assert.equal(profile.full_name, "Ada L.");
   assert.equal(profile.avatar_url, "https://lh3.googleusercontent.com/a/ada");
 });
 

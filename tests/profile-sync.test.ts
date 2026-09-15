@@ -53,15 +53,38 @@ function emailUser(id = "user-2"): User {
   } as User;
 }
 
-test("a Google login refreshes a stale name and photo", async () => {
+test("a Google login refreshes the photo but keeps the name already on file", async () => {
   const db = new FakeDb();
   db.seed("profiles", { id: "user-1", full_name: "Old Name", avatar_url: "https://old.example/a.png" });
 
   await syncGoogleProfile(db, googleUser());
 
   const [profile] = db.table("profiles");
-  assert.equal(profile.full_name, "Ada Lovelace");
-  assert.equal(profile.avatar_url, "https://lh3.googleusercontent.com/a/ada");
+  // The name is the one of the two a user can actually change — onboarding
+  // invites them to correct it, and there is no photo upload to compete with
+  // Google. Re-syncing the name would revert that edit at the next sign-in.
+  assert.equal(profile.full_name, "Old Name", "a stored name is the user's, not Google's");
+  assert.equal(profile.avatar_url, "https://lh3.googleusercontent.com/a/ada", "the photo still refreshes");
+});
+
+test("a user who has never had a name still gets one from Google", async () => {
+  // The backfill case this sync was written for: rows that predate it, and
+  // anyone whose signup metadata carried no name.
+  const db = new FakeDb();
+  db.seed("profiles", { id: "user-1", full_name: null, avatar_url: null });
+
+  await syncGoogleProfile(db, googleUser());
+
+  assert.equal(db.table("profiles")[0].full_name, "Ada Lovelace");
+});
+
+test("a name blanked to whitespace counts as empty and is refilled", async () => {
+  const db = new FakeDb();
+  db.seed("profiles", { id: "user-1", full_name: "   ", avatar_url: null });
+
+  await syncGoogleProfile(db, googleUser());
+
+  assert.equal(db.table("profiles")[0].full_name, "Ada Lovelace");
 });
 
 test("an empty field from Google never blanks an existing value", async () => {
@@ -71,7 +94,7 @@ test("an empty field from Google never blanks an existing value", async () => {
   await syncGoogleProfile(db, googleUser({ identity_data: { avatar_url: "" } }));
 
   const [profile] = db.table("profiles");
-  assert.equal(profile.full_name, "Ada Lovelace", "name still refreshes");
+  assert.equal(profile.full_name, "Old Name", "the stored name is kept");
   assert.equal(profile.avatar_url, "https://old.example/a.png", "photo is left alone, not nulled out");
 });
 
@@ -119,7 +142,7 @@ test("falls back to app_metadata/user_metadata when a response shape omits ident
   await syncGoogleProfile(db, user);
 
   const [profile] = db.table("profiles");
-  assert.equal(profile.full_name, "Ada Lovelace");
+  assert.equal(profile.full_name, "Old", "the fallback path respects a stored name too");
   assert.equal(profile.avatar_url, "https://lh3.googleusercontent.com/a/ada");
 });
 

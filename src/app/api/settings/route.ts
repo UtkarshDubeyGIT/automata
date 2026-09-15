@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveRequestContext, type RequestContext } from "@/lib/workspace";
-import { jsonBody } from "@/lib/request";
+import { jsonBody, oneOf } from "@/lib/request";
 import type { BrandProfile } from "@/lib/brand";
 
 const FIELDS = {
@@ -17,6 +17,23 @@ const FIELDS = {
   linkedinOrganizationId: 64,
   timezone: 100,
 } as const;
+
+const PERSONAS = ["founder", "freelancer", "marketer", "developer", "creator", "professional", "student"] as const;
+const AUDIENCE_MODES = ["solo", "team"] as const;
+
+/**
+ * Which tier answered for a field, computed rather than stored.
+ *
+ * A stored provenance flag has to be maintained by every writer — this route,
+ * both onboarding routes, saveBrandKit, the video capture step — and the first
+ * one that forgets marks a real user answer as a guess, which silently drops it
+ * from every AI prompt in the app. Deriving it cannot drift.
+ */
+function sourceOf(own: string | undefined, site: string | undefined): "user" | "site" | "none" {
+  if (own) return "user";
+  if (site) return "site";
+  return "none";
+}
 type Field = keyof typeof FIELDS;
 type Workspace = { id: string; name: string; timezone?: string; brand_profile: BrandProfile | null };
 type DatabaseError = { code?: string; message?: string } | null;
@@ -74,6 +91,13 @@ export async function GET() {
       ga4PropertyId: profile?.analytics?.ga4PropertyId ?? "",
       linkedinOrganizationId: profile?.analytics?.linkedinOrganizationId ?? "",
       timezone: ws.timezone || "UTC",
+      persona: profile?.persona ?? "",
+      audienceMode: profile?.audienceMode ?? "",
+    },
+    sources: {
+      description: sourceOf(profile?.description, profile?.analysis?.description),
+      tone: sourceOf(profile?.tone, profile?.analysis?.voice),
+      audience: sourceOf(profile?.audience, profile?.analysis?.targetAudience),
     },
   });
 }
@@ -94,7 +118,10 @@ export async function PATCH(req: Request) {
     }
     patch[key] = value.trim();
   }
-  if (!Object.keys(patch).length) return NextResponse.json({ error: "No settings to save." }, { status: 400 });
+  const hasEnum = body.persona !== undefined || body.audienceMode !== undefined;
+  if (!Object.keys(patch).length && !hasEnum) {
+    return NextResponse.json({ error: "No settings to save." }, { status: 400 });
+  }
   if (patch.company === "") return NextResponse.json({ error: "Enter a workspace name." }, { status: 400 });
   if (patch.website) {
     try {
@@ -108,6 +135,15 @@ export async function PATCH(req: Request) {
     catch { return NextResponse.json({ error: "Choose a valid time zone." }, { status: 400 }); }
   }
 
+  const persona = body.persona === undefined ? undefined : oneOf(body.persona, PERSONAS);
+  if (body.persona !== undefined && persona === undefined) {
+    return NextResponse.json({ error: "Check the persona field." }, { status: 400 });
+  }
+  const audienceMode = body.audienceMode === undefined ? undefined : oneOf(body.audienceMode, AUDIENCE_MODES);
+  if (body.audienceMode !== undefined && audienceMode === undefined) {
+    return NextResponse.json({ error: "Check the audienceMode field." }, { status: 400 });
+  }
+
   const { data, error: readError, legacy } = await readWorkspace(ctx);
   if (readError) return NextResponse.json({ error: "Could not load your settings. Nothing was changed." }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
@@ -116,9 +152,14 @@ export async function PATCH(req: Request) {
   for (const key of ["company", "website", "description", "tone", "audience", "voiceGuidelines", "language"] as const) {
     if (patch[key] !== undefined) next[key] = patch[key];
   }
-  if (patch.description !== undefined) next.analysis = { ...next.analysis, description: patch.description };
-  if (patch.audience !== undefined) next.analysis = { ...next.analysis, targetAudience: patch.audience };
-  if (patch.tone !== undefined) next.analysis = { ...next.analysis, voice: patch.tone };
+  // Deliberately NOT mirrored into `analysis`. Every reader already prefers the
+  // top-level value (`profile.tone || profile.analysis?.voice`, and the same
+  // shape in brandReadiness and statedAudience), so copying it down bought
+  // nothing — and it destroyed the one distinction that matters here, between
+  // what the user told us and what we read off their homepage. Keeping the two
+  // apart is what lets this route report an honest `sources` map below.
+  if (persona !== undefined) next.persona = persona;
+  if (audienceMode !== undefined) next.audienceMode = audienceMode;
   for (const key of ["metaAdAccountId", "googleAdsCustomerId"] as const) {
     if (patch[key] !== undefined) next.ads = { ...next.ads, [key]: patch[key] };
   }

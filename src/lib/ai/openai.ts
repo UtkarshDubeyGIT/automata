@@ -199,5 +199,5 @@ function mockReply(messages: ChatMessage[]): string {
     "Preview mode — live AI is not switched on, so this is sample copy generated from",
     "Preview mode — add OPENAI_API_KEY to generate live from",
   );
-  return `Solo founders aren't lonely anymore.\n\nThey have a team of AI agents working 24/7.\n\nDesign. Code. Marketing. Growth.\n\nThe billion-dollar one-person company isn't a meme — it's already shipping.\n\n(${note}: "${last.slice(0, 80)}")`;
+  return `Solo founders aren't lonely anymore.\n\nThey have a team of AI agents working 24/7.\n\nDesign. Code. Marketing. Growth.\n\nThe billion-dollar one-person company isn't a meme. It's already shipping.\n\n(${note}: "${last.slice(0, 80)}")`;
 }
