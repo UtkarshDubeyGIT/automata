@@ -45,9 +45,13 @@ export async function GET() {
   if (!ctx.supabase || !ctx.userId || !ctx.workspaceId) {
     return NextResponse.json({ error: "Sign in to view your settings." }, { status: 401 });
   }
-  const [{ data, error }, identity] = await Promise.all([
+  const [{ data, error }, identity, account] = await Promise.all([
     readWorkspace(ctx),
     ctx.supabase.auth.getUser(),
+    // The signed-in person, not the workspace. `brand_profile.company` names
+    // the business, so the avatar beside "Signed in as" has to come from
+    // `profiles`, which every Google login refreshes with the name and photo.
+    ctx.supabase.from("profiles").select("full_name, avatar_url").eq("id", ctx.userId).maybeSingle(),
   ]);
   if (error) return NextResponse.json({ error: "Could not load your settings. Please try again." }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
@@ -55,6 +59,8 @@ export async function GET() {
   const profile = ws.brand_profile;
   return NextResponse.json({
     email: identity.data.user?.email ?? null,
+    name: account.data?.full_name ?? null,
+    avatarUrl: account.data?.avatar_url ?? null,
     settings: {
       company: profile?.company || ws.name,
       website: profile?.website ?? "",

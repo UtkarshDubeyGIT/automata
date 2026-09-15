@@ -18,7 +18,7 @@ const scopes: Array<[string, unknown]> = [];
 const supabase = {
   auth: { getUser: async () => ({ data: { user: { email: "owner@example.com" } } }) },
   from(table: string) {
-    assert.ok(["workspaces", "agent_settings"].includes(table));
+    assert.ok(["workspaces", "agent_settings", "profiles"].includes(table));
     let updating = false;
     let columns = "";
     const query = {
@@ -30,7 +30,9 @@ const supabase = {
         else saved = value;
         return query;
       },
-      maybeSingle: async () => table === "agent_settings"
+      maybeSingle: async () => table === "profiles"
+        ? { data: { full_name: "Dev Dubey", avatar_url: "https://lh3.googleusercontent.com/a/photo" }, error: null }
+        : table === "agent_settings"
         ? { data: { workspace_id: "workspace-1", timezone: savedTimezone }, error: null }
         : legacySchema && columns.includes("timezone") && !updating
         ? { data: null, error: { code: "42703", message: "column workspaces.timezone does not exist" } }
@@ -72,6 +74,14 @@ test("settings read the current workspace's saved brand and scheduling zone", as
   assert.equal(data.settings.language, "Hindi");
   assert.ok(scopes.some(([key, value]) => key === "id" && value === "workspace-1"));
   assert.ok(!scopes.some(([key]) => key === "owner_id"));
+});
+
+test("settings carry the signed-in person's Google name and photo", async () => {
+  // The workspace's company name is not the user: the avatar next to
+  // "Signed in as" is theirs, so it needs `profiles`, not `brand_profile`.
+  const data = await (await GET()).json();
+  assert.equal(data.name, "Dev Dubey");
+  assert.equal(data.avatarUrl, "https://lh3.googleusercontent.com/a/photo");
 });
 
 test("saving brand voice preserves product facts, artwork and channel data", async () => {

@@ -39,6 +39,14 @@ interface Settings {
   timezone: string;
 }
 
+/** GET /api/settings: the workspace's brand profile plus who is signed in. */
+interface Loaded {
+  settings?: Settings;
+  email?: string | null;
+  name?: string | null;
+  avatarUrl?: string | null;
+}
+
 const EMPTY: Settings = {
   company: "",
   website: "",
@@ -84,6 +92,12 @@ export default function SettingsPage() {
   // Real values, loaded from the workspace brand profile.
   const [settings, setSettings] = useState<Settings>(EMPTY);
   const [email, setEmail] = useState("");
+  // The signed-in person, kept apart from `settings` because those describe the
+  // business: the company name is not who you are logged in as.
+  const [account, setAccount] = useState<{ name: string; avatarUrl: string | null }>({
+    name: "",
+    avatarUrl: null,
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -95,10 +109,11 @@ export default function SettingsPage() {
         if (!r.ok) throw new Error(data.error ?? "Could not load your settings.");
         return data;
       })
-      .then((d: { settings?: Settings; email?: string | null } | null) => {
+      .then((d: Loaded | null) => {
         if (cancelled) return;
         if (d?.settings) setSettings({ ...EMPTY, ...d.settings });
         if (d?.email) setEmail(d.email);
+        setAccount({ name: d?.name ?? "", avatarUrl: d?.avatarUrl ?? null });
       })
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : "Could not load your settings.");
@@ -154,7 +169,11 @@ export default function SettingsPage() {
         <Card className="min-w-0 p-4 sm:p-6">
           <CardHeader title="Profile" subtitle="Your business and the context your automations use." />
           <div className="mt-6 flex items-center gap-4">
-            <Avatar name={settings.company || email || "You"} size="lg" />
+            <Avatar
+              name={account.name || settings.company || email || "You"}
+              src={account.avatarUrl}
+              size="lg"
+            />
             <div className="min-w-0 break-words text-[13px] text-ink-subtle">
               Signed in as{" "}
               <span className="font-medium text-ink">{email || "—"}</span>
