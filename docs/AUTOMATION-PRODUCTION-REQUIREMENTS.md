@@ -37,7 +37,7 @@ is the ~200 that need a developer app we register by hand.
   project-scoped, and one OAuth app can serve at most one project.
 - `COMPOSIO_API_KEY` per environment, stored in the server env only.
 - **One webhook URL registered per project** — we already have
-  `https://zidaneai.com/api/composio/triggers` — plus its signing secret in
+  `https://automata.doubtbuddy.com/api/composio/triggers` — plus its signing secret in
   `COMPOSIO_WEBHOOK_SECRET`, with a rotation runbook.
 - A **plan with enough headroom**: rate limits are 2K–10K requests/minute for the
   whole org, shared across tool calls, connection reads and triggers. Browsing a

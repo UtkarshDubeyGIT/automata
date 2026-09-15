@@ -26,7 +26,7 @@ second one is what a user is actually promised.
 
 | | |
 |---|---|
-| URL | `https://zidaneai.com/api/composio/triggers` |
+| URL | `https://automata.doubtbuddy.com/api/composio/triggers` |
 | Events | `composio.trigger.message`, `composio.trigger.disabled`, `composio.connected_account.expired` |
 | Signing secret | matches `COMPOSIO_WEBHOOK_SECRET` in `.env.local` — verified by comparison, not assumed |
 | Reachability | live; returns 401 to an unsigned POST, i.e. the route and its HMAC check are deployed and working |
