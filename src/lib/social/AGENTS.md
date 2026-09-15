@@ -36,17 +36,43 @@ a constant.
   `platforms.ts` for compatibility; the metadata itself lives there.
 - **composio-triggers.ts** owns the push half: discovering a toolkit's real-time trigger
   types, creating/disabling a trigger instance (`upsertTriggerInstance`/
-  `disableTriggerInstance`), and verifying inbound webhook deliveries (`verifyWebhook`,
+  `disableTriggerInstance`), verifying inbound webhook deliveries (`verifyWebhook`,
   HMAC-SHA256 over `{id}.{timestamp}.{rawBody}`, constant-time compare, 5-minute replay
-  window, fails closed if `COMPOSIO_WEBHOOK_SECRET` is unset). Trigger slugs are resolved
-  at runtime via `resolveTriggerType` (exact match, then a loose word-overlap match) —
-  never hardcoded, because Composio's catalog names/renames them independently. Consumed
-  by `src/lib/workflows/realtime.ts` (toggles the watch alongside a workflow's Active
-  switch) and `src/app/api/composio/triggers/route.ts` (the one inbound webhook endpoint
-  for every workspace/toolkit — it resolves the workflow from the payload, not the URL).
-  This is additive to polling, never a replacement: if no real-time trigger type matches,
-  or a required key is missing, `realtime.ts` leaves the workflow on polling and records
-  why in `trigger_state.realtime.reason` — the toggle never fails outright.
+  window, fails closed if `COMPOSIO_WEBHOOK_SECRET` is unset), and resolving a connected
+  account back to its toolkit slug (`connectedAccountToolkit`, needed to interpret a
+  `connected_account.expired` payload, which names the account, not the app). Trigger
+  slugs are resolved at runtime via `resolveTriggerType` (exact match, then a loose
+  word-overlap match) — never hardcoded, because Composio's catalog names/renames them
+  independently. Consumed by `src/lib/workflows/realtime.ts` (toggles the watch alongside
+  a workflow's Active switch) and `src/app/api/composio/triggers/route.ts` (the one
+  inbound webhook endpoint for every workspace/toolkit — it resolves the workflow, or the
+  connection, from the payload, not the URL). Real-time is additive to polling, never a
+  replacement: if no real-time trigger type matches, or a required key is missing,
+  `realtime.ts` leaves the workflow on polling and records why in
+  `trigger_state.realtime.reason` — the toggle never fails outright.
+
+## Inbound webhook — the three event types Composio can deliver
+
+`src/app/api/composio/triggers/route.ts` handles all three events the Composio project's
+Webhooks page can subscribe to:
+
+- **`composio.trigger.message`** — a real trigger firing. Resolves the workflow by
+  `trigger_state->realtime->>instanceId`, maps the payload through the trigger's
+  `realtime.mapEvent`/`mapRecord`, and enqueues a run via `claimRun` (idempotent on the
+  delivery id).
+- **`composio.trigger.disabled`** — Composio switched a watch off by itself (expired auth,
+  or a webhook subscription it can no longer refresh). Demotes that one workflow to
+  polling via `demoteToPolling` and does NOT start a run.
+- **`composio.connected_account.expired`** — a connection broke, independent of any
+  trigger. Has no `trigger_id`, so it is handled before that field is required; resolves
+  the toolkit via `connectedAccountToolkit(metadata.connected_account_id)` and downgrades
+  that workspace's `integrations` cache row to `disconnected`
+  (`markIntegrationExpired` in `integrations-store.ts`) so the Integrations page reflects
+  it immediately rather than after the workspace's next live poll. Deliberately does not
+  also pause the workspace's workflows: an `app_action` step already fails closed on a
+  disconnected account before calling the provider (`tests/app-action.test.ts`), and a
+  realtime trigger on the same account gets its own `trigger.disabled` delivery — this
+  event's job is only to make the cache honest sooner.
 
 Both call the same low-level `api()`/`composioApi()` client in composio.ts (30s timeout,
 retries only for idempotent reads, 4xx never retried since it's the provider's considered

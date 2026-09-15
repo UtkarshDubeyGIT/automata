@@ -1,19 +1,33 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/server";
-import { verifyWebhook, type TriggerMessage } from "@/lib/social/composio-triggers";
+import {
+  connectedAccountToolkit,
+  verifyWebhook,
+  type TriggerMessage,
+} from "@/lib/social/composio-triggers";
+import { markIntegrationExpired } from "@/lib/social/integrations-store";
 import { claimRun } from "@/lib/workflows/claim";
 import { demoteToPolling } from "@/lib/workflows/realtime";
 import { getTrigger } from "@/lib/workflows/registry";
 import type { TriggerState, WorkflowConfig } from "@/lib/workflows/types";
 
 /**
- * Composio pushes a trigger event here.
+ * Composio pushes an event here.
  *
  * One endpoint for every workspace: the webhook subscription is registered
  * once per Composio project, so the delivery itself has to say which
- * automation it belongs to. `metadata.trigger_id` is the instance we created
- * when the workflow was switched on, and it is stored on the workflow.
+ * automation — or which connection — it belongs to. `metadata.trigger_id` is
+ * the instance we created when the workflow was switched on, and it is stored
+ * on the workflow.
+ *
+ * Three event types are handled: `composio.trigger.message` (the common case
+ * — a pushed event, enqueues a run), `composio.trigger.disabled` (Composio
+ * switched a watch off by itself; demotes that one workflow to polling), and
+ * `composio.connected_account.expired` (a connection this workspace holds
+ * stopped working, independent of whether a watch was ever created on it;
+ * downgrades the workspace's cached Integrations status so the UI shows it
+ * before the next live poll would).
  *
  * The delivery id is the idempotency key, so a redelivered event goes through
  * the same claimRun as a poll, a schedule or a manual click, and produces one
@@ -62,6 +76,30 @@ export async function POST(req: NextRequest) {
     message = JSON.parse(raw) as TriggerMessage;
   } catch {
     return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+  }
+
+  /*
+   * Not about any one trigger instance — a connection this workspace holds
+   * stopped working, independent of whether a watch was ever created on it.
+   * Has to be handled before the `trigger_id` guard below: this event type
+   * carries none, so falling through would answer "no trigger id" and do
+   * nothing, on every delivery, forever.
+   */
+  if (message.type === "composio.connected_account.expired") {
+    const accountId = message.metadata?.connected_account_id;
+    const workspaceId = message.metadata?.user_id;
+    if (!accountId || !workspaceId) {
+      return NextResponse.json({ ok: true, ignored: "no connected account id" });
+    }
+    const platform = await connectedAccountToolkit(accountId);
+    if (platform) {
+      await markIntegrationExpired(createAdminClient(), workspaceId, platform);
+    }
+    // No platform resolved is answered 200 too: retrying will not make the
+    // lookup succeed, and this is a best-effort cache update, not a charged
+    // run — there is nothing here worth Composio backing off the subscription
+    // for.
+    return NextResponse.json({ ok: true, expired: platform ?? "unknown toolkit" });
   }
 
   const triggerId = message.metadata?.trigger_id;

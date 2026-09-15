@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { composioApi } from "./composio";
+import { env } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
 
 /**
@@ -292,4 +293,51 @@ export function verifyWebhook(
   });
 
   return matched ? { ok: true } : { ok: false, reason: "signature mismatch" };
+}
+
+// ---------------------------------------------------------------------------
+// Connected-account lookups — needed to interpret an inbound expiry payload
+// ---------------------------------------------------------------------------
+
+const CONNECTED_ACCOUNTS_URL = "https://backend.composio.dev/api/v3/connected_accounts";
+
+/**
+ * The toolkit a connected account belongs to.
+ *
+ * `composio.connected_account.expired` names the account
+ * (`metadata.connected_account_id`), not the app — but the cache the webhook
+ * route updates (`integrations`, in `integrations-store.ts`) is keyed by
+ * platform slug, so the delivery has to be turned into one before anything can
+ * be written.
+ *
+ * `fetcher` is injectable the same way `composio-proxy.ts`'s
+ * `connectedAccountId` is, so the route's test can supply a fixture instead of
+ * making a live Composio call. Both the flat and nested response shapes other
+ * v3 single-resource endpoints have used are checked; a shape that matches
+ * neither, or a 404 for an account already gone, returns null rather than
+ * throwing — a lookup failure must not turn an otherwise-valid delivery into a
+ * 500 back to Composio.
+ *
+ * UNVERIFIED against a live delivery: no account has actually expired against
+ * this project yet (see docs/SERVICES-AND-TRIGGERS.md, "what is still
+ * unproven"), so the exact response shape is inferred from sibling endpoints,
+ * not confirmed.
+ */
+export async function connectedAccountToolkit(
+  accountId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string | null> {
+  try {
+    const res = await fetcher(`${CONNECTED_ACCOUNTS_URL}/${encodeURIComponent(accountId)}`, {
+      headers: { "x-api-key": env.composioKey },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as {
+      toolkit?: { slug?: string };
+      connected_account?: { toolkit?: { slug?: string } };
+    };
+    return body.toolkit?.slug ?? body.connected_account?.toolkit?.slug ?? null;
+  } catch {
+    return null;
+  }
 }

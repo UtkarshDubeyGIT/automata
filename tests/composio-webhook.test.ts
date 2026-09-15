@@ -53,13 +53,59 @@ mock.module("@/lib/workflows/realtime", {
   },
 });
 
+/**
+ * `composio.connected_account.expired`: real `verifyWebhook` still runs (it
+ * is not mocked below — its own real HMAC check is exactly what the signature
+ * tests further down exercise), only the live Composio lookup is swapped out.
+ *
+ * Dynamic, not a static top-level import: `composio-triggers.ts` now imports
+ * `@/lib/env`, and `env.composioWebhookSecret` is captured once at that
+ * module's first evaluation — a static import here would be hoisted ahead of
+ * the `process.env.COMPOSIO_WEBHOOK_SECRET` line above, and every signed
+ * delivery in this file would then verify against the real (empty) secret
+ * instead of the test one.
+ */
+const {
+  verifyWebhook: realVerifyWebhook,
+  WEBHOOK_TOLERANCE_MS,
+} = await import("@/lib/social/composio-triggers");
+
+let toolkitForAccount: Record<string, string | null> = {};
+const toolkitLookups: string[] = [];
+
+mock.module("@/lib/social/composio-triggers", {
+  namedExports: {
+    verifyWebhook: realVerifyWebhook,
+    WEBHOOK_TOLERANCE_MS,
+    connectedAccountToolkit: async (accountId: string) => {
+      toolkitLookups.push(accountId);
+      return toolkitForAccount[accountId] ?? null;
+    },
+  },
+});
+
 /** One workflow row, found by the instance id the delivery names. */
 let row: Record<string, unknown> | null = null;
 let lastFilter = "";
+/** Every `integrations` cache write the expired-account handler makes. */
+const integrationUpdates: { workspaceId?: string; platform?: string }[] = [];
 mock.module("@/lib/supabase/server", {
   namedExports: {
     createAdminClient: () => ({
-      from: () => {
+      from: (table: string) => {
+        if (table === "integrations") {
+          const record: { workspaceId?: string; platform?: string } = {};
+          integrationUpdates.push(record);
+          const chain = {
+            update: () => chain,
+            eq: (col: string, val: string) => {
+              if (col === "workspace_id") record.workspaceId = val;
+              if (col === "platform") record.platform = val;
+              return chain;
+            },
+          };
+          return chain;
+        }
         const chain = {
           select: () => chain,
           eq: (col: string, val: string) => {
@@ -128,6 +174,9 @@ const WORKFLOW = {
 function reset() {
   claims.length = 0;
   demotions.length = 0;
+  integrationUpdates.length = 0;
+  toolkitLookups.length = 0;
+  toolkitForAccount = {};
   row = JSON.parse(JSON.stringify(WORKFLOW));
   claimResult = { runId: "run-1", status: "queued", duplicate: false };
 }
@@ -241,4 +290,61 @@ test("a delivery with no trigger id is ignored rather than guessed at", async ()
   const res = await POST(delivery(githubIssue({ metadata: {} })));
   assert.equal(claims.length, 0);
   assert.equal((await res.json()).ignored, "no trigger id");
+});
+
+function expiredAccount(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "msg_exp",
+    type: "composio.connected_account.expired",
+    metadata: { connected_account_id: "acc_1", user_id: "ws-1" },
+    data: {},
+    ...overrides,
+  };
+}
+
+test("a connected-account-expired delivery marks that workspace's cached connection disconnected", async () => {
+  reset();
+  toolkitForAccount = { acc_1: "github" };
+  const res = await POST(delivery(expiredAccount()));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).expired, "github");
+  assert.deepEqual(toolkitLookups, ["acc_1"]);
+  assert.deepEqual(integrationUpdates, [{ workspaceId: "ws-1", platform: "github" }]);
+  // Not a trigger delivery — nothing about a workflow run should happen.
+  assert.equal(claims.length, 0);
+  assert.equal(demotions.length, 0);
+});
+
+test("connected-account-expired is handled before the trigger-id guard, since this event carries none", async () => {
+  reset();
+  toolkitForAccount = { acc_1: "slack" };
+  const res = await POST(delivery(expiredAccount()));
+  assert.notEqual((await res.json()).ignored, "no trigger id");
+});
+
+test("a connected-account-expired delivery missing its ids is ignored, not guessed at", async () => {
+  reset();
+  const res = await POST(delivery(expiredAccount({ metadata: {} })));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).ignored, "no connected account id");
+  assert.equal(integrationUpdates.length, 0);
+  assert.equal(toolkitLookups.length, 0);
+});
+
+test("a connected-account-expired delivery for an account whose toolkit cannot be resolved still answers 200 and writes nothing", async () => {
+  reset();
+  // toolkitForAccount stays empty — the lookup returns null, as it would for
+  // an unknown or already-removed account.
+  const res = await POST(delivery(expiredAccount()));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).expired, "unknown toolkit");
+  assert.equal(integrationUpdates.length, 0);
+});
+
+test("an unsigned connected-account-expired delivery is refused like any other", async () => {
+  reset();
+  const raw = JSON.stringify(expiredAccount());
+  const res = await POST({ text: async () => raw, headers: new Headers({}) } as never);
+  assert.equal(res.status, 401);
+  assert.equal(integrationUpdates.length, 0);
 });

@@ -136,3 +136,31 @@ export async function syncConnections(
     // Cache only.
   }
 }
+
+/**
+ * Mark one workspace's cached connection to a toolkit as broken.
+ *
+ * Called from the inbound webhook route on `composio.connected_account.expired`
+ * — an admin client is passed in rather than resolved here, because that route
+ * has no signed-in session to build a `RequestContext` from (Composio calls it
+ * server-to-server). Same downgrade `syncConnections` makes on its next live
+ * read; this just makes the Integrations page reflect it immediately, instead
+ * of after the workspace's next successful poll — which may be a long time
+ * away for a workflow that was running on push precisely because it never
+ * polled.
+ */
+export async function markIntegrationExpired(
+  admin: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  platform: string,
+): Promise<void> {
+  try {
+    await admin
+      .from("integrations")
+      .update({ status: "disconnected", connected_account_id: null })
+      .eq("workspace_id", workspaceId)
+      .eq("platform", platform);
+  } catch {
+    // Cache only — the next live sync corrects this regardless.
+  }
+}
