@@ -108,12 +108,37 @@ function defaultChatReply(systemPrompt: string): string {
   return "*Meeting summary*\n\n*Decisions*\nShip it.";
 }
 
+/**
+ * The real Notetaker envelope. Everything lives under `data`; the top level
+ * is only delivery metadata. The first production run failed with "Meeting
+ * webhook is missing transcript text in 'transcript'" precisely because the
+ * fixture here used to be flat and the handler read `input.transcript`.
+ */
 const PAYLOAD = {
-  meeting_id: "meet-42",
-  title: "Product sync",
-  transcript: "Alex will send the proposal by Friday. Book a follow-up call.",
-  event: "transcription.completed",
+  id: "evt_01",
+  event: "summary.completed",
+  version: "1",
+  created_at: "2026-09-15T06:19:03.000Z",
+  is_test: false,
+  data: {
+    meeting: {
+      id: "meet-42",
+      title: "Product sync",
+      started_at: "2026-09-15T05:30:00.000Z",
+      ended_at: "2026-09-15T06:15:00.000Z",
+      duration_seconds: 2700,
+      meeting_url: "https://meet.google.com/abc-defg-hij",
+    },
+    participants: [{ name: "Alex", email: "alex@example.com" }],
+    summary: { tldr: "Ship it.", decisions: ["Ship it."] },
+    action_items: [],
+    transcript_url: "https://meet.doubtbuddy.com/m/meet-42/transcript",
+    notes_url: "https://meet.doubtbuddy.com/m/meet-42",
+    web_url: "https://meet.doubtbuddy.com/m/meet-42",
+    transcript: "Alex will send the proposal by Friday. Book a follow-up call.",
+  },
 };
+const withTranscript = (transcript: string) => ({ ...PAYLOAD, data: { ...PAYLOAD.data, transcript } });
 
 test("a completed Notetaker transcript becomes one Vikunja task per extracted action item", async () => {
   reset();
@@ -126,7 +151,7 @@ test("a completed Notetaker transcript becomes one Vikunja task per extracted ac
     workspaceId: WORKSPACE,
     graph,
     input: PAYLOAD,
-    idempotencyKey: "webhook:meet-42:transcription.completed",
+    idempotencyKey: "webhook:meet-42:summary.completed",
     mode: "execute",
   });
 
@@ -158,7 +183,7 @@ test("replaying a finished run (the retried Notetaker delivery) creates zero add
   reset();
   chatReply = defaultChatReply;
   const graph = (db.table("workflows")[0]!.config as { graph: WorkflowGraph }).graph;
-  const idempotencyKey = "webhook:meet-42:transcription.completed";
+  const idempotencyKey = "webhook:meet-42:summary.completed";
 
   const first = await claimRun({
     admin: db, workflowId: WORKFLOW, workspaceId: WORKSPACE, graph, input: PAYLOAD, idempotencyKey, mode: "execute",
@@ -184,7 +209,7 @@ test("meeting summary with no action items completes the run and writes zero Vik
   const graph = (db.table("workflows")[0]!.config as { graph: WorkflowGraph }).graph;
   const claim = await claimRun({
     admin: db, workflowId: WORKFLOW, workspaceId: WORKSPACE, graph,
-    input: { ...PAYLOAD, transcript: "We just caught up, nothing to follow up on." },
+    input: withTranscript("We just caught up, nothing to follow up on."),
     idempotencyKey: "webhook:meet-quiet", mode: "execute",
   });
 
@@ -302,5 +327,74 @@ test("a misconfigured extraction step (extract_action_items off) fails loudly at
   const log = row.log as { failed?: { stepId: string; message: string } };
   assert.equal(log.failed?.stepId, "create_tasks");
   assert.match(String(log.failed?.message), /items must be an array/);
+  assert.equal(created.length, 0);
+});
+
+test("a workflow saved before the envelope was known (transcript_field 'transcript') still finds data.transcript", async () => {
+  reset();
+  chatReply = defaultChatReply;
+  // Authored from the old template, the step says `transcript`, while Notetaker
+  // posts the transcript under `data`. The handler falls back to `data.<field>`
+  // so the extraction step recovers without being re-edited.
+  const graph = graphWithProject(21);
+  const legacy = graph.steps.extract_actions as unknown as { transcript_field: string };
+  legacy.transcript_field = "transcript";
+
+  const claim = await claimRun({
+    admin: db, workflowId: WORKFLOW, workspaceId: WORKSPACE, graph, input: PAYLOAD,
+    idempotencyKey: "webhook:meet-42:legacy-field", mode: "execute",
+  });
+
+  assert.equal(claim.status, "completed");
+  assert.equal(created.length, 2);
+  assert.match(created[0]!.description ?? "", /Meeting: Product sync/);
+  assert.match(created[0]!.description ?? "", /Meeting ID: meet-42/);
+});
+
+test("the old template's flat body.title / body.meeting_id refs fail at create_tasks, naming the stale reference", async () => {
+  reset();
+  chatReply = defaultChatReply;
+  // The exact graph that was live on 2026-09-15. The transcript fallback gets
+  // it past extract_actions, but the Vikunja step still points at
+  // `body.title` / `body.meeting_id`, which the envelope does not have. That is
+  // a stale reference the user must re-point (to body.data.meeting.title and
+  // body.data.meeting.id); the run fails loudly there instead of writing tasks
+  // with a literal "{{…}}" in their description.
+  const graph = graphWithProject(21);
+  const legacy = graph.steps.extract_actions as unknown as { transcript_field: string };
+  legacy.transcript_field = "transcript";
+  const create = graph.steps.create_tasks as unknown as { arguments: Record<string, unknown> };
+  create.arguments.meeting_title = "{{steps.meeting_complete.body.title}}";
+  create.arguments.meeting_id = "{{steps.meeting_complete.body.meeting_id}}";
+
+  const claim = await claimRun({
+    admin: db, workflowId: WORKFLOW, workspaceId: WORKSPACE, graph, input: PAYLOAD,
+    idempotencyKey: "webhook:meet-42:legacy-refs", mode: "execute",
+  });
+
+  assert.equal(claim.status, "failed");
+  const log = db.table("workflow_runs")[0]!.log as { failed?: { stepId: string; message: string } };
+  assert.equal(log.failed?.stepId, "create_tasks");
+  assert.match(String(log.failed?.message), /unresolved reference: \{\{steps\.meeting_complete\.body\.title\}\}/);
+  assert.equal(created.length, 0);
+});
+
+test("a transcript field that exists nowhere in the body fails at extract_actions and names the top-level fields", async () => {
+  reset();
+  chatReply = defaultChatReply;
+  const graph = graphWithProject(21);
+  const wrong = graph.steps.extract_actions as unknown as { transcript_field: string };
+  wrong.transcript_field = "transcript_text";
+
+  const claim = await claimRun({
+    admin: db, workflowId: WORKFLOW, workspaceId: WORKSPACE, graph, input: PAYLOAD,
+    idempotencyKey: "webhook:meet-42:wrong-field", mode: "execute",
+  });
+
+  assert.equal(claim.status, "failed");
+  const log = db.table("workflow_runs")[0]!.log as { failed?: { stepId: string; message: string } };
+  assert.equal(log.failed?.stepId, "extract_actions");
+  assert.match(String(log.failed?.message), /missing transcript text in 'transcript_text'/);
+  assert.match(String(log.failed?.message), /top-level fields are: id, event, version, created_at, is_test, data/);
   assert.equal(created.length, 0);
 });

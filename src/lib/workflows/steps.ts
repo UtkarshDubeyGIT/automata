@@ -460,12 +460,58 @@ const MEETING_CHUNK_CHARS = 12_000;
  * Trigger outputs are deliberately clamped before persistence; RunContext.input
  * retains the delivery and is therefore the only truthful source for a long transcript.
  */
-const meetingSummary: StepHandler = async (ctx) => {
-  const field = String(ctx.step.transcript_field ?? "transcript");
-  const transcript = ctx.data.input?.[field];
-  if (typeof transcript !== "string" || !transcript.trim()) {
-    throw new Error(`Meeting webhook is missing transcript text in '${field}'.`);
+/**
+ * Walk a dotted path (`data.meeting.title`) through a webhook body. A literal
+ * key that happens to contain a dot wins over the walk, so a flat sender
+ * whose field is named `body.transcript_text` keeps working.
+ */
+function readPath(input: unknown, path: string): unknown {
+  if (input && typeof input === "object" && path in (input as Record<string, unknown>)) {
+    return (input as Record<string, unknown>)[path];
   }
+  let cur: unknown = input;
+  for (const part of path.split(".")) {
+    if (!cur || typeof cur !== "object" || !(part in (cur as Record<string, unknown>))) return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+/**
+ * Notetaker (meet.doubtbuddy.com) wraps every delivery in an envelope:
+ * `{ id, event, version, created_at, is_test, data: { meeting: { id, title, … },
+ * participants, transcript, … } }`. Older callers and the tests posted a flat
+ * body. A workflow saved before this was known still says `transcript`, so a
+ * flat miss falls back to `data.<field>` rather than failing the run.
+ */
+function meetingField(input: Record<string, unknown> | undefined, ...paths: string[]): unknown {
+  for (const path of paths) {
+    const value = readPath(input, path);
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function meetingMetadata(input: Record<string, unknown> | undefined) {
+  return {
+    meeting_id: meetingField(input, "meeting_id", "data.meeting.id"),
+    title: meetingField(input, "title", "data.meeting.title"),
+    started_at: meetingField(input, "started_at", "data.meeting.started_at"),
+    participants: meetingField(input, "participants", "data.participants"),
+  };
+}
+
+const meetingSummary: StepHandler = async (ctx) => {
+  const field = String(ctx.step.transcript_field ?? "transcript").trim() || "transcript";
+  const transcript = meetingField(ctx.data.input, field, `data.${field}`);
+  if (typeof transcript !== "string" || !transcript.trim()) {
+    const keys = Object.keys(ctx.data.input ?? {});
+    throw new Error(
+      `Meeting webhook is missing transcript text in '${field}'.` +
+        (keys.length ? ` The body's top-level fields are: ${keys.join(", ")}.` : " The body was empty."),
+    );
+  }
+  const meta = meetingMetadata(ctx.data.input);
 
   if (!openaiConfigured) {
     return {
@@ -473,7 +519,7 @@ const meetingSummary: StepHandler = async (ctx) => {
         "Meeting summary preview — live summarization is not switched on.",
         "Meeting summary preview — add OPENAI_API_KEY to summarize the transcript.",
       ),
-      meetingId: String(ctx.data.input?.meeting_id ?? ""),
+      meetingId: String(meta.meeting_id ?? ""),
       provider: "stub",
       sim: true,
     };
@@ -497,7 +543,7 @@ const meetingSummary: StepHandler = async (ctx) => {
         },
         {
           role: "user",
-          content: `Meeting: ${String(ctx.data.input?.title ?? "Untitled meeting")}\n` +
+          content: `Meeting: ${String(meta.title ?? "Untitled meeting")}\n` +
             `Segment ${index + 1} of ${chunks.length}:\n\n${chunks[index]}`,
         },
       ],
@@ -516,12 +562,7 @@ const meetingSummary: StepHandler = async (ctx) => {
       },
       {
         role: "user",
-        content: `Meeting metadata:\n${JSON.stringify({
-          meeting_id: ctx.data.input?.meeting_id,
-          title: ctx.data.input?.title,
-          started_at: ctx.data.input?.started_at,
-          participants: ctx.data.input?.participants,
-        })}\n\nExtracted notes:\n${notes.join("\n\n---\n\n")}`,
+        content: `Meeting metadata:\n${JSON.stringify(meta)}\n\nExtracted notes:\n${notes.join("\n\n---\n\n")}`,
       },
     ],
     { temperature: 0.2, maxTokens: 1200, timeoutMs: AI_TIMEOUT_MS },
@@ -541,12 +582,7 @@ const meetingSummary: StepHandler = async (ctx) => {
         },
         {
           role: "user",
-          content: `Meeting metadata:\n${JSON.stringify({
-            meeting_id: ctx.data.input?.meeting_id,
-            title: ctx.data.input?.title,
-            started_at: ctx.data.input?.started_at,
-            participants: ctx.data.input?.participants,
-          })}\n\nExtracted notes:\n${notes.join("\n\n---\n\n")}`,
+          content: `Meeting metadata:\n${JSON.stringify(meta)}\n\nExtracted notes:\n${notes.join("\n\n---\n\n")}`,
         },
       ],
       { json: true, temperature: 0.1, maxTokens: 1400, timeoutMs: AI_TIMEOUT_MS },
@@ -567,7 +603,7 @@ const meetingSummary: StepHandler = async (ctx) => {
 
   return {
     text: text.trim(),
-    meetingId: String(ctx.data.input?.meeting_id ?? ""),
+    meetingId: String(meta.meeting_id ?? ""),
     provider: "openai",
     model: env.openaiModel,
     chunks: chunks.length,

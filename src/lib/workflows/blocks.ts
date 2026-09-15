@@ -446,11 +446,13 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       "webhook payload so long transcripts are chunked instead of truncated. Use it for events such " +
       "as meeting.transcription.completed, then publish {{steps.<id>.text}} to Slack.",
     config: {
-      transcript_field: "top-level webhook body field containing the transcript; defaults to transcript",
+      transcript_field:
+        "webhook body field containing the transcript, as a dotted path (Notetaker sends data.transcript); " +
+        "defaults to transcript",
       extract_action_items: "when true, also returns a validated actionItems array",
     },
     routing: ["next"],
-    defaults: { transcript_field: "transcript" },
+    defaults: { transcript_field: "data.transcript" },
     fields: [
       ...TITLE_FIELDS,
       {
@@ -458,8 +460,8 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
         label: "Transcript field",
         kind: "text",
         required: true,
-        placeholder: "transcript",
-        hint: "The top-level field meet.doubtbuddy.com sends in the webhook body.",
+        placeholder: "data.transcript",
+        hint: "Dotted path to the transcript in the webhook body. meet.doubtbuddy.com sends it as data.transcript.",
       },
       {
         key: "extract_action_items",

@@ -54,7 +54,7 @@ export const TEMPLATES: WorkflowTemplate[] = [
           type: "meeting_summary",
           title: "Extract meeting action items",
           stage: "Extract",
-          transcript_field: "transcript",
+          transcript_field: "data.transcript",
           extract_action_items: true,
           next: "create_tasks",
         },
@@ -67,8 +67,8 @@ export const TEMPLATES: WorkflowTemplate[] = [
           arguments: {
             project_id: "",
             items: "{{steps.extract_actions.actionItems}}",
-            meeting_title: "{{steps.meeting_complete.body.title}}",
-            meeting_id: "{{steps.meeting_complete.body.meeting_id}}",
+            meeting_title: "{{steps.meeting_complete.body.data.meeting.title}}",
+            meeting_id: "{{steps.meeting_complete.body.data.meeting.id}}",
           },
           next: null,
         },
@@ -101,7 +101,7 @@ export const TEMPLATES: WorkflowTemplate[] = [
           type: "meeting_summary",
           title: "Summarize the meeting",
           stage: "Summarize",
-          transcript_field: "transcript",
+          transcript_field: "data.transcript",
           next: "related_email",
         },
         related_email: {
