@@ -159,7 +159,15 @@ enabled = true
 # Hardcoded rather than env(): `config push` does not auto-load .env.local, so
 # an env() here would silently resolve to empty and break every email link.
 # Only the SMTP secret below stays as env(), where a missing value fails loudly.
-site_url = "http://64.227.146.141"
+#
+# Was the bare droplet IP (http://64.227.146.141) from the pre-DNS smoke test in
+# 8c8f4ec. GoTrue renders every {{ .SiteURL }} in confirmation.html/recovery.html
+# from THIS value, not from wherever the signup request came from — so once
+# production moved behind automata.doubtbuddy.com, every confirmation and
+# password-reset email kept mailing out a dead link to the IP. Production auth
+# logs confirm it: signups on 2026-09-15 (referer automata.doubtbuddy.com) never
+# once hit GoTrue's /verify endpoint afterward.
+site_url = "https://automata.doubtbuddy.com"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
