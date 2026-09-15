@@ -13,7 +13,7 @@ import type { ConnectionState } from "./composio";
 
 export interface CachedIntegration {
   platform: string;
-  status: "connected" | "pending";
+  status: "connected" | "pending" | "disconnected";
   connected_account_id: string | null;
 }
 
@@ -79,11 +79,16 @@ export async function readCachedIntegrations(
 ): Promise<CachedIntegration[]> {
   if (!ctx.supabase || !ctx.workspaceId) return [];
   try {
+    // "disconnected" is included so a broken toolkit reads back as broken,
+    // not as absent — the page has to tell those two apart (see
+    // integrations-page.tsx's CardActions). It never carries a
+    // connected_account_id, so the phantom-row filter below can't be fooled
+    // by it.
     const { data } = await ctx.supabase
       .from("integrations")
       .select("platform, status, connected_account_id")
       .eq("workspace_id", ctx.workspaceId)
-      .in("status", ["connected", "pending"]);
+      .in("status", ["connected", "pending", "disconnected"]);
     return ((data as CachedIntegration[]) ?? []).filter(
       (row) => row.status !== "connected" || !!row.connected_account_id,
     );

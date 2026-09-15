@@ -20,6 +20,7 @@ const admin = {
 };
 mock.module("@/lib/supabase/server", { namedExports: { createAdminClient: () => { adminCalls++; return admin; } } });
 
+const inCalls: Array<[string, unknown]> = [];
 const readonly = {
   from() {
     const query = {
@@ -27,10 +28,14 @@ const readonly = {
       update: () => query,
       select: () => query,
       eq: (key: string, value: unknown) => { filters.push([key, value]); return query; },
-      in: () => Object.assign(Promise.resolve({ data: [
-        { platform: "googlebusinessprofile", status: "connected", connected_account_id: "workspace-1" },
-        { platform: "slack", status: "connected", connected_account_id: null },
-      ] }), query),
+      in: (key: string, value: unknown) => {
+        inCalls.push([key, value]);
+        return Object.assign(Promise.resolve({ data: [
+          { platform: "googlebusinessprofile", status: "connected", connected_account_id: "workspace-1" },
+          { platform: "slack", status: "connected", connected_account_id: null },
+          { platform: "gmail", status: "disconnected", connected_account_id: null },
+        ] }), query);
+      },
       not: async () => ({ error: { message: "permission denied for integrations" } }),
     };
     return query;
@@ -56,6 +61,15 @@ test("live reconciliation uses the server writer and retains native connections"
   assert.match(String(filters.find(([key]) => key === "platform")?.[1]), /googlebusinessprofile/);
 });
 
+test("live reconciliation persists a disconnected entry with no account id", async () => {
+  writes.length = 0;
+  await syncConnections(ctx, [{ platform: "gmail", status: "disconnected", accountId: null }]);
+  const upsert = writes.find((w) => w.kind === "upsert");
+  assert.deepEqual(upsert, { kind: "upsert", value: [{
+    workspace_id: "workspace-1", platform: "gmail", status: "disconnected", connected_account_id: null,
+  }] });
+});
+
 test("unverified contexts never obtain an admin writer", async () => {
   adminCalls = 0;
   for (const context of [
@@ -72,6 +86,16 @@ test("unverified contexts never obtain an admin writer", async () => {
 test("cache reads stay on the RLS client and reject phantom connected rows", async () => {
   adminCalls = 0;
   const rows = await readCachedIntegrations(ctx);
-  assert.deepEqual(rows.map((row) => row.platform), ["googlebusinessprofile"]);
+  // "slack" is dropped: connected with no connected_account_id is the phantom
+  // row this filter exists to reject. "gmail" survives even though it also
+  // has no account id, because disconnected never claims to be live.
+  assert.deepEqual(rows.map((row) => row.platform), ["googlebusinessprofile", "gmail"]);
   assert.equal(adminCalls, 0);
+});
+
+test("a broken connection is fetched from the cache, not silently dropped", async () => {
+  const rows = await readCachedIntegrations(ctx);
+  const gmail = rows.find((row) => row.platform === "gmail");
+  assert.deepEqual(gmail, { platform: "gmail", status: "disconnected", connected_account_id: null });
+  assert.deepEqual(inCalls.at(-1), ["status", ["connected", "pending", "disconnected"]]);
 });

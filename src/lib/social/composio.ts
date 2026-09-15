@@ -1464,8 +1464,52 @@ export interface ConnectResult {
 export interface ConnectionState {
   /** Toolkit slug. */
   platform: string;
-  status: "connected" | "pending";
-  accountId: string;
+  status: "connected" | "pending" | "disconnected";
+  /** null for `disconnected` — there is no live account to name. */
+  accountId: string | null;
+}
+
+/** One row from Composio's `/connected_accounts` listing. */
+export interface RawConnectedAccount {
+  id: string;
+  status: string;
+  toolkit: { slug: string };
+}
+
+/**
+ * Reduce raw `/connected_accounts` rows into one entry per toolkit slug.
+ *
+ * An ACTIVE row always wins its slug, however the rows are ordered — the
+ * first pass below runs the full list before anything is read back, so an
+ * `[EXPIRED, ACTIVE]` pair and an `[ACTIVE, EXPIRED]` pair resolve the same
+ * way. INITIATED/INITIALIZING only claims a slug nothing else has yet.
+ *
+ * A slug whose rows are all dead (EXPIRED/FAILED/INACTIVE — one or several)
+ * still gets exactly one entry: `disconnected`, with no account id. Composio
+ * saw this workspace try the toolkit and every attempt died, which is worth
+ * surfacing distinctly from a toolkit nobody has touched.
+ */
+export function bucketConnections(items: RawConnectedAccount[]): ConnectionState[] {
+  const bySlug = new Map<string, ConnectionState>();
+  for (const item of items) {
+    const slug = item.toolkit.slug;
+    if (item.status === "ACTIVE") {
+      bySlug.set(slug, { platform: slug, status: "connected", accountId: item.id });
+    } else if (
+      // Docs say INITIATED; the live v3 link flow returns INITIALIZING.
+      (item.status === "INITIATED" || item.status === "INITIALIZING") &&
+      !bySlug.has(slug)
+    ) {
+      bySlug.set(slug, { platform: slug, status: "pending", accountId: item.id });
+    }
+  }
+  for (const item of items) {
+    const slug = item.toolkit.slug;
+    if (!bySlug.has(slug)) {
+      bySlug.set(slug, { platform: slug, status: "disconnected", accountId: null });
+    }
+  }
+  return [...bySlug.values()];
 }
 
 export interface PostInput {
@@ -1646,15 +1690,14 @@ class ComposioProvider {
    * The page cap is a runaway guard, not a limit — at 100 per page it allows
    * 2000 accounts for one workspace, far past anything real.
    */
-  private async rawConnections(entityId: string) {
-    type Row = { id: string; status: string; toolkit: { slug: string } };
-    const items: Row[] = [];
+  private async rawConnections(entityId: string): Promise<RawConnectedAccount[]> {
+    const items: RawConnectedAccount[] = [];
     let cursor: string | null = null;
 
     for (let page = 0; page < 20; page++) {
       const qs = new URLSearchParams({ user_ids: entityId, limit: "100" });
       if (cursor) qs.set("cursor", cursor);
-      const res = await api<{ items: Row[]; next_cursor: string | null }>(
+      const res = await api<{ items: RawConnectedAccount[]; next_cursor: string | null }>(
         `/connected_accounts?${qs}`,
       );
       items.push(...res.items);
@@ -1667,25 +1710,12 @@ class ComposioProvider {
   /**
    * Live connection state for a workspace, one entry per toolkit. A toolkit
    * can accumulate multiple accounts (an abandoned OAuth attempt leaves an
-   * INITIATED one behind) — an ACTIVE account always wins over INITIATED.
+   * INITIATED one behind, a revoked grant leaves an EXPIRED one) — see
+   * `bucketConnections` for how those collapse to one entry per slug.
    */
   async listConnections(entityId: string): Promise<ConnectionState[]> {
     if (!this.live) return [];
-    const bySlug = new Map<string, ConnectionState>();
-    for (const item of await this.rawConnections(entityId)) {
-      const slug = item.toolkit.slug;
-      if (item.status === "ACTIVE") {
-        bySlug.set(slug, { platform: slug, status: "connected", accountId: item.id });
-      } else if (
-        // Docs say INITIATED; the live v3 link flow returns INITIALIZING.
-        (item.status === "INITIATED" || item.status === "INITIALIZING") &&
-        !bySlug.has(slug)
-      ) {
-        bySlug.set(slug, { platform: slug, status: "pending", accountId: item.id });
-      }
-      // EXPIRED / FAILED / INACTIVE fall through as disconnected.
-    }
-    return [...bySlug.values()];
+    return bucketConnections(await this.rawConnections(entityId));
   }
 
   /**

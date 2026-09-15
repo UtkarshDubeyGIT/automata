@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { setupNotice } from "@/lib/setup-notice";
 import { VikunjaConnectDialog } from "@/components/integrations/vikunja-connect-dialog";
 
-type Status = "connected" | "pending";
+type Status = "connected" | "pending" | "disconnected";
 
 const CHANNELS = PLATFORMS.filter((p) => p.kind === "channel");
 
@@ -159,8 +159,8 @@ export default function IntegrationsPage() {
             // Profile has no Composio toolkit, so ABSENCE already means
             // something for it ("this deployment has no Google client, run it
             // in demo mode"). It therefore states "not connected yet"
-            // explicitly, and only the two real states belong in this map.
-            if (row.status === "connected" || row.status === "pending") {
+            // explicitly, and only the three real states belong in this map.
+            if (row.status === "connected" || row.status === "pending" || row.status === "disconnected") {
               next[row.platform] = row.status;
             }
           }
@@ -370,7 +370,10 @@ export default function IntegrationsPage() {
    * into Automata) vs. "still to discover" — the page leads with the former
    * so a returning user sees what's live before the ~1,400-app catalog.
    */
-  const isLive = (state: Status | undefined) => state === "connected" || state === "pending";
+  // "disconnected" counts as live too: a broken app belongs where the user
+  // will see it, not lost in the ~1,400-app catalog below.
+  const isLive = (state: Status | undefined) =>
+    state === "connected" || state === "pending" || state === "disconnected";
   const connectedChannelCards = channelCards.filter((c) => isLive(status[c.id]));
   const discoverChannelCards = channelCards.filter(
     (c) =>
@@ -582,7 +585,7 @@ export default function IntegrationsPage() {
       <section className="flex min-w-0 flex-col gap-3">
         <div>
           <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">Connected &amp; custom</h2>
-          <p className="mt-0.5 text-[13px] text-ink-subtle">Live integrations, plus the ones built directly into Automata.</p>
+          <p className="mt-0.5 text-[13px] text-ink-subtle">Your connected apps, plus the ones built directly into Automata.</p>
         </div>
         {connectedChannelCards.length === 0 && topCatalogItems.length === 0 ? (
           <Card className="p-8 text-center text-[13px] text-ink-subtle">
@@ -703,10 +706,15 @@ function channelMethod(
  * workspace's own connected apps were scattered among ~1,400 others, so the
  * page never answered "what have I actually got?" without a search.
  *
- * `pending` sits second because it is a connection the user already started
+ * `disconnected` sits right after `connected` — it's a card the workspace
+ * already has an opinion about and needs to act on, not a fresh app to
+ * discover. `pending` sits after that: a connection the user already started
  * and can finish. `noAuth` sits below the two methods a user can act on: it
  * has no button at all, so promoting it would put dead cards above live ones.
  * `own_app` is last — nothing the user types today will unblock it.
+ *
+ * `disconnected` uses a fractional tier so the three real methods and their
+ * comment above stay untouched.
  *
  * The sort is stable, so within a tier Composio's popularity order survives.
  */
@@ -722,6 +730,7 @@ function cardRank(
   noAuth: boolean,
 ): number {
   if (state === "connected") return 0;
+  if (state === "disconnected") return 0.5;
   if (state === "pending") return 1;
   if (noAuth) return 4;
   return RANK[method];
@@ -785,6 +794,16 @@ function CardActions({
           title={`Disconnect ${name}`}
           className="px-2"
         />
+      </div>
+    );
+  }
+  if (state === "disconnected") {
+    return (
+      <div className="flex flex-none items-center gap-2">
+        <Badge tone="danger" dot>Disconnected</Badge>
+        <Button variant="primary" size="sm" loading={pending} onClick={onConnect}>
+          Reconnect
+        </Button>
       </div>
     );
   }
