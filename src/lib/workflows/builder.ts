@@ -6,8 +6,10 @@ import { needsBrandGrounding, requiredAppsOf, type RequiredApp } from "./apps";
 import { NODE_TYPES } from "./blocks";
 import { buildResponse, deriveDisplay } from "./display";
 import { repairRefs, repairSchedules, stripPlaceholders } from "./repair";
-import { getTool, toolsForPrompt, triggersForPrompt } from "./registry";
+import { getTool, triggersForPrompt } from "./registry";
+import { selectTools } from "./tool-selection";
 import { BuildError, validateGraph } from "./validate";
+import type { ToolSpec } from "./registry";
 import type { StepDef, WorkflowConfig, WorkflowGraph } from "./types";
 import { setupNotice } from "@/lib/setup-notice";
 
@@ -125,7 +127,7 @@ function socialChannelsForPrompt(): string {
     .join("\n");
 }
 
-function systemPrompt(requestText: string): string {
+function systemPrompt(toolCatalog: string): string {
   return `You are a workflow compiler. You turn a user's plain-English automation request into a STRICT JSON workflow graph that a deterministic engine will execute.
 
 You may ONLY use these node types:
@@ -136,7 +138,7 @@ AVAILABLE TRIGGERS (use these exact slugs in the app_event_trigger 'event' field
 ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS (use these exact tool slugs in app_action steps; do NOT invent slugs; READ actions produce data for later steps, WRITE actions perform an action; [external/visible] actions affect other people -> consider approval):
-${toolsForPrompt(requestText)}
+${toolCatalog}
 
 IMPORTANT: Any angle-bracket label shown inside catalog documentation (for example <ai>, <trigger>, or <id>) is explanatory text, never a real step id. Do not copy it into the JSON. Choose a real snake_case id from the steps you create for every {{steps.…}} reference. Action argument examples intentionally use empty strings; fill them with a literal supplied by the user or a reference to an earlier step.
 
@@ -316,14 +318,15 @@ export async function buildWorkflow(
   // Generated once and reused for every retry below — a repair must never see
   // a catalog different from the one the first attempt was shown, or it can
   // "fix" the JSON into a tool slug that was never on offer.
-  const prompt = systemPrompt(description);
+  const selection = await selectTools(description);
+  const prompt = systemPrompt(selection.text);
   const user = `User's automation request:\n${description}`;
   let raw = await ask(prompt, user, deadline);
   let lastErr = "";
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     try {
-      const parsed = await normalize(parseJson(raw));
+      const parsed = await normalize(parseJson(raw), selection.specs);
       // A deliberate refusal (unsupported request) — surface it as-is.
       if (typeof parsed.error === "string" && !parsed.steps) {
         throw new BuildRefusal(parsed.error);
@@ -411,7 +414,19 @@ function parseJson(raw: string): ParsedGraph {
 }
 
 /** Flatten LLM-nested config/routing wrappers into flat step keys (idempotent). */
-async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
+/**
+ * @param known Specs already resolved while building the catalog. Every tool
+ *   the model could legally emit was just fetched and normalized by
+ *   `selectTools`, so consulting that first turns what used to be one
+ *   uncached live Composio lookup PER app_action step into zero. It also
+ *   closes a real failure mode: a tool shown in the catalog whose live
+ *   re-fetch happens to fail would otherwise resolve to nothing here and burn
+ *   a repair attempt on a slug that was never wrong.
+ */
+async function normalize(
+  parsed: ParsedGraph,
+  known: Record<string, ToolSpec> = {},
+): Promise<ParsedGraph> {
   for (const node of Object.values(parsed.steps ?? {})) {
     if (!node || typeof node !== "object") continue;
     for (const wrapper of ["config", "routing", "params", "settings"]) {
@@ -427,7 +442,7 @@ async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
     // ({"type": "LINKEDIN_GET_MY_INFO"}). Rewrite to a proper app_action.
     const t = String(node.type ?? "");
     if (!(t in NODE_TYPES)) {
-      const resolved = getTool(t, node.tool_spec) ?? (await findToolSpec(t));
+      const resolved = getTool(t, node.tool_spec) ?? known[t] ?? (await findToolSpec(t));
       if (resolved) {
         node.tool = t;
         node.type = "app_action";
@@ -437,7 +452,7 @@ async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
     }
     if (node.type === "app_action" && node.tool) {
       const slug = String(node.tool);
-      const resolved = getTool(slug, node.tool_spec) ?? (await findToolSpec(slug));
+      const resolved = getTool(slug, node.tool_spec) ?? known[slug] ?? (await findToolSpec(slug));
       if (resolved) {
         node.tool_spec = resolved;
         if (!node.toolkit) node.toolkit = resolved.app;
@@ -451,7 +466,16 @@ async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
 // Edit an existing workflow with AI
 // ---------------------------------------------------------------------------
 
-/** GitHub tool slugs already used by the graph being edited — always kept in the catalog. */
+/**
+ * Tool slugs already used by the graph being edited — always kept in the
+ * catalog.
+ *
+ * An edit instruction describes the CHANGE, not the workflow: "add a Slack
+ * message after this" names Slack and nothing else. Retrieval runs on that
+ * instruction, so without pinning these the app behind the step being edited
+ * ranks nowhere, drops out of the catalog, and the model is asked to preserve
+ * a tool it can no longer see.
+ */
 function toolSlugsOf(graph: WorkflowGraph): string[] {
   const slugs: string[] = [];
   for (const step of Object.values(graph.steps)) {
@@ -460,7 +484,24 @@ function toolSlugsOf(graph: WorkflowGraph): string[] {
   return slugs;
 }
 
-function editPrompt(requestText: string, keepSlugs: Iterable<string>): string {
+/** The integrations behind those slugs, so their whole toolkit stays expanded. */
+function appsOf(slugs: string[], graph: WorkflowGraph): string[] {
+  const apps = new Set<string>();
+  for (const step of Object.values(graph.steps)) {
+    if (step.type !== "app_action" || typeof step.tool !== "string") continue;
+    const spec = getTool(step.tool, step.tool_spec);
+    if (spec?.app) apps.add(spec.app);
+  }
+  // A slug whose spec cannot be resolved still carries its toolkit in its
+  // prefix, which is better than losing the app entirely.
+  for (const slug of slugs) {
+    const prefix = slug.split("_")[0]?.toLowerCase();
+    if (prefix && ![...apps].some((a) => a.startsWith(prefix.slice(0, 5)))) apps.add(prefix);
+  }
+  return [...apps];
+}
+
+function editPrompt(toolCatalog: string): string {
   return `You are editing an EXISTING workflow graph in place.
 
 ${"You may ONLY use the node types, triggers, app actions and channels listed below."}
@@ -471,7 +512,7 @@ AVAILABLE TRIGGERS:
 ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS:
-${toolsForPrompt(requestText, keepSlugs)}
+${toolCatalog}
 
 EDIT RULES:
 1. Output ONLY the complete, corrected workflow JSON in the SAME shape you were given:
@@ -530,7 +571,11 @@ export async function editWorkflow(
   // build path: existing GitHub steps must stay visible to the model across
   // every attempt, not just the first.
   const keepSlugs = toolSlugsOf(current.graph);
-  const prompt = editPrompt(instruction, keepSlugs);
+  const selection = await selectTools(instruction, {
+    keepSlugs,
+    keepApps: appsOf(keepSlugs, current.graph),
+  });
+  const prompt = editPrompt(selection.text);
 
   const payload = JSON.stringify(
     { title: current.name, description: current.description, start: current.graph.start, steps: current.graph.steps },
@@ -545,7 +590,7 @@ export async function editWorkflow(
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     try {
-      const parsed = await normalize(parseJson(raw));
+      const parsed = await normalize(parseJson(raw), selection.specs);
       if (typeof parsed.error === "string" && !parsed.steps) {
         throw new BuildRefusal(parsed.error);
       }

@@ -8881,17 +8881,48 @@ export function normalizeComposioTool(
           ? obj.name.trim()
           : slug;
 
+  /*
+   * Read vs write for a tool nobody on this team has reviewed.
+   *
+   * This is the one derived field that can do harm: `kind` drives
+   * `liveWrites` (validate.ts) and the builder's approval rules, so calling a
+   * write a read means an irreversible action against someone's real account
+   * with nobody asked first.
+   *
+   * Composio publishes the MCP standard annotations as tags — `readOnlyHint`,
+   * `destructiveHint`, `openWorldHint`, `idempotentHint`, `updateHint` —
+   * verified present across 1,368 live tools. The older `read_only` / `read`
+   * spellings below never appear in its responses and are kept only so a
+   * hand-written or third-party payload using them still classifies.
+   *
+   * `readOnlyHint` was validated against the 646 curated entries that overlap
+   * the live catalog: ZERO false read-labels — not one tool Composio calls
+   * read-only is actually a write. The 44 disagreements all run the other
+   * way, and every one inspected is this registry's own bulk-import bug
+   * (GITHUB_GET_A_PULL_REQUEST, GITHUB_LIST_PULL_REQUESTS,
+   * NOTION_QUERY_DATABASE are plainly reads we labelled `write`).
+   *
+   * Absence of the tag is NOT evidence of a read. Anything unannotated falls
+   * through to `write`, which is the direction a mistake is survivable in.
+   */
+  const tags = Array.isArray(obj.tags)
+    ? obj.tags.filter((t): t is string => typeof t === "string").map((t) => t.toLowerCase())
+    : [];
   const isReadOnly =
     obj.is_read_only === true ||
     obj.read_only === true ||
-    (Array.isArray(obj.tags) &&
-      obj.tags.some(
-        (t) =>
-          typeof t === "string" &&
-          (t.toLowerCase() === "read_only" || t.toLowerCase() === "read"),
-      ));
+    tags.includes("readonlyhint") ||
+    tags.includes("read_only") ||
+    tags.includes("read");
 
   const kind: "read" | "write" = isReadOnly ? "read" : "write";
+  /*
+   * Every write stays `external`, rather than only those carrying
+   * `openWorldHint`/`destructiveHint`. Narrowing it was tempting and is not
+   * worth it: `openWorldHint` is on 94% of sampled tools, so the distinction
+   * buys almost nothing, and the 6% it would quietly exempt are writes that
+   * would then skip the approval step with no human ever seeing them.
+   */
   const external = !isReadOnly;
 
   const inputSchema =
@@ -8970,61 +9001,6 @@ export function normalizeComposioTool(
   };
 }
 
-/**
- * GitHub is 893 of the registry's 999 tools (~68K of the ~73K prompt tokens
- * `toolsForPrompt` used to always emit) — sending all of it on every build,
- * edit, and repair call is most of the cost and buries the handful of slugs a
- * given request actually needs. These stay in the prompt unconditionally, so
- * the compiler can still express the common cases with zero keyword hit, AND
- * so a plain-English abbreviation the substring scorer can't see through
- * ("PR", "CI") still lands on the right action. If you're tempted to trim
- * this list, first check it still covers every word that scoring skips
- * (`STOPWORDS` and single-character tokens) — that's the failure mode this
- * exists to prevent: an invented slug the model guessed instead of one it was
- * shown fails validation for real (validate.ts's `app_action` case), unlike a
- * real slug that just wasn't in the shown subset (normalize() resolves those
- * live via findToolSpec).
- */
-const GITHUB_FLOOR_SLUGS: ReadonlySet<string> = new Set([
-  "GITHUB_CREATE_AN_ISSUE",
-  "GITHUB_LIST_REPOSITORY_ISSUES",
-  "GITHUB_GET_AN_ISSUE",
-  "GITHUB_UPDATE_AN_ISSUE",
-  "GITHUB_CLOSE_ISSUE",
-  "GITHUB_CREATE_AN_ISSUE_COMMENT",
-  "GITHUB_LIST_ISSUE_COMMENTS",
-  "GITHUB_SEARCH_ISSUES",
-  "GITHUB_CREATE_A_PULL_REQUEST",
-  "GITHUB_LIST_PULL_REQUESTS",
-  "GITHUB_GET_A_PULL_REQUEST",
-  "GITHUB_UPDATE_A_PULL_REQUEST",
-  "GITHUB_MERGE_A_PULL_REQUEST",
-  "GITHUB_CLOSE_PULL_REQUEST",
-  "GITHUB_CREATE_A_REVIEW_FOR_A_PULL_REQUEST",
-  "GITHUB_CREATE_A_REVIEW_COMMENT_FOR_A_PULL_REQUEST",
-  "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-  "GITHUB_LIST_COMMITS",
-  "GITHUB_GET_A_COMMIT",
-  "GITHUB_CREATE_A_COMMIT_COMMENT",
-  "GITHUB_GET_A_REPOSITORY",
-  "GITHUB_SEARCH_REPOSITORIES",
-  "GITHUB_CREATE_A_FORK",
-  "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
-  "GITHUB_LIST_BRANCHES",
-  "GITHUB_GET_A_BRANCH",
-  "GITHUB_CREATE_A_REFERENCE",
-  "GITHUB_CREATE_A_RELEASE",
-  "GITHUB_LIST_RELEASES",
-  "GITHUB_GET_A_RELEASE",
-  "GITHUB_LIST_REPOSITORY_WORKFLOWS",
-  "GITHUB_LIST_WORKFLOW_RUNS_FOR_A_REPOSITORY",
-  "GITHUB_GET_A_WORKFLOW_RUN",
-  "GITHUB_CREATE_A_WORKFLOW_DISPATCH_EVENT",
-]);
-
-/** Caps the worst case (a generic matched word) at roughly 8-12K tokens instead of ~68K. */
-const GITHUB_MATCH_BUDGET = 120;
-
 /** Filler words a request is built from that would otherwise "match" almost every tool. */
 const STOPWORDS = new Set([
   "a", "an", "the", "to", "from", "in", "on", "for", "with", "when", "and",
@@ -9034,16 +9010,8 @@ const STOPWORDS = new Set([
 ]);
 
 /**
- * A single word matched against ~77 of 893 GitHub descriptions ("new", as in
- * "create a NEW gist") still isn't a real signal on its own — this is the
- * floor a candidate's total idf-weighted score must clear to be considered,
- * roughly "matched on a word present in under ~13% of GitHub descriptions".
- */
-const GITHUB_MATCH_MIN_SCORE = 2;
-
-/**
- * Naive plural stripping so "close stale issues" matches the same GitHub
- * tools as "close a stale issue" — exact-token matching otherwise treats
+ * Naive plural stripping so "close stale issues" ranks the same tools as
+ * "close a stale issue" — exact-token matching otherwise treats
  * "issue"/"issues" and "commit"/"commits" as unrelated words, since most
  * descriptions use one form and a request may use the other.
  */
@@ -9053,7 +9021,7 @@ function stem(word: string): string {
   return word;
 }
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -9061,81 +9029,8 @@ function tokenize(text: string): string[] {
     .map(stem);
 }
 
-function renderToolLine(slug: string, t: ToolSpec): string {
+export function renderToolLine(slug: string, t: ToolSpec): string {
   const vis = t.external ? " [external/visible]" : "";
   return `  - ${slug} (${t.app}, ${t.kind.toUpperCase()}${vis}): ${t.desc} — args: ${t.argHint}`;
 }
 
-interface GithubIndexEntry {
-  slug: string;
-  words: Set<string>;
-}
-
-/**
- * GitHub also exposes Projects/Teams/Activity endpoints, so generic words
- * ("project", "team", "activity", "track") sit in hundreds of descriptions —
- * scoring by raw word-overlap count let those swamp the budget for requests
- * that were never about GitHub at all. Weighting each word by how RARE it is
- * across the 893 descriptions (inverse document frequency, computed once and
- * cached) means a distinctive word ("pull", "branch", "release", "commit")
- * outweighs a dozen generic ones, matching the words that actually name a
- * GitHub action rather than the words any project-tracking sentence contains.
- */
-let githubIndexCache: { entries: GithubIndexEntry[]; idf: Map<string, number> } | null = null;
-
-function githubIndex(): { entries: GithubIndexEntry[]; idf: Map<string, number> } {
-  if (githubIndexCache) return githubIndexCache;
-  const entries: GithubIndexEntry[] = [];
-  const df = new Map<string, number>();
-  for (const [slug, t] of Object.entries(TOOLS)) {
-    if (t.app !== "github") continue;
-    const words = new Set(tokenize(`${slug} ${t.desc}`));
-    entries.push({ slug, words });
-    for (const w of words) df.set(w, (df.get(w) ?? 0) + 1);
-  }
-  const idf = new Map<string, number>();
-  for (const [w, count] of df) idf.set(w, Math.log((entries.length + 1) / (count + 1)));
-  githubIndexCache = { entries, idf };
-  return githubIndexCache;
-}
-
-/**
- * One line per tool, exactly how the builder LLM sees the action catalog —
- * except GitHub, which is filtered to what this request plausibly needs (see
- * `GITHUB_FLOOR_SLUGS`). Every other toolkit (~106 entries total) is small
- * enough, and its slugs specific enough, that trimming it isn't worth the
- * risk: keep it in full always.
- *
- * @param requestText The user's automation request (build) or edit
- *   instruction — scored word-by-word against each GitHub tool's slug+desc.
- * @param keepSlugs GitHub tool slugs already used by the graph being edited —
- *   kept regardless of score so an edit that doesn't restate "github" can
- *   still see the action it's about to change.
- */
-export function toolsForPrompt(requestText = "", keepSlugs: Iterable<string> = []): string {
-  const keep = new Set(keepSlugs);
-  const words = tokenize(requestText);
-
-  const included = new Set<string>();
-  for (const [slug, t] of Object.entries(TOOLS)) {
-    if (t.app !== "github" || GITHUB_FLOOR_SLUGS.has(slug) || keep.has(slug)) {
-      included.add(slug);
-    }
-  }
-
-  const { entries, idf } = githubIndex();
-  const candidates: { slug: string; score: number }[] = [];
-  for (const entry of entries) {
-    if (included.has(entry.slug)) continue;
-    let score = 0;
-    for (const w of words) if (entry.words.has(w)) score += idf.get(w) ?? 0;
-    if (score >= GITHUB_MATCH_MIN_SCORE) candidates.push({ slug: entry.slug, score });
-  }
-  candidates.sort((a, b) => b.score - a.score);
-  for (const c of candidates.slice(0, GITHUB_MATCH_BUDGET)) included.add(c.slug);
-
-  return Object.entries(TOOLS)
-    .filter(([slug]) => included.has(slug))
-    .map(([slug, t]) => renderToolLine(slug, t))
-    .join("\n");
-}

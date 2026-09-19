@@ -174,6 +174,52 @@ export function explainAiError(err: unknown): string {
   return detail ? `AI request failed: ${detail}` : "AI request failed.";
 }
 
+/**
+ * Dimensions kept for every stored embedding.
+ *
+ * text-embedding-3-small is a Matryoshka model, so a truncated prefix is still
+ * a usable vector rather than a corrupted one. 256 holds the tool index at
+ * ~32MB instead of ~190MB at the native 1536, and the `vector(256)` column in
+ * 20260919000000_tool_index.sql is declared to match — changing this number
+ * requires a migration, not just a redeploy.
+ */
+export const EMBED_DIMENSIONS = 256;
+
+const EMBED_MODEL = "text-embedding-3-small";
+
+/**
+ * Embed one or more texts for retrieval.
+ *
+ * Unlike `chat()` there is no mock fallback: a fabricated vector would rank
+ * against real ones and silently return confident nonsense. Callers get an
+ * explicit failure and fall back to lexical retrieval, which degrades to
+ * *more* candidates rather than wrong ones.
+ */
+export async function embed(texts: string[]): Promise<number[][]> {
+  if (!openaiConfigured) {
+    throw new Error(
+      setupNotice(
+        "Semantic tool search is unavailable right now.",
+        "Embeddings need OPENAI_API_KEY — retrieval is falling back to keyword search.",
+      ),
+    );
+  }
+  if (texts.length === 0) return [];
+
+  const res = await client().embeddings.create({
+    model: EMBED_MODEL,
+    input: texts,
+    dimensions: EMBED_DIMENSIONS,
+  });
+  // The API documents index order as matching the input, but it is cheap to
+  // stop trusting that: a silent re-order would attach every tool's text to
+  // its neighbour's vector, and the index would look fine while ranking
+  // garbage.
+  return [...res.data]
+    .sort((a, b) => a.index - b.index)
+    .map((d) => d.embedding);
+}
+
 /** Chat that expects and parses a JSON object response. */
 export async function chatJSON<T = unknown>(
   messages: ChatMessage[],
