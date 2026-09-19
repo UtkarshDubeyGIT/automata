@@ -292,3 +292,24 @@ The one concrete, ship-now item to come out of this whole research thread either
 is still the connected-integrations context fix to `narrowIntegrations()` described
 above — unrelated to Jev, cheap, and aimed straight at the failure mode this research
 actually measured.
+
+## Addendum: spot-checked on real-life-style prompts
+
+A fair objection to the fixture-based result above: `retrieval-cases.ts` was written
+by the team as a clean, one-sentence-per-case yardstick — not what someone actually
+types. `scripts/spotcheck-jev-realistic.ts` reruns the same live comparison on 10
+prompts written to look like real ones instead (lowercase, rambling, abbreviations,
+ambiguous on purpose in a few cases) — no team-vetted labels, a qualitative spot
+check, not a scored eval.
+
+Result: confirms the finding rather than changing it. 3 of 10 were exact ties. Where
+they diverged, Jev twice missed something the prompt stated outright — "shoot them a
+welcome email" scored `gmail` at 0.11 and dropped it; "post recap" picked
+`upload_post`/`toggl_track` (matched on the literal words "post"/"track") and dropped
+`slack` — because a wrong candidate happened to score higher in isolation than the
+right one. And "if invoice overdue send reminder" reproduced the sibling-confusion
+mechanism exactly: `chaser`, `paychasers`, `zoho_invoice`, and `resend` all scored
+0.77–0.90 independently, where the current single-prompt call picked the one focused
+answer (`chaser`). Jev's extra recall did look genuinely useful on the two prompts
+that were ambiguous by design (multiple valid channels named or implied) — consistent
+with the aggregate result: better recall, worse precision, worse net.
