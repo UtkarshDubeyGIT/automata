@@ -125,7 +125,8 @@ function socialChannelsForPrompt(): string {
     .join("\n");
 }
 
-const SYSTEM_PROMPT = `You are a workflow compiler. You turn a user's plain-English automation request into a STRICT JSON workflow graph that a deterministic engine will execute.
+function systemPrompt(requestText: string): string {
+  return `You are a workflow compiler. You turn a user's plain-English automation request into a STRICT JSON workflow graph that a deterministic engine will execute.
 
 You may ONLY use these node types:
 
@@ -135,7 +136,7 @@ AVAILABLE TRIGGERS (use these exact slugs in the app_event_trigger 'event' field
 ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS (use these exact tool slugs in app_action steps; do NOT invent slugs; READ actions produce data for later steps, WRITE actions perform an action; [external/visible] actions affect other people -> consider approval):
-${toolsForPrompt()}
+${toolsForPrompt(requestText)}
 
 IMPORTANT: Any angle-bracket label shown inside catalog documentation (for example <ai>, <trigger>, or <id>) is explanatory text, never a real step id. Do not copy it into the JSON. Choose a real snake_case id from the steps you create for every {{steps.…}} reference. Action argument examples intentionally use empty strings; fill them with a literal supplied by the user or a reference to an earlier step.
 
@@ -294,6 +295,7 @@ RULES:
     never speak as a chat assistant ("I can help you draft…"), and never ask for more details.
 
 Return the JSON now.`;
+}
 
 // ---------------------------------------------------------------------------
 // Build + validate
@@ -311,8 +313,12 @@ export async function buildWorkflow(
   }
 
   const deadline = options?.deadline;
+  // Generated once and reused for every retry below — a repair must never see
+  // a catalog different from the one the first attempt was shown, or it can
+  // "fix" the JSON into a tool slug that was never on offer.
+  const prompt = systemPrompt(description);
   const user = `User's automation request:\n${description}`;
-  let raw = await ask(user, deadline);
+  let raw = await ask(prompt, user, deadline);
   let lastErr = "";
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
@@ -340,6 +346,7 @@ export async function buildWorkflow(
       lastErr = (err as Error).message;
       if (attempt >= MAX_REPAIRS) break;
       raw = await ask(
+        prompt,
         `The previous JSON was invalid: ${lastErr}\nHere is what you produced:\n${raw}\n\nFix it. Output ONLY the corrected JSON object, nothing else.`,
         deadline,
       );
@@ -371,8 +378,8 @@ function toOutput(
   };
 }
 
-async function ask(user: string, deadline?: number): Promise<string> {
-  return askWith(SYSTEM_PROMPT, user, 1500, deadline);
+async function ask(prompt: string, user: string, deadline?: number): Promise<string> {
+  return askWith(prompt, user, 1500, deadline);
 }
 
 interface ParsedGraph {
@@ -444,7 +451,17 @@ async function normalize(parsed: ParsedGraph): Promise<ParsedGraph> {
 // Edit an existing workflow with AI
 // ---------------------------------------------------------------------------
 
-const EDIT_PROMPT = `You are editing an EXISTING workflow graph in place.
+/** GitHub tool slugs already used by the graph being edited — always kept in the catalog. */
+function toolSlugsOf(graph: WorkflowGraph): string[] {
+  const slugs: string[] = [];
+  for (const step of Object.values(graph.steps)) {
+    if (step.type === "app_action" && typeof step.tool === "string") slugs.push(step.tool);
+  }
+  return slugs;
+}
+
+function editPrompt(requestText: string, keepSlugs: Iterable<string>): string {
+  return `You are editing an EXISTING workflow graph in place.
 
 ${"You may ONLY use the node types, triggers, app actions and channels listed below."}
 
@@ -454,7 +471,7 @@ AVAILABLE TRIGGERS:
 ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS:
-${toolsForPrompt()}
+${toolsForPrompt(requestText, keepSlugs)}
 
 EDIT RULES:
 1. Output ONLY the complete, corrected workflow JSON in the SAME shape you were given:
@@ -481,6 +498,7 @@ EDIT RULES:
    ALWAYS output the complete JSON graph.
 
 Return the JSON now.`;
+}
 
 export interface EditOutput {
   graph: WorkflowGraph;
@@ -508,13 +526,19 @@ export async function editWorkflow(
     );
   }
 
+  // Computed once and reused for the retry below, same reasoning as the
+  // build path: existing GitHub steps must stay visible to the model across
+  // every attempt, not just the first.
+  const keepSlugs = toolSlugsOf(current.graph);
+  const prompt = editPrompt(instruction, keepSlugs);
+
   const payload = JSON.stringify(
     { title: current.name, description: current.description, start: current.graph.start, steps: current.graph.steps },
     null,
     1,
   );
   let raw = await askWith(
-    EDIT_PROMPT,
+    prompt,
     `Current workflow:\n${payload}\n\nRequested change:\n${instruction}`,
   );
   let lastErr = "";
@@ -548,7 +572,7 @@ export async function editWorkflow(
       lastErr = (err as Error).message;
       if (attempt >= MAX_REPAIRS) break;
       raw = await askWith(
-        EDIT_PROMPT,
+        prompt,
         `The previous JSON was invalid: ${lastErr}\nHere is what you produced:\n${raw}\n\nFix it. Output ONLY the corrected JSON object, nothing else.`,
       );
     }

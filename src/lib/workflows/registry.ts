@@ -8970,12 +8970,172 @@ export function normalizeComposioTool(
   };
 }
 
-/** One line per tool, exactly how the builder LLM sees the action catalog. */
-export function toolsForPrompt(): string {
+/**
+ * GitHub is 893 of the registry's 999 tools (~68K of the ~73K prompt tokens
+ * `toolsForPrompt` used to always emit) — sending all of it on every build,
+ * edit, and repair call is most of the cost and buries the handful of slugs a
+ * given request actually needs. These stay in the prompt unconditionally, so
+ * the compiler can still express the common cases with zero keyword hit, AND
+ * so a plain-English abbreviation the substring scorer can't see through
+ * ("PR", "CI") still lands on the right action. If you're tempted to trim
+ * this list, first check it still covers every word that scoring skips
+ * (`STOPWORDS` and single-character tokens) — that's the failure mode this
+ * exists to prevent: an invented slug the model guessed instead of one it was
+ * shown fails validation for real (validate.ts's `app_action` case), unlike a
+ * real slug that just wasn't in the shown subset (normalize() resolves those
+ * live via findToolSpec).
+ */
+const GITHUB_FLOOR_SLUGS: ReadonlySet<string> = new Set([
+  "GITHUB_CREATE_AN_ISSUE",
+  "GITHUB_LIST_REPOSITORY_ISSUES",
+  "GITHUB_GET_AN_ISSUE",
+  "GITHUB_UPDATE_AN_ISSUE",
+  "GITHUB_CLOSE_ISSUE",
+  "GITHUB_CREATE_AN_ISSUE_COMMENT",
+  "GITHUB_LIST_ISSUE_COMMENTS",
+  "GITHUB_SEARCH_ISSUES",
+  "GITHUB_CREATE_A_PULL_REQUEST",
+  "GITHUB_LIST_PULL_REQUESTS",
+  "GITHUB_GET_A_PULL_REQUEST",
+  "GITHUB_UPDATE_A_PULL_REQUEST",
+  "GITHUB_MERGE_A_PULL_REQUEST",
+  "GITHUB_CLOSE_PULL_REQUEST",
+  "GITHUB_CREATE_A_REVIEW_FOR_A_PULL_REQUEST",
+  "GITHUB_CREATE_A_REVIEW_COMMENT_FOR_A_PULL_REQUEST",
+  "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+  "GITHUB_LIST_COMMITS",
+  "GITHUB_GET_A_COMMIT",
+  "GITHUB_CREATE_A_COMMIT_COMMENT",
+  "GITHUB_GET_A_REPOSITORY",
+  "GITHUB_SEARCH_REPOSITORIES",
+  "GITHUB_CREATE_A_FORK",
+  "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+  "GITHUB_LIST_BRANCHES",
+  "GITHUB_GET_A_BRANCH",
+  "GITHUB_CREATE_A_REFERENCE",
+  "GITHUB_CREATE_A_RELEASE",
+  "GITHUB_LIST_RELEASES",
+  "GITHUB_GET_A_RELEASE",
+  "GITHUB_LIST_REPOSITORY_WORKFLOWS",
+  "GITHUB_LIST_WORKFLOW_RUNS_FOR_A_REPOSITORY",
+  "GITHUB_GET_A_WORKFLOW_RUN",
+  "GITHUB_CREATE_A_WORKFLOW_DISPATCH_EVENT",
+]);
+
+/** Caps the worst case (a generic matched word) at roughly 8-12K tokens instead of ~68K. */
+const GITHUB_MATCH_BUDGET = 120;
+
+/** Filler words a request is built from that would otherwise "match" almost every tool. */
+const STOPWORDS = new Set([
+  "a", "an", "the", "to", "from", "in", "on", "for", "with", "when", "and",
+  "or", "of", "is", "are", "it", "this", "that", "my", "me", "i", "want",
+  "need", "please", "then", "if", "so", "at", "by", "as", "will", "should",
+  "can", "every", "each", "using", "use", "into", "up", "out", "some", "new",
+]);
+
+/**
+ * A single word matched against ~77 of 893 GitHub descriptions ("new", as in
+ * "create a NEW gist") still isn't a real signal on its own — this is the
+ * floor a candidate's total idf-weighted score must clear to be considered,
+ * roughly "matched on a word present in under ~13% of GitHub descriptions".
+ */
+const GITHUB_MATCH_MIN_SCORE = 2;
+
+/**
+ * Naive plural stripping so "close stale issues" matches the same GitHub
+ * tools as "close a stale issue" — exact-token matching otherwise treats
+ * "issue"/"issues" and "commit"/"commits" as unrelated words, since most
+ * descriptions use one form and a request may use the other.
+ */
+function stem(word: string): string {
+  if (word.length > 5 && /(?:ches|shes|xes|zes|ses)$/.test(word)) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 2 && !STOPWORDS.has(w))
+    .map(stem);
+}
+
+function renderToolLine(slug: string, t: ToolSpec): string {
+  const vis = t.external ? " [external/visible]" : "";
+  return `  - ${slug} (${t.app}, ${t.kind.toUpperCase()}${vis}): ${t.desc} — args: ${t.argHint}`;
+}
+
+interface GithubIndexEntry {
+  slug: string;
+  words: Set<string>;
+}
+
+/**
+ * GitHub also exposes Projects/Teams/Activity endpoints, so generic words
+ * ("project", "team", "activity", "track") sit in hundreds of descriptions —
+ * scoring by raw word-overlap count let those swamp the budget for requests
+ * that were never about GitHub at all. Weighting each word by how RARE it is
+ * across the 893 descriptions (inverse document frequency, computed once and
+ * cached) means a distinctive word ("pull", "branch", "release", "commit")
+ * outweighs a dozen generic ones, matching the words that actually name a
+ * GitHub action rather than the words any project-tracking sentence contains.
+ */
+let githubIndexCache: { entries: GithubIndexEntry[]; idf: Map<string, number> } | null = null;
+
+function githubIndex(): { entries: GithubIndexEntry[]; idf: Map<string, number> } {
+  if (githubIndexCache) return githubIndexCache;
+  const entries: GithubIndexEntry[] = [];
+  const df = new Map<string, number>();
+  for (const [slug, t] of Object.entries(TOOLS)) {
+    if (t.app !== "github") continue;
+    const words = new Set(tokenize(`${slug} ${t.desc}`));
+    entries.push({ slug, words });
+    for (const w of words) df.set(w, (df.get(w) ?? 0) + 1);
+  }
+  const idf = new Map<string, number>();
+  for (const [w, count] of df) idf.set(w, Math.log((entries.length + 1) / (count + 1)));
+  githubIndexCache = { entries, idf };
+  return githubIndexCache;
+}
+
+/**
+ * One line per tool, exactly how the builder LLM sees the action catalog —
+ * except GitHub, which is filtered to what this request plausibly needs (see
+ * `GITHUB_FLOOR_SLUGS`). Every other toolkit (~106 entries total) is small
+ * enough, and its slugs specific enough, that trimming it isn't worth the
+ * risk: keep it in full always.
+ *
+ * @param requestText The user's automation request (build) or edit
+ *   instruction — scored word-by-word against each GitHub tool's slug+desc.
+ * @param keepSlugs GitHub tool slugs already used by the graph being edited —
+ *   kept regardless of score so an edit that doesn't restate "github" can
+ *   still see the action it's about to change.
+ */
+export function toolsForPrompt(requestText = "", keepSlugs: Iterable<string> = []): string {
+  const keep = new Set(keepSlugs);
+  const words = tokenize(requestText);
+
+  const included = new Set<string>();
+  for (const [slug, t] of Object.entries(TOOLS)) {
+    if (t.app !== "github" || GITHUB_FLOOR_SLUGS.has(slug) || keep.has(slug)) {
+      included.add(slug);
+    }
+  }
+
+  const { entries, idf } = githubIndex();
+  const candidates: { slug: string; score: number }[] = [];
+  for (const entry of entries) {
+    if (included.has(entry.slug)) continue;
+    let score = 0;
+    for (const w of words) if (entry.words.has(w)) score += idf.get(w) ?? 0;
+    if (score >= GITHUB_MATCH_MIN_SCORE) candidates.push({ slug: entry.slug, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  for (const c of candidates.slice(0, GITHUB_MATCH_BUDGET)) included.add(c.slug);
+
   return Object.entries(TOOLS)
-    .map(([slug, t]) => {
-      const vis = t.external ? " [external/visible]" : "";
-      return `  - ${slug} (${t.app}, ${t.kind.toUpperCase()}${vis}): ${t.desc} — args: ${t.argHint}`;
-    })
+    .filter(([slug]) => included.has(slug))
+    .map(([slug, t]) => renderToolLine(slug, t))
     .join("\n");
 }

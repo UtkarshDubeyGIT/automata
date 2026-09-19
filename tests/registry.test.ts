@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { APP_LABELS, isPlaceholder, SIMULATED_APPS, TOOLS, TRIGGERS } from "@/lib/workflows/registry";
+import { APP_LABELS, isPlaceholder, SIMULATED_APPS, TOOLS, toolsForPrompt, TRIGGERS } from "@/lib/workflows/registry";
 
 /**
  * The registry is the contract between the AI builder and the engine, and
@@ -162,4 +162,58 @@ test("GitHub toolkit exposes comprehensive catalog of tools across workflows", (
   assert.ok(slugs.has("GITHUB_CREATE_A_RELEASE"));
   assert.ok(slugs.has("GITHUB_GET_THE_AUTHENTICATED_USER"));
   assert.ok(slugs.has("GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER"));
+});
+
+/**
+ * `toolsForPrompt` is what the builder LLM actually sees — 999 registry
+ * entries would be ~73K tokens per call if sent whole, 893 of them GitHub.
+ * These pin the filter's three guarantees: every non-GitHub tool always
+ * shows up, common GitHub actions always show up, and an explicit keep-slug
+ * always shows up even with no keyword match.
+ */
+test("toolsForPrompt never drops a non-GitHub tool, regardless of request text", () => {
+  const nonGithubSlugs = Object.entries(TOOLS)
+    .filter(([, t]) => t.app !== "github")
+    .map(([slug]) => slug);
+  for (const requestText of ["", "unrelated shopify order to slack", "github issues and pull requests"]) {
+    const prompt = toolsForPrompt(requestText);
+    for (const slug of nonGithubSlugs) {
+      assert.ok(prompt.includes(`- ${slug} (`), `${slug} missing from prompt for "${requestText}"`);
+    }
+  }
+});
+
+test("toolsForPrompt keeps a floor of common GitHub actions with no request text", () => {
+  const prompt = toolsForPrompt();
+  for (const slug of ["GITHUB_CREATE_AN_ISSUE", "GITHUB_CREATE_A_PULL_REQUEST", "GITHUB_MERGE_A_PULL_REQUEST"]) {
+    assert.ok(prompt.includes(`- ${slug} (`), `floor set missing ${slug}`);
+  }
+  // The whole point: unprompted, GitHub shouldn't dump all ~893 actions.
+  const githubLines = prompt.split("\n").filter((l) => / \(github,/.test(l));
+  assert.ok(githubLines.length < 100, `expected a small GitHub floor, got ${githubLines.length} lines`);
+});
+
+test("toolsForPrompt surfaces more GitHub actions for a GitHub-flavored request", () => {
+  const floorOnly = toolsForPrompt();
+  const githubHeavy = toolsForPrompt("When a new issue is opened, comment on it and merge related pull requests");
+  const count = (p: string) => p.split("\n").filter((l) => / \(github,/.test(l)).length;
+  assert.ok(count(githubHeavy) > count(floorOnly), "a GitHub-flavored request should surface more than the floor set");
+});
+
+test("toolsForPrompt always includes an explicit keepSlugs entry, even off-topic", () => {
+  // Not in the floor set and nothing in this request text should match it.
+  const slug = "GITHUB_CREATE_A_GIST";
+  const withoutKeep = toolsForPrompt("post a daily quote to linkedin");
+  assert.ok(!withoutKeep.includes(`- ${slug} (`), "test assumption broke: gist slug matched without keepSlugs");
+  const withKeep = toolsForPrompt("post a daily quote to linkedin", [slug]);
+  assert.ok(withKeep.includes(`- ${slug} (`), "keepSlugs entry was dropped");
+});
+
+test("toolsForPrompt matches a request's plural against a tool's singular (and back)", () => {
+  // Exact-token matching (vs. the old plain substring scan) otherwise treats
+  // "issue"/"issues" as unrelated words, so most of a plural request's real
+  // hits would silently disappear.
+  const count = (p: string) => p.split("\n").filter((l) => / \(github,/.test(l)).length;
+  assert.equal(count(toolsForPrompt("close stale issues")), count(toolsForPrompt("close a stale issue")));
+  assert.equal(count(toolsForPrompt("show recent commits")), count(toolsForPrompt("show a recent commit")));
 });
