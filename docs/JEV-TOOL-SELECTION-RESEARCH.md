@@ -313,3 +313,71 @@ mechanism exactly: `chaser`, `paychasers`, `zoho_invoice`, and `resend` all scor
 answer (`chaser`). Jev's extra recall did look genuinely useful on the two prompts
 that were ambiguous by design (multiple valid channels named or implied) — consistent
 with the aggregate result: better recall, worse precision, worse net.
+
+## Addendum: is the isolated-Noul failure just a wrong API choice?
+
+Fair challenge raised on this: is the Noul fan-out result actually a context-limit
+problem or a docs-misuse problem, rather than a real model limitation? Checked both —
+neither. Every call in this research stayed under ~5% of the documented 64k-token
+budget (measured: 974 input tokens for an 11-question call), and zero of the ~34 live
+calls across every test in this doc returned an error; the request/response shapes
+match the documented schema exactly.
+
+But the challenge surfaced a real gap in what was tested, not just how it was called.
+The very first ad hoc test (in the main body above) already contained the evidence:
+a **Choice** question over the same 10 candidates as the Noul fan-out produced a real
+comparative distribution (`jira=0.50, sentry=0.41` vs. `linear=0.01,
+request_tracker=0.06`) where the isolated Noul scores on the identical candidates were
+bunched together with no separation (`0.86-0.87` across the board). Choice's
+probabilities must sum to ~1 across every option given, which forces genuine
+competition between candidates — the comparative signal isolated Noul questions
+structurally cannot produce. `scripts/eval-jev-choice-narrowing.ts` tests that
+directly: one Choice call over all ~20-40 retrieved candidates per case, thresholded
+on the full probability distribution (not just its top-1 pick), scored against the
+same 24 cases as the main result.
+
+**Result: real improvement over the Noul fan-out, still short of baseline, for a
+different and more specific reason.**
+
+| | precision | recall | F1 | avg latency |
+|---|---|---|---|---|
+| baseline (current GPT call) | 0.674 | 0.792 | **0.714** | 1387ms |
+| Jev Noul fan-out (isolated) | 0.486 | 0.854 | 0.589 | 456ms |
+| Jev Choice (comparative distribution) | 0.653 | 0.858 | **0.676** | 455ms |
+
+By persona, Choice closes most of the gap to baseline on `technical-explicit`
+(0.876 vs 0.905) and clearly beats Noul everywhere except one case — but that one case
+is the whole story:
+
+- **Sibling suppression works.** "if invoice overdue send reminder" (the case that
+  originally showed `chaser/paychasers/zoho_invoice/resend` all scoring 0.77-0.90
+  independently under Noul) is fixed under Choice — forcing the candidates to compete
+  for shared probability mass suppresses the near-duplicates the isolated approach
+  couldn't.
+- **But Choice starves genuine multi-app answers.** The 4-app chain
+  (HubSpot → Airtable → Slack → Gmail) that both baseline and Noul scored perfectly
+  (F1 = 1.00) collapsed under Choice to `hubspot=0.93` with everything else — including
+  three apps the request explicitly needs — pushed under 0.05. F1 = 0.40, missing 3 of
+  4 required apps. This is why `over-detailed` flips from Noul's best persona (0.917)
+  to Choice's worst (0.625): the exact opposite of the sibling-confusion problem, and
+  just as costly.
+
+**Why, precisely:** Choice's probability distribution is shaped like "which one is
+the answer" — a single-selection posterior — not "which subset is needed." It fixes
+isolation's failure mode (independent absolute judgments can't suppress siblings) by
+introducing the opposite one (a forced single-selection shape can't represent multiple
+simultaneously-true answers without starving the ones that aren't the single most
+central app). Neither Jev primitive alone carries both properties this task actually
+needs: comparison across the full candidate list, *and* the ability to name more than
+one true answer without them competing against each other. The current GPT call holds
+both at once — it sees every candidate together and can still emit a multi-item list —
+which is exactly why it remains the strongest of the three despite being the slowest.
+
+**Recommendation unchanged, sharper reason why:** don't adopt Jev for this call. Not
+because the API was misused or under-tested — both were checked — but because this
+specific task (subset selection over a candidate list) sits between what Noul and
+Choice are each shaped to do, and picking either one trades one real failure mode for
+another rather than eliminating it. A hybrid (e.g., Choice's distribution to break
+ties between siblings, Noul's independence to avoid starving legitimate multi-app
+answers) is a plausible next idea and genuinely untested here — but it's real
+engineering, not another quick swap.
