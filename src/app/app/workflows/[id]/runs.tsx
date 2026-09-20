@@ -31,6 +31,8 @@ export interface RunEntry {
   time: string;
   startedAt?: string;
   error?: string | null;
+  /** The handler currently executing, if this run is being driven. */
+  active?: { stepId: string; type: StepType; title: string; startedAt: string } | null;
   /** The step that stopped the run, from log.failed — never in the journal. */
   failedStepId?: string | null;
   /** Set while the run is suspended waiting for a person. */
@@ -49,7 +51,7 @@ export interface RunEntry {
    * sitting at "waiting" for eight minutes explains itself instead of looking
    * stuck.
    */
-  awaiting?: { kind: string; operation?: string; note: string; since: string } | null;
+  awaiting?: { stepId: string; kind: string; operation?: string; note: string; since: string } | null;
   journal?: JournalEntryView[];
 }
 
@@ -105,6 +107,11 @@ export function Runs({
                 <div className="text-[14px] font-medium text-ink">{run.label}</div>
                 {run.error ? (
                   <div className="line-clamp-2 text-[12.5px] text-danger">{run.error}</div>
+                ) : run.active ? (
+                  <div className="flex items-center gap-1 text-[12.5px] text-brand">
+                    <Icon name="activity" size={12} className="animate-pulse" />
+                    Running {run.active.title}
+                  </div>
                 ) : (
                   <div className="text-[12.5px] text-ink-subtle">
                     {run.journal?.length ?? 0} step{(run.journal?.length ?? 0) === 1 ? "" : "s"}

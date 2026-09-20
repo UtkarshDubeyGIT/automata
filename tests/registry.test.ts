@@ -37,6 +37,18 @@ test("every app in the registry has a display label", () => {
   }
 });
 
+test("GA4 reports are a native, read-only workflow action with safe defaults", () => {
+  const report = TOOLS.GOOGLE_ANALYTICS_RUN_REPORT;
+  assert.ok(report, "GA4 reporting must be selectable by the workflow builder");
+  assert.equal(report.app, "google_analytics");
+  assert.equal(report.kind, "read");
+  assert.equal(report.external, false);
+  assert.equal(report.autofill?.property, "ga4_property");
+  assert.deepEqual(report.defaults?.date_ranges, [{ startDate: "30daysAgo", endDate: "today" }]);
+  assert.deepEqual(report.defaults?.dimensions, ["date"]);
+  assert.deepEqual(report.defaults?.metrics, ["activeUsers", "sessions", "screenPageViews"]);
+});
+
 test("tool slugs are Composio-shaped", () => {
   // A lower-cased or hyphenated slug is a 404 that only shows up on a live run.
   for (const slug of Object.keys(TOOLS)) {

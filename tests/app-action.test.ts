@@ -22,6 +22,16 @@ let connections: { platform: string; status: string }[] = [
   { platform: "github", status: "connected" },
 ];
 const calls: { slug: string; args: Record<string, unknown>; opts?: { retries?: number } }[] = [];
+const proxyCalls: Array<{ entityId: string; toolkit: string; request: Record<string, unknown> }> = [];
+let proxyResult: { status: number; data: Record<string, unknown> } | null = {
+  status: 200,
+  data: {
+    dimensionHeaders: [{ name: "date" }],
+    metricHeaders: [{ name: "activeUsers" }],
+    rows: [{ dimensionValues: [{ value: "20260920" }], metricValues: [{ value: "42" }] }],
+    rowCount: 1,
+  },
+};
 let failTimes = 0;
 
 mock.module("@/lib/social/composio", {
@@ -57,6 +67,15 @@ mock.module("@/lib/brand", {
     getBrandProfileForWorkspace: async () => null,
     brandContext: () => "",
     brandVideoHint: () => "",
+  },
+});
+
+mock.module("@/lib/social/composio-proxy", {
+  namedExports: {
+    proxyFor: async (entityId: string, toolkit: string, request: Record<string, unknown>) => {
+      proxyCalls.push({ entityId, toolkit, request });
+      return proxyResult;
+    },
   },
 });
 
@@ -122,4 +141,112 @@ test("an app with no toolkit runs simulated even against a live provider", async
   assert.equal(out.sim, true, "simulated output must be tainted so a live write refuses it");
   assert.equal(calls.length, 0, "a simulated app must never reach Composio");
   assert.match(String(out.text), /record/);
+});
+
+test("a GA4 report uses the token-safe proxy and returns readable metric rows", async () => {
+  connections = [{ platform: "google_analytics", status: "connected" }];
+  proxyCalls.length = 0;
+  proxyResult = {
+    status: 200,
+    data: {
+      dimensionHeaders: [{ name: "date" }],
+      metricHeaders: [{ name: "activeUsers" }],
+      rows: [{ dimensionValues: [{ value: "20260920" }], metricValues: [{ value: "42" }] }],
+      rowCount: 1,
+    },
+  };
+
+  const out = await run({
+    tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+    arguments: { property: "123456789" },
+  }) as Record<string, unknown>;
+
+  assert.equal(proxyCalls.length, 1);
+  assert.equal(proxyCalls[0].toolkit, "google_analytics");
+  assert.equal(
+    proxyCalls[0].request.endpoint,
+    "https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+  );
+  assert.deepEqual(proxyCalls[0].request.body, {
+    dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+    dimensions: [{ name: "date" }],
+    metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }],
+    limit: 100,
+  });
+  assert.match(String(out.text), /date=20260920/);
+  assert.match(String(out.text), /activeUsers=42/);
+});
+
+test("a GA4 report parses flexible JSON arguments before calling Google", async () => {
+  connections = [{ platform: "google_analytics", status: "connected" }];
+  proxyCalls.length = 0;
+
+  await run({
+    tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+    arguments: {
+      property: "properties/987654321",
+      date_ranges: '[{"startDate":"2026-09-01","endDate":"2026-09-19"}]',
+      dimensions: '["country"]',
+      metrics: '["sessions"]',
+      dimension_filter: '{"filter":{"fieldName":"country"}}',
+      order_bys: '[{"metric":{"metricName":"sessions"},"desc":true}]',
+      metric_aggregations: '["TOTAL"]',
+      limit: 25,
+      offset: 5,
+    },
+  });
+
+  assert.deepEqual(proxyCalls[0].request.body, {
+    dateRanges: [{ startDate: "2026-09-01", endDate: "2026-09-19" }],
+    dimensions: [{ name: "country" }],
+    metrics: [{ name: "sessions" }],
+    dimensionFilter: { filter: { fieldName: "country" } },
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    metricAggregations: ["TOTAL"],
+    limit: 25,
+    offset: "5",
+  });
+});
+
+test("a GA4 report permits an aggregate-only report without dimensions", async () => {
+  connections = [{ platform: "google_analytics", status: "connected" }];
+  proxyCalls.length = 0;
+
+  await run({
+    tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+    arguments: { property: "123456789", dimensions: "[]", metrics: '["sessions"]' },
+  });
+
+  assert.deepEqual(proxyCalls[0].request.body, {
+    dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+    dimensions: [],
+    metrics: [{ name: "sessions" }],
+    limit: 100,
+  });
+});
+
+test("an invalid GA4 JSON argument fails before a provider request", async () => {
+  connections = [{ platform: "google_analytics", status: "connected" }];
+  proxyCalls.length = 0;
+
+  await assert.rejects(
+    run({
+      tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+      arguments: { property: "123456789", metrics: "not-json" },
+    }),
+    /metrics must be valid JSON/,
+  );
+  assert.equal(proxyCalls.length, 0);
+});
+
+test("a rate-limited GA4 response names the retryable provider failure", async () => {
+  connections = [{ platform: "google_analytics", status: "connected" }];
+  proxyCalls.length = 0;
+  proxyResult = { status: 429, data: { error: { message: "quota exhausted" } } };
+
+  await assert.rejects(
+    run({ tool: "GOOGLE_ANALYTICS_RUN_REPORT", arguments: { property: "123456789" } }),
+    /rate limited.*quota exhausted/i,
+  );
+  assert.equal(proxyCalls.length, 1);
 });

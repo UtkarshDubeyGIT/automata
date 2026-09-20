@@ -7,6 +7,7 @@ const integrations = readFileSync("src/components/connect-apps.tsx", "utf8");
 const canvas = readFileSync("src/app/app/workflows/[id]/canvas.tsx", "utf8");
 const chat = readFileSync("src/app/app/workflows/builder-chat.tsx", "utf8");
 const inspector = readFileSync("src/app/app/workflows/[id]/inspector.tsx", "utf8");
+const workflowRoute = readFileSync("src/app/api/workflows/[id]/route.ts", "utf8");
 
 test("the workflow header exposes one history button instead of duplicate refresh icons", () => {
   assert.equal((editor.match(/aria-label="Undo"/g) ?? []).length, 1);
@@ -122,4 +123,47 @@ test("the workflow AI drawer uses concise, actionable empty-state copy", () => {
 test("the workflow AI chat provides a labelled Start fresh button", () => {
   assert.match(chat, /aria-label="Start fresh"/);
   assert.match(chat, />\s*Start fresh\s*<\/Button>/);
+});
+
+test("the workflow composer keeps its first-set suggestions stable after a prompt", () => {
+  assert.match(chat, /hintsEnabled=\{messages\.length === 0\}/);
+  assert.match(chat, /useRotatingHint\(placeholders \?\? \[\], empty && hintsEnabled\)/);
+});
+
+test("the workflow composer keeps each rotating suggestion visible longer", () => {
+  assert.match(chat, /const HINT_HOLD_MS = 6000;/);
+});
+
+test("Tab accepts the visible workflow suggestion into the composer", () => {
+  assert.match(chat, /if \(e\.key === "Tab" && !e\.shiftKey && rotating && empty && hint\.shown\) \{/);
+  assert.match(chat, /e\.preventDefault\(\);\s*onChange\(hint\.text\);/);
+});
+
+test("the workflow AI chat has a clickable Enter control that submits the prompt", () => {
+  assert.match(
+    chat,
+    /<Button\s+size="sm"\s+icon="send"\s+aria-label="Send to agent"\s+onClick=\{onSubmit\}\s+loading=\{building\}\s+disabled=\{[^}]+\}\s+className="[^"]*ml-auto[^"]*"\s*>\s*Enter\s*<\/Button>/,
+  );
+});
+
+test("a live run names its active node and sends that state to the canvas", () => {
+  assert.match(workflowRoute, /active: r\.log\?\.active/);
+  assert.match(workflowRoute, /stepId: r\.log\.awaiting\.stepId/);
+  assert.match(editor, /const LIVE_RUN_POLL_MS = 1_000/);
+  assert.match(editor, /liveStep=\{liveStep\}/);
+  assert.match(canvas, /status === "running"/);
+  assert.match(canvas, /Running now/);
+});
+
+test("a node waiting for a human decision is marked as needing attention", () => {
+  assert.match(editor, /type NodeRunStatus = "done" \| "failed" \| "running" \| "waiting" \| "needs_attention"/);
+  assert.match(editor, /if \(run\.pending\) progress\[run\.pending\.stepId\] = "needs_attention"/);
+  assert.match(canvas, /status === "needs_attention"/);
+  assert.match(canvas, /status === "needs_attention"[\s\S]*"alert"/);
+  assert.match(canvas, /Needs attention/);
+});
+
+test("a node waiting on background work uses a small clock icon", () => {
+  assert.match(canvas, /status === "waiting"[\s\S]*"clock"/);
+  assert.match(canvas, /Waiting on work/);
 });

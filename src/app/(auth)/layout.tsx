@@ -1,5 +1,10 @@
 import { AuthOrbits } from "@/components/auth-orbits";
 import { Logo } from "@/components/logo";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default function AuthLayout({
   children,

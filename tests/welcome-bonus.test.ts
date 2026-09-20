@@ -95,16 +95,16 @@ test("the in-app dialog carries the promised copy and is mounted for new users o
   assert.match(workspace, /select\("id, name, plan, created_at"\)/);
 });
 
-test("the landing page pops the promo once, with confetti, and points at signup", () => {
+test("the landing offer waits 4.5 seconds before a minimal celebration", () => {
   const modal = readFileSync("src/components/promo/landing-promo-modal.tsx", "utf8");
+  assert.match(modal, /const OPEN_DELAY_MS = 4_500/);
   assert.match(modal, /ConfettiBurst/);
   assert.match(modal, /markSeen\(LANDING_PROMO_KEY\)/);
   assert.match(modal, /href="\/signup"/);
-  assert.match(modal, /Welcome gift: \{bonus\} free credits/);
+  assert.doesNotMatch(modal, /name="sparkles"|name="globe"/, "the minimal offer has no decorative icon");
 
   const landing = readFileSync("src/components/landing-space/space-landing.tsx", "utf8");
   assert.match(landing, /<LandingPromoModal \/>/);
-  assert.match(landing, /WELCOME_BONUS_CREDITS\.toLocaleString\(\)\} credit welcome bonus/);
 });
 
 test("confetti stays out of the way and respects reduced motion", () => {

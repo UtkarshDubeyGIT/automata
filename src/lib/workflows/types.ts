@@ -270,6 +270,20 @@ export interface AwaitingState {
   since: string;
 }
 
+/**
+ * The step the engine is executing right now.
+ *
+ * Journals only describe completed work. Keeping this separate makes a
+ * long-running provider call visible to the canvas without pretending its
+ * output already exists or making it replayable.
+ */
+export interface ActiveStep {
+  stepId: string;
+  type: StepType;
+  title: string;
+  startedAt: string;
+}
+
 /** Stored in `workflow_runs.log` (jsonb). */
 export interface RunLog {
   v: 1;
@@ -297,6 +311,8 @@ export interface RunLog {
    * when that row lands.
    */
   awaiting?: AwaitingState;
+  /** Present only while one step handler is actively being executed. */
+  active?: ActiveStep;
   error?: string;
   /**
    * WHICH step stopped the run. `error` alone is a sentence; this is the data

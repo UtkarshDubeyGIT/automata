@@ -358,6 +358,7 @@ export function BuilderChat({
       onSubmit={() => void submit(input)}
       placeholder={placeholder}
       placeholders={placeholders}
+      hintsEnabled={messages.length === 0}
       building={building}
       disabled={navigationPending}
       taRef={setTa}
@@ -529,7 +530,7 @@ export function BuilderChat({
 }
 
 /** How long one hint holds, and how long it takes to cross-fade to the next. */
-const HINT_HOLD_MS = 3400;
+const HINT_HOLD_MS = 6000;
 const HINT_FADE_MS = 400;
 
 /**
@@ -582,6 +583,7 @@ function PromptBox({
   onSubmit,
   placeholder,
   placeholders,
+  hintsEnabled = true,
   building,
   disabled = false,
   taRef,
@@ -592,15 +594,17 @@ function PromptBox({
   onSubmit: () => void;
   placeholder: string;
   placeholders?: string[];
+  /** Examples are an empty-conversation affordance, not a chat distraction. */
+  hintsEnabled?: boolean;
   building: boolean;
   disabled?: boolean;
   taRef: (el: HTMLTextAreaElement | null) => void;
   /** Roomier type, softer edge — the composer as the centrepiece of a screen. */
   hero?: boolean;
 }) {
-  const rotating = (placeholders?.length ?? 0) > 0;
+  const rotating = hintsEnabled && (placeholders?.length ?? 0) > 0;
   const empty = value.length === 0;
-  const hint = useRotatingHint(placeholders ?? [], empty);
+  const hint = useRotatingHint(placeholders ?? [], empty && hintsEnabled);
 
   return (
     <div
@@ -617,6 +621,11 @@ function PromptBox({
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
+            if (e.key === "Tab" && !e.shiftKey && rotating && empty && hint.shown) {
+              e.preventDefault();
+              onChange(hint.text);
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               onSubmit();
@@ -649,22 +658,30 @@ function PromptBox({
       <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
         {hero ? (
           <span className="pl-1 text-[12px] text-ink-subtle">
+            {rotating && empty ? (
+              <><kbd className="font-sans font-medium">Tab</kbd> to fill · </>
+            ) : null}
             <kbd className="font-sans font-medium">Enter</kbd> to build
           </span>
         ) : (
           <span className="pl-1 text-[11.5px] text-ink-subtle">
+            {rotating && empty ? (
+              <><kbd className="font-sans font-medium">Tab</kbd> to fill · </>
+            ) : null}
             <kbd className="font-sans font-medium">Enter</kbd> to update
           </span>
         )}
         <Button
           size="sm"
           icon="send"
-          aria-label="Build"
+          aria-label="Send to agent"
           onClick={onSubmit}
           loading={building}
-          disabled={disabled}
-          className="ml-auto"
-        />
+          disabled={disabled || !value.trim()}
+          className="ml-auto disabled:bg-inset disabled:text-ink-disabled disabled:shadow-none disabled:opacity-100"
+        >
+          Enter
+        </Button>
       </div>
     </div>
   );

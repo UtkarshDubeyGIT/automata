@@ -36,7 +36,7 @@ test("subscription metadata changes never manufacture another monthly credit gra
   assert.equal(await getBalance("workspace-1"), 0);
 });
 
-test("renewal credits follow the invoiced plan after a portal upgrade with stale checkout metadata", async () => {
+test("a retired Team price grants the Pro allowance after the tier is removed", async () => {
   db.replace("credit_ledger", []);
   db.replace("billing_events", []);
   db.replace("billing_customers", [{ workspace_id: "workspace-1", stripe_customer_id: "cus_owned", plan: "pro" }]);
@@ -46,5 +46,5 @@ test("renewal credits follow the invoiced plan after a portal upgrade with stale
     lines: { data: [{ pricing: { price_details: { price: "price_team" } } }] },
   } } };
   assert.equal((await POST(request())).status, 200);
-  assert.equal(await getBalance("workspace-1"), 40_000);
+  assert.equal(await getBalance("workspace-1"), 10_000);
 });

@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { useCredits } from "@/components/ui/credits";
 import { cn } from "@/lib/utils";
 import type { Workflow } from "@/lib/data/workflows";
-import { idSeed, newStepFrom, palette, type PaletteBlock } from "@/lib/workflows/blocks";
+import { describeStep, idSeed, newStepFrom, palette, type PaletteBlock } from "@/lib/workflows/blocks";
 import { relTime } from "@/lib/workflows/display";
 import {
   addCase,
@@ -55,6 +55,7 @@ import { Canvas } from "./canvas";
 import { Inspector } from "./inspector";
 import { Runs, type RunEntry } from "./runs";
 import { StepPicker } from "./step-picker";
+import { WorkflowActivationDialog } from "@/components/workflow-activation-dialog";
 
 /**
  * The automation editor — a visual builder over the same graph the AI writes.
@@ -96,6 +97,24 @@ const WEBHOOK_TRIGGER = palette().find((block) => block.id === "trigger:webhook"
 
 type Tab = "editor" | "runs";
 
+const LIVE_RUN_POLL_MS = 1_000;
+const RUN_POLL_MS = 5_000;
+type NodeRunStatus = "done" | "failed" | "running" | "waiting" | "needs_attention";
+
+/** Convert the durable run journal plus its in-flight marker into canvas state. */
+function progressForRun(run: RunEntry | undefined): Record<string, NodeRunStatus> | undefined {
+  if (!run) return undefined;
+  const progress: Record<string, NodeRunStatus> = {};
+  for (const entry of run.journal ?? []) progress[entry.stepId] = "done";
+  if (run.failedStepId) progress[run.failedStepId] = "failed";
+  if (run.active) progress[run.active.stepId] = "running";
+  // A human approval is different from machine work: this run can advance
+  // only when someone acts, so the node must ask for attention explicitly.
+  if (run.pending) progress[run.pending.stepId] = "needs_attention";
+  if (run.awaiting) progress[run.awaiting.stepId] = "waiting";
+  return progress;
+}
+
 export default function WorkflowDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -119,6 +138,7 @@ export default function WorkflowDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const [togglingActive, setTogglingActive] = useState(false);
+  const [activationConfirmationOpen, setActivationConfirmationOpen] = useState(false);
   const [runs, setRuns] = useState<RunEntry[]>([]);
   const [openRunId, setOpenRunId] = useState<string | null>(deepLinkedRun);
   const [tab, setTab] = useState<Tab>(deepLinkedRun ? "runs" : "editor");
@@ -152,6 +172,8 @@ export default function WorkflowDetailPage() {
   /** Only a save the user asked for spins the Save button. Auto-save must be invisible. */
   const [manualSaving, setManualSaving] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
+  /** Keeps the first second of a manual run live even before its row reaches the client. */
+  const [watchingRun, setWatchingRun] = useState(false);
   const [chatOpen, setChatOpen] = useState(searchParams.get("chat") === "1");
   const [modulesOpen, setModulesOpen] = useState(true);
   const [replay, setReplay] = useState<Record<string, "done" | "failed"> | undefined>();
@@ -294,11 +316,33 @@ export default function WorkflowDetailPage() {
    * whole graph pulsing as though data were moving through it.
    */
   const driving = runs.some((r) => r.status === "running");
+  const liveRun = runs.find((run) => run.status === "running" || run.status === "waiting");
+  const activeStep = liveRun?.active ?? null;
+  // The engine stores a stable title with the run, while the canvas's node
+  // catalog supplies the friendlier label people recognize at a glance.
+  const liveStep = activeStep && graph?.steps[activeStep.stepId]
+    ? { ...activeStep, title: describeStep(graph.steps[activeStep.stepId]).title }
+    : activeStep;
+  const liveProgress = useMemo(() => progressForRun(liveRun), [liveRun]);
+  const displayedProgress = liveProgress ?? replay;
+
   useEffect(() => {
-    if (!inFlight || notFound) return;
-    const id = window.setInterval(() => void refresh(true), 5000);
+    if ((!inFlight && !runningNow && !watchingRun) || notFound) return;
+    const id = window.setInterval(
+      () => void refresh(true),
+      driving || runningNow || watchingRun ? LIVE_RUN_POLL_MS : RUN_POLL_MS,
+    );
     return () => window.clearInterval(id);
-  }, [inFlight, notFound, refresh]);
+  }, [driving, inFlight, notFound, refresh, runningNow, watchingRun]);
+
+  // A proxy timeout can leave the browser unsure whether a run was created.
+  // Check rapidly for one minute; once a row appears, normal in-flight polling
+  // takes over instead of leaving a permanent fast poll behind.
+  useEffect(() => {
+    if (!watchingRun || inFlight) return;
+    const id = window.setTimeout(() => setWatchingRun(false), 60_000);
+    return () => window.clearTimeout(id);
+  }, [inFlight, watchingRun]);
 
   const graphDirty = Boolean(graph) && JSON.stringify(graph) !== savedGraph;
   const positionsDirty = JSON.stringify(positions) !== savedPositions;
@@ -754,6 +798,10 @@ export default function WorkflowDetailPage() {
       return;
     }
     setRunningNow(true);
+    setWatchingRun(true);
+    setTab("editor");
+    void refresh(true);
+    let keepWatching = false;
     try {
       const outcome = await requestRun(workflowId);
       // The balance may have moved — a run is billed, and a route-side failure
@@ -818,9 +866,11 @@ export default function WorkflowDetailPage() {
         toast({ title: "Run queued", description: `${wf.name} starts on the next beat.` });
       }
       await refresh(true);
-      setTab("runs");
+      keepWatching = outcome.kind === "unknown";
+      setWatchingRun(keepWatching);
     } finally {
       setRunningNow(false);
+      if (!keepWatching) setWatchingRun(false);
     }
   }
 
@@ -867,7 +917,7 @@ export default function WorkflowDetailPage() {
     }
   }
 
-  async function toggleActive(next: boolean) {
+  async function toggleActive(next: boolean, confirmed = false) {
     // Without this a double-click sends two PATCHes whose responses can land
     // out of order, leaving the switch showing the opposite of the truth.
     if (togglingActive) return;
@@ -909,6 +959,10 @@ export default function WorkflowDetailPage() {
       return;
     }
     if (next && dirty && !(await save())) return;
+    if (next && !confirmed) {
+      setActivationConfirmationOpen(true);
+      return;
+    }
     const previous = active;
     setActive(next);
     setTogglingActive(true);
@@ -1076,25 +1130,27 @@ export default function WorkflowDetailPage() {
       {runs.some((r) => r.status === "waiting") && (
         <button
           onClick={() => setTab("runs")}
-          className="flex w-full items-start gap-2 rounded-card border border-brand bg-brand-subtle px-4 py-3 text-left"
+          data-workflow-notice="approval"
+          className="flex w-full min-w-0 items-center gap-2 border-b border-brand-border py-2 text-left text-[12px]"
         >
-          <Icon name="hand" size={15} className="mt-0.5 flex-none text-brand" />
-          <div className="min-w-0 text-[13px] text-ink-muted">
+          <Icon name="hand" size={13} className="flex-none text-brand" />
+          <div className="min-w-0 flex-1 truncate text-ink-muted">
             <span className="font-semibold text-ink">Waiting for your review — </span>
-            nothing is sent until you approve it. Open the Runs tab to decide.
+            nothing is sent until you approve it.
           </div>
+          <span className="flex-none rounded-control px-2 py-1 font-semibold text-brand hover:bg-brand-subtle">Review</span>
         </button>
       )}
 
       {loadError && wf && (
-        <div className="flex items-start gap-2 rounded-card border border-warning-border bg-warning-surface px-4 py-3">
-          <Icon name="info" size={15} className="mt-0.5 flex-none text-warning" />
-          <div className="min-w-0 flex-1 text-[13px] text-ink-muted">
+        <div data-workflow-notice="refresh" className="flex min-w-0 items-center gap-2 border-b border-warning-border/70 py-2 text-[12px]">
+          <Icon name="info" size={13} className="flex-none text-warning" />
+          <div className="min-w-0 flex-1 truncate text-ink-muted">
             Couldn&apos;t refresh — {loadError} What you see may be out of date.
           </div>
           <button
             onClick={() => void refresh(true)}
-            className="flex-none text-[12.5px] font-semibold text-brand hover:underline"
+            className="flex-none rounded-control px-2 py-1 font-semibold text-brand hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             Retry
           </button>
@@ -1102,17 +1158,23 @@ export default function WorkflowDetailPage() {
       )}
 
       {(blocking.length > 0 || editorIssues.length > 0) && (
-        <div className="flex items-start gap-2 rounded-card border border-danger-border bg-danger-surface px-4 py-3">
-          <Icon name="info" size={15} className="mt-0.5 flex-none text-danger" />
-          <div className="min-w-0 text-[13px] text-ink-muted">
+        <div data-workflow-notice="publish" className="flex min-w-0 items-center gap-2 border-b border-danger-border/70 py-2 text-[12px]">
+          <Icon name="info" size={13} className="flex-none text-danger" />
+          <div className="min-w-0 flex-1 truncate text-ink-muted">
             <span className="font-semibold text-danger">This draft can&apos;t be published yet — </span>
             <button
-              className="text-left hover:underline"
+              className="text-left font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               onClick={() => setSelectedId(editorIssues[0]?.stepId ?? blocking[0]?.stepId ?? null)}
             >
               {editorIssues[0]?.message ?? blocking[0]?.message}
             </button>
           </div>
+          <button
+            className="flex-none rounded-control px-2 py-1 font-semibold text-danger hover:bg-danger-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+            onClick={() => setSelectedId(editorIssues[0]?.stepId ?? blocking[0]?.stepId ?? null)}
+          >
+            Fix it
+          </button>
         </div>
       )}
 
@@ -1121,7 +1183,7 @@ export default function WorkflowDetailPage() {
           but a draft written about no particular business is worth a word
           BEFORE it publishes to a real account, not after. */}
       <BrandGap
-        className="flex items-start gap-2 rounded-card border border-warning-border bg-warning-surface px-4 py-3"
+        className="flex min-w-0 items-center gap-2 border-b border-warning-border/70 py-2 text-[12px] leading-snug"
         readiness={readiness}
         needed={genericDrafts}
       />
@@ -1149,31 +1211,38 @@ export default function WorkflowDetailPage() {
           was just built, and it earns its place by being read BEFORE the first
           real run rather than explaining the first real run afterwards. */}
       {limits.length > 0 && (
-        <div className="rounded-card border border-line bg-inset px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Icon name="info" size={15} className="flex-none text-ink-subtle" />
-            <span className="text-[13px] font-semibold text-ink">
-              Worth knowing before you switch this on
-            </span>
-          </div>
-          <ul className="mt-2 flex flex-col gap-1.5 pl-[23px]">
-            {limits.map((limit, i) => (
-              <li
+        <div data-workflow-notice="limits" className="divide-y divide-line border-b border-line">
+          {limits.map((limit, i) => (
+            <div
                 key={`${limit.stepId ?? "wf"}-${i}`}
-                className="text-[12.5px] leading-relaxed text-ink-muted"
+                className="flex min-w-0 items-center gap-2 py-2 text-[12px] leading-snug text-ink-subtle"
               >
-                <button
-                  type="button"
-                  onClick={() => limit.stepId && setSelectedId(limit.stepId)}
-                  disabled={!limit.stepId}
-                  className="text-left font-semibold text-ink enabled:hover:underline"
-                >
-                  {limit.title}
-                </button>{" "}
-                — {limit.detail}
-              </li>
-            ))}
-          </ul>
+                <Icon name="info" size={13} className="flex-none text-ink-subtle" />
+                <div className="min-w-0 flex-1 truncate">
+                  {limit.stepId ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(limit.stepId ?? null)}
+                      className="font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    >
+                      {limit.title}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-ink">{limit.title}</span>
+                  )}{" "}
+                  — {limit.detail}
+                </div>
+                {limit.stepId && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(limit.stepId ?? null)}
+                    className="flex-none rounded-control px-2 py-1 font-semibold text-ink-muted hover:bg-inset hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  >
+                    View step
+                  </button>
+                )}
+              </div>
+          ))}
         </div>
       )}
 
@@ -1196,8 +1265,9 @@ export default function WorkflowDetailPage() {
                   positions={positions}
                   selectedId={selectedId}
                   gaps={gaps}
-                  runStatus={replay}
-                  running={driving}
+                  runStatus={displayedProgress}
+                  liveStep={liveStep}
+                  running={driving && !displayedProgress}
                   onSelect={setSelectedId}
                   onInsert={onInsert}
                   onChangeTrigger={changeTrigger}
@@ -1310,6 +1380,17 @@ export default function WorkflowDetailPage() {
       {picker && (
         <StepPicker mode={picker.mode} onPick={onPick} onClose={() => setPicker(null)} />
       )}
+      <WorkflowActivationDialog
+        open={activationConfirmationOpen}
+        name={wf?.name ?? "this automation"}
+        externalActions={publishedGraph ? liveWrites(publishedGraph, demoApps) : []}
+        onClose={() => setActivationConfirmationOpen(false)}
+        onConfirm={() => {
+          setActivationConfirmationOpen(false);
+          void toggleActive(true, true);
+        }}
+        busy={togglingActive}
+      />
     </div>
   );
 }

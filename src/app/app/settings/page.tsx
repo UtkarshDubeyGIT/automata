@@ -10,7 +10,7 @@ import { Segmented } from "@/components/ui/tabs";
 import { Avatar } from "@/components/ui/avatar";
 import { Icon } from "@/components/ui/icon";
 import { useToast } from "@/components/ui/toast";
-import { signOut as signOutAction } from "@/app/(auth)/actions";
+import { SignOutButton } from "@/components/sign-out-button";
 import { WhatsAppSettings } from "@/components/whatsapp-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { PERSONAS, TONES } from "@/lib/onboarding/taxonomy";
@@ -466,11 +466,7 @@ export default function SettingsPage() {
           icon={<Icon name="shield" size={18} />}
         />
         <div className="mt-5 flex gap-3">
-          <form action={signOutAction}>
-            <Button type="submit" variant="secondary" icon="logout">
-              Sign out
-            </Button>
-          </form>
+          <SignOutButton />
         </div>
       </Card>
     </div>

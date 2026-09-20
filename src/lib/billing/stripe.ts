@@ -15,8 +15,11 @@ export function stripePrice(plan: Exclude<PlanId, "free">, annual: boolean): str
 
 export function planForPrice(priceId: string | null | undefined): PlanId | null {
   if (!priceId) return null;
-  for (const plan of ["pro", "team"] as const) {
+  for (const plan of ["pro"] as const) {
     if (priceId === stripePrice(plan, false) || priceId === stripePrice(plan, true)) return plan;
   }
+  // Existing Stripe subscriptions can still carry the retired Team price.
+  // They receive the Pro allowance until they are moved to the Pro price.
+  if (priceId === process.env.STRIPE_PRICE_TEAM_MONTHLY || priceId === process.env.STRIPE_PRICE_TEAM_ANNUAL) return "pro";
   return null;
 }

@@ -66,6 +66,37 @@ test("a run journals every step and completes", async () => {
   assert.deepEqual(log.journal.map((j) => j.stepId), ["trigger", "one", "two"]);
 });
 
+test("the node being executed is persisted until it finishes", async () => {
+  const store = fakeStore();
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const executing = new Promise<void>((resolve) => { started = resolve; });
+
+  await withHandler(
+    "log_action",
+    async () => {
+      started();
+      await gate;
+      return { performed: "first" };
+    },
+    async () => {
+      const run = startRun(store, { workflowId: "wf", graph: linear, entityId: "ws" });
+      await executing;
+
+      const current = store.runs.get("run-1")!.log.active;
+      assert.equal(current?.stepId, "one");
+      assert.equal(current?.type, "log_action");
+      assert.equal(current?.title, "one");
+      assert.ok(current?.startedAt);
+
+      release();
+      await run;
+      assert.equal(store.runs.get("run-1")!.log.active, undefined);
+    },
+  );
+});
+
 test("replay skips journaled steps rather than re-running them", async () => {
   const store = fakeStore();
   let executions = 0;

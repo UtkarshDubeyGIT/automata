@@ -27,7 +27,7 @@ import { setupNotice } from "@/lib/setup-notice";
 import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
 import { readCachedIntegrations } from "@/lib/social/integrations-store";
 import type { RequestContext } from "@/lib/workspace";
-import { canActivateWorkflow, isPlanId, PLANS } from "@/lib/billing/plans";
+import { canActivateWorkflow, normalizePlanId, PLANS } from "@/lib/billing/plans";
 
 /**
  * One automation.
@@ -92,6 +92,10 @@ export async function GET(
       time: relTime(r.started_at),
       startedAt: r.started_at,
       error: r.log?.error ?? null,
+      // The engine writes this before calling a step handler and clears it
+      // only once the journal records the result. That small gap is what lets
+      // the editor show a slow provider call as it happens.
+      active: r.log?.active ?? null,
       // WHICH step stopped it. The journal cannot say — a failing step is never
       // journaled — so the canvas's red `x` had no data to render from.
       failedStepId: r.log?.failed?.stepId ?? null,
@@ -106,7 +110,12 @@ export async function GET(
         : null,
       // Waiting on a render, not on a person — see the runs endpoint.
       awaiting: r.log?.awaiting
-        ? { kind: r.log.awaiting.kind, note: r.log.awaiting.note, since: r.log.awaiting.since }
+        ? {
+            stepId: r.log.awaiting.stepId,
+            kind: r.log.awaiting.kind,
+            note: r.log.awaiting.note,
+            since: r.log.awaiting.since,
+          }
         : null,
       // Per-step journal — the Runs tab expands this into a timeline.
       journal: (r.log?.journal ?? []).map((entry) => ({
@@ -151,7 +160,7 @@ export async function PATCH(
         .select("plan")
         .eq("id", rc.workspaceId)
         .maybeSingle();
-      const planId = ws?.plan && isPlanId(ws.plan) ? ws.plan : "free";
+      const planId = normalizePlanId(ws?.plan);
       const { count } = await rc.supabase
         .from("workflows")
         .select("id", { count: "exact", head: true })

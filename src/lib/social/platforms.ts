@@ -103,11 +103,15 @@ export function slackTarget(options?: {
  * asked for a logo that doesn't exist and fell back to a generic glyph.
  */
 export function toolkitLogo(slug: string, instanceUrl?: string): string {
-  if (normalizeSlug(slug) === "vikunja") {
+  const normalized = normalizeSlug(slug);
+  if (normalized === "googlebusinessprofile") {
+    return "/google-business-profile.png";
+  }
+  if (normalized === "vikunja") {
     const base = instanceUrl?.trim().replace(/\/+$/, "");
     return base ? `${base}/images/icons/favicon.svg` : "https://vikunja.io/images/icons/favicon.svg";
   }
-  return `https://logos.composio.dev/api/${normalizeSlug(slug)}`;
+  return `https://logos.composio.dev/api/${normalized}`;
 }
 
 /**

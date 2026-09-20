@@ -8,7 +8,9 @@ import { hasSeen, LANDING_PROMO_KEY, markSeen, WELCOME_BONUS_CREDITS } from "@/l
 
 import { ConfettiBurst } from "./confetti";
 
-const OPEN_DELAY_MS = 1200;
+// Let visitors orient themselves before the celebration takes over the page.
+// Confetti mounts from the same `open` state, so it appears at this moment too.
+const OPEN_DELAY_MS = 4_500;
 
 /**
  * First-visit teaser on the landing page. The "seen" flag is written the
@@ -38,29 +40,26 @@ export function LandingPromoModal() {
       <Dialog
         open={open}
         onClose={close}
-        width={460}
+        width={400}
         footer={
           <>
-            <Button variant="ghost" onClick={close}>Maybe later</Button>
+            <Button variant="ghost" onClick={close}>Not now</Button>
             <Link
               href="/signup"
-              className="inline-flex h-10 items-center gap-2 rounded-control bg-brand px-4 text-[14px] font-medium text-on-brand shadow-[var(--shadow-brand)] hover:bg-brand-hover"
+              className="inline-flex h-10 items-center gap-2 rounded-control bg-brand px-4 text-[14px] font-medium text-on-brand shadow-[var(--shadow-brand)] transition-colors hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
             >
-              Claim {bonus} credits <Icon name="arrow-right" size={16} />
+              Create account <Icon name="arrow-right" size={16} />
             </Link>
           </>
         }
       >
-        <div className="flex flex-col items-center gap-4 py-2 text-center">
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-brand-subtle text-brand">
-            <Icon name="sparkles" size={26} />
-          </span>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-brand">New-joiner bonus</p>
-          <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink">
-            Welcome gift: {bonus} free credits
+        <div className="flex flex-col items-center gap-3 py-1 text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">New account bonus</p>
+          <h2 className="text-[25px] font-semibold leading-tight tracking-[-0.025em] text-ink">
+            {bonus} credits to start
           </h2>
-          <p className="max-w-[30rem] text-[15px] leading-relaxed text-ink-subtle">
-            Sign up today and start with {bonus} credits to build and run your first automations — no card needed.
+          <p className="max-w-[22rem] text-[15px] leading-relaxed text-ink-subtle">
+            Build your first workflow. No card required.
           </p>
         </div>
       </Dialog>

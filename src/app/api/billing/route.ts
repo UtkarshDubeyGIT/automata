@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveRequestContext, getWorkspaceContext } from "@/lib/workspace";
 import { getBalance } from "@/lib/credits";
-import { planById } from "@/lib/billing/plans";
+import { normalizePlanId, planById } from "@/lib/billing/plans";
 import { summarizeSpend, type SpendSummary } from "@/lib/billing/spend";
 import { stripeClient } from "@/lib/billing/stripe";
 import { supabaseConfigured } from "@/lib/env";
@@ -37,7 +37,7 @@ export async function GET() {
     const context = await getWorkspaceContext();
     const plan = planById(context.plan) ?? planById("free")!;
     return NextResponse.json({
-      plan: context.plan,
+      plan: plan.id,
       planName: plan.name,
       planCredits: plan.credits,
       priceMonthly: plan.priceMonthly,
@@ -81,6 +81,7 @@ export async function GET() {
   }
 
   const planObj = planById(planId) ?? planById("free")!;
+  planId = normalizePlanId(planId);
   const planName = planObj.name;
   const planCredits = planObj.credits;
   const priceMonthly = planObj.priceMonthly;

@@ -17,6 +17,10 @@ test("Vikunja is a permanent integration with its own icon", () => {
   assert.equal(toolkitLogo("vikunja", "https://tasks.example.com/"), "https://tasks.example.com/images/icons/favicon.svg");
 });
 
+test("Google Business Profile uses the supplied local brand mark", () => {
+  assert.equal(toolkitLogo("googlebusinessprofile"), "/google-business-profile.png");
+});
+
 test("workflow setup loads Vikunja projects instead of asking for a numeric id", () => {
   assert.match(inspector, /function VikunjaProjectField/);
   assert.match(inspector, /\/api\/integrations\/vikunja\?projects=1/);

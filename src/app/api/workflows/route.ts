@@ -10,6 +10,7 @@ import { getTemplate } from "@/lib/workflows/templates";
 import type { RunStatus, WorkflowConfig } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { liveWrites } from "@/lib/workflows/validate";
 
 /**
  * GET  — list the workspace's automations, enriched with run history
@@ -100,6 +101,10 @@ export async function GET() {
           .map((r) => r.status)
           .reverse(),
         logo: leadLogo(row.config?.graph),
+        // The list can switch a workflow on without first opening the editor.
+        // Send only the human-facing write labels needed for that confirmation,
+        // never the graph or provider arguments themselves.
+        externalActions: row.config?.graph ? liveWrites(row.config.graph) : [],
       };
     }),
   });

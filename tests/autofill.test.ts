@@ -12,8 +12,9 @@ import { mock, test } from "node:test";
  * rather than a bare 400 from Meta.
  */
 
-let brand: { ads?: { metaAdAccountId?: string } } | null = null;
+let brand: { ads?: { metaAdAccountId?: string }; analytics?: { ga4PropertyId?: string } } | null = null;
 const calls: { slug: string; args: Record<string, unknown> }[] = [];
+const proxyCalls: Array<{ request: Record<string, unknown> }> = [];
 
 mock.module("@/lib/brand", {
   namedExports: {
@@ -29,11 +30,31 @@ mock.module("@/lib/social/composio", {
   namedExports: {
     socialProvider: {
       live: true,
-      listConnections: async () => [{ platform: "metaads", status: "connected" }],
+      listConnections: async () => [
+        { platform: "metaads", status: "connected" },
+        { platform: "google_analytics", status: "connected" },
+      ],
     },
     executeTool: async (slug: string, _entity: string, args: Record<string, unknown>) => {
       calls.push({ slug, args });
       return { successful: true, data: { data: [{ spend: "12.34", impressions: "900" }] } };
+    },
+  },
+});
+
+mock.module("@/lib/social/composio-proxy", {
+  namedExports: {
+    proxyFor: async (_workspaceId: string, _toolkit: string, request: Record<string, unknown>) => {
+      proxyCalls.push({ request });
+      return {
+        status: 200,
+        data: {
+          dimensionHeaders: [],
+          metricHeaders: [],
+          rows: [],
+          rowCount: 0,
+        },
+      };
     },
   },
 });
@@ -100,6 +121,85 @@ test("a constant the author overrode is not put back", async () => {
   brand = { ads: { metaAdAccountId: "act_1" } };
   await runStep({ level: "campaign", date_preset: "last_7d" });
   assert.equal(calls[0].args.level, "campaign");
+});
+
+test("a GA4 report takes its property from Settings when the action leaves it blank", async () => {
+  brand = { analytics: { ga4PropertyId: "123456789" } };
+  calls.length = 0;
+  proxyCalls.length = 0;
+  await HANDLERS.app_action({
+    runId: "run-1",
+    stepId: "fetch",
+    step: { type: "app_action", tool: "GOOGLE_ANALYTICS_RUN_REPORT", arguments: {} },
+    data: { steps: {} },
+    entityId: "ws-1",
+    reads: new Set<string>(),
+  } as never);
+  assert.equal(proxyCalls.length, 1);
+  assert.match(String(proxyCalls[0].request.endpoint), /properties\/123456789:runReport$/);
+});
+
+test("the legacy GA4 manual-input reference falls back to the Settings property", async () => {
+  brand = { analytics: { ga4PropertyId: "123456789" } };
+  proxyCalls.length = 0;
+
+  await HANDLERS.app_action({
+    runId: "run-1",
+    stepId: "fetch",
+    step: {
+      type: "app_action",
+      tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+      arguments: { property: "{{steps.manual_start.input.google_analytics_property}}" },
+    },
+    data: { input: {}, steps: { manual_start: { input: {} } } },
+    entityId: "ws-1",
+    reads: new Set<string>(),
+  } as never);
+
+  assert.equal(proxyCalls.length, 1);
+  assert.match(String(proxyCalls[0].request.endpoint), /properties\/123456789:runReport$/);
+});
+
+test("a supplied legacy GA4 manual input overrides the Settings property", async () => {
+  brand = { analytics: { ga4PropertyId: "123456789" } };
+  proxyCalls.length = 0;
+
+  await HANDLERS.app_action({
+    runId: "run-1",
+    stepId: "fetch",
+    step: {
+      type: "app_action",
+      tool: "GOOGLE_ANALYTICS_RUN_REPORT",
+      arguments: { property: "{{steps.manual_start.input.google_analytics_property}}" },
+    },
+    data: {
+      input: { google_analytics_property: "987654321" },
+      steps: { manual_start: { input: { google_analytics_property: "987654321" } } },
+    },
+    entityId: "ws-1",
+    reads: new Set<string>(),
+  } as never);
+
+  assert.equal(proxyCalls.length, 1);
+  assert.match(String(proxyCalls[0].request.endpoint), /properties\/987654321:runReport$/);
+});
+
+test("a GA4 report without an override or saved property fails before calling Google", async () => {
+  brand = { analytics: {} };
+  proxyCalls.length = 0;
+
+  await assert.rejects(
+    HANDLERS.app_action({
+      runId: "run-1",
+      stepId: "fetch",
+      step: { type: "app_action", tool: "GOOGLE_ANALYTICS_RUN_REPORT", arguments: {} },
+      data: { steps: {} },
+      entityId: "ws-1",
+      reads: new Set<string>(),
+    } as never),
+    /Settings.*Google Analytics/i,
+  );
+  assert.equal(proxyCalls.length, 0);
 });
 
 test("metric rows survive the flattener that feeds the next AI step", async () => {

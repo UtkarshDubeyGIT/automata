@@ -246,7 +246,7 @@ export function ClassicLanding() {
               <div className="mini-window-bar"><i /><i /><i /><span>{plan.name.toLowerCase()}.plan</span></div>
               <div className="world-price-body">
                 <h3>{plan.name.toLowerCase()}</h3>
-                <p>{plan.id === "free" ? "learn what should move." : plan.id === "pro" ? "for teams finding their rhythm." : "room for serious operations."}</p>
+                <p>{plan.id === "free" ? "learn what should move." : "for teams finding their rhythm."}</p>
                 <div className="world-price"><b>${plan.monthlyPrice}</b><span>/ month</span></div>
                 <small>{plan.monthlyCredits.toLocaleString()} credits included</small>
                 <Link className={plan.id === "pro" ? "aqua-button" : "glass-button"} href="/signup">{plan.id === "free" ? "start free" : `get ${plan.name.toLowerCase()}`}</Link>

@@ -101,9 +101,11 @@ export interface CanvasProps {
   selectedId: string | null;
   /** Step id → the things still missing before it can run. */
   gaps: Record<string, string[]>;
-  /** Step id → the outcome of the most recent run, when one is being replayed. */
-  runStatus?: Record<string, "done" | "failed">;
-  /** True while a run is actually in flight — lights the whole graph up. */
+  /** Step id → its observed progress in the selected or currently live run. */
+  runStatus?: Record<string, "done" | "failed" | "running" | "waiting" | "needs_attention">;
+  /** The active handler is surfaced separately so the board can name it. */
+  liveStep?: { stepId: string; title: string } | null;
+  /** Fallback before the runner has persisted its first active step. */
   running?: boolean;
   onSelect: (id: string) => void;
   onInsert: (edge: EdgeRef) => void;
@@ -395,6 +397,18 @@ function Whiteboard() {
               />
             </div>
           </Panel>
+
+          {ctx.liveStep && (
+            <Panel position="top-center" className="!m-3">
+              <div className="flex items-center gap-2 rounded-full border border-brand/30 bg-card px-3 py-1.5 shadow-xs">
+                <Icon name="activity" size={13} className="animate-pulse text-brand" />
+                <span className="text-[11.5px] font-semibold text-brand">Live run</span>
+                <span className="max-w-[180px] truncate text-[11.5px] text-ink-muted">
+                  Running {ctx.liveStep.title}
+                </span>
+              </div>
+            </Panel>
+          )}
         </ReactFlow>
     </FlipCtx.Provider>
   );
@@ -476,8 +490,14 @@ function StepNode({ id, dragging }: NodeProps) {
             ? "border-brand shadow-[0_0_0_4px_var(--color-ring)]"
             : status === "failed"
               ? "border-danger"
+              : status === "running"
+                ? "border-brand shadow-[0_0_0_4px_var(--color-ring)] animate-pulse"
               : status === "done"
                 ? "border-success"
+                : status === "needs_attention"
+                  ? "border-warning shadow-[0_0_0_4px_var(--color-warning-surface)] animate-pulse"
+                : status === "waiting"
+                  ? "border-warning-border"
                 : needsSetup
                   ? "border-warning-border"
                   : "border-line",
@@ -492,12 +512,29 @@ function StepNode({ id, dragging }: NodeProps) {
               "absolute -right-0.5 -top-0.5 flex h-[17px] w-[17px] items-center justify-center rounded-full border-2 border-card",
               status === "failed"
                 ? "bg-danger text-on-brand"
+                : status === "running"
+                  ? "bg-brand text-on-brand"
                 : status === "done"
                   ? "bg-success text-on-brand"
-                  : "bg-warning text-on-brand",
+                : status === "needs_attention"
+                  ? "bg-warning text-on-brand"
+                : "bg-warning text-on-brand",
             )}
           >
-            <Icon name={status === "failed" ? "x" : status === "done" ? "check" : "info"} size={9} />
+            <Icon
+              name={
+                status === "failed"
+                  ? "x"
+                  : status === "done"
+                    ? "check"
+                    : status === "running"
+                      ? "activity"
+                      : status === "needs_attention"
+                        ? "alert"
+                        : "clock"
+              }
+              size={9}
+            />
           </span>
         )}
       </div>
@@ -518,6 +555,21 @@ function StepNode({ id, dragging }: NodeProps) {
         {trigger && (
           <span className="mt-0.5 rounded-full bg-brand-subtle px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-brand">
             Trigger
+          </span>
+        )}
+        {status === "running" && (
+          <span className="mt-0.5 rounded-full bg-brand-subtle px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-brand">
+            Running now
+          </span>
+        )}
+        {status === "waiting" && (
+          <span className="mt-0.5 rounded-full bg-warning-surface px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-warning">
+            Waiting on work
+          </span>
+        )}
+        {status === "needs_attention" && (
+          <span className="mt-0.5 rounded-full bg-warning-surface px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-warning">
+            Needs attention
           </span>
         )}
         {step.type === "whatsapp_reminder" && (
@@ -697,8 +749,13 @@ function FlowEdge({
   // detail yet, that's the whole graph; while replaying one, it's only the
   // arrows between steps the run actually reached.
   const status = ctx.runStatus;
+  const targetReached =
+    status?.[target] === "done" ||
+    status?.[target] === "running" ||
+    status?.[target] === "waiting" ||
+    status?.[target] === "needs_attention";
   const live = status
-    ? status[source] === "done" && (kind === "end" || status[target] === "done")
+    ? status[source] === "done" && (kind === "end" || targetReached)
     : Boolean(ctx.running);
 
   return (
@@ -771,7 +828,10 @@ function miniMapColor(id: string, ctx: CanvasProps): string {
   if (ctx.selectedId === id) return "var(--color-brand)";
   const status = ctx.runStatus?.[id];
   if (status === "failed") return "var(--color-danger)";
+  if (status === "running") return "var(--color-brand)";
   if (status === "done") return "var(--color-success)";
+  if (status === "needs_attention") return "var(--color-warning)";
+  if (status === "waiting") return "var(--color-warning)";
   if ((ctx.gaps[id] ?? []).length) return "var(--color-warning)";
   return "var(--color-line-strong)";
 }

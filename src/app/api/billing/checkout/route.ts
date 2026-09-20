@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const userId = claims?.claims?.sub;
   if (!userId) return NextResponse.json({ error: "Sign in to change plans." }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { plan?: string; annual?: boolean; workspaceId?: string };
-  if (body.plan !== "pro" && body.plan !== "team") return NextResponse.json({ error: "Choose the Pro or Team plan." }, { status: 400 });
+  if (body.plan !== "pro") return NextResponse.json({ error: "Choose the Pro plan." }, { status: 400 });
   const workspace = await billingWorkspace(supabase, userId, body.workspaceId);
   if (!workspace) return NextResponse.json({ error: "Only workspace admins can change billing." }, { status: 403 });
   const price = stripePrice(body.plan, Boolean(body.annual));

@@ -5,6 +5,7 @@ import {
   replyToReview,
   type BusinessReview,
 } from "@/lib/google/business-profile";
+import { runGa4Report } from "@/lib/google/analytics";
 import {
   listVikunjaProjects,
   vikunjaClientFor,
@@ -220,6 +221,14 @@ export async function executeNativeTool(
       const res = await replyToReview(workspaceId, reviewId, comment);
       if ("error" in res) return failure(res.error);
       return { successful: true, data: { review_id: reviewId, replied: true } };
+    }
+
+    case "GOOGLE_ANALYTICS_RUN_REPORT": {
+      try {
+        return { successful: true, data: await runGa4Report(workspaceId, args) };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not run the GA4 report.");
+      }
     }
 
     default:

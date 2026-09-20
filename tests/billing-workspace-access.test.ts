@@ -38,3 +38,11 @@ test("a viewer or another workspace's owner cannot create a billing session", as
   assert.equal((await portal.POST(request("portal", { workspaceId: "workspace-2" }))).status, 403);
   assert.equal(outbound.length, 0);
 });
+
+test("checkout refuses the retired Team plan", async () => {
+  db.replace("workspace_members", []);
+  db.replace("workspaces", [{ id: "workspace-1", owner_id: "owner-1", name: "Studio" }]);
+  outbound.length = 0;
+  assert.equal((await checkout.POST(request("checkout", { plan: "team" }))).status, 400);
+  assert.equal(outbound.length, 0);
+});

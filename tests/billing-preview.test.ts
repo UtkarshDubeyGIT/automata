@@ -15,7 +15,7 @@ const billing = await import("@/app/api/billing/route");
 test("preview billing and credits share the shell's workspace context without fictional invoices", async () => {
   const balance = await (await credits.GET()).json();
   const summary = await (await billing.GET()).json();
-  assert.equal(balance.plan, "team");
+  assert.equal(balance.plan, "pro");
   assert.equal(summary.plan, balance.plan);
   assert.equal(balance.credits, 123);
   assert.equal(summary.credits, balance.credits);

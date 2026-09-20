@@ -77,22 +77,20 @@ export function BrandGap({
     <div
       className={
         className ??
-        "flex items-start gap-2 rounded-card border border-warning-border bg-warning-surface px-3.5 py-3"
+        "flex min-w-0 items-center gap-2 border-b border-warning-border/70 py-2 text-[12px] leading-snug"
       }
+      data-brand-notice
     >
-      <Icon name="sparkles" size={14} className="mt-0.5 flex-none text-warning" />
-      <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-ink-muted">
+      <Icon name="sparkles" size={13} className="flex-none text-warning" />
+      <div className="min-w-0 flex-1 truncate text-ink-muted">
         <span className="font-semibold text-ink">
           This writes with AI, but your profile doesn&apos;t say what you sell.{" "}
         </span>
-        It will still run — the drafts just have to stay general, because the
-        model is told not to invent specifics about you. Filling this in is the
-        single biggest difference between a generic post and one that sounds
-        like your business.
+        Drafts will stay general until you add your business details.
       </div>
       <Link
         href="/app/settings"
-        className="flex-none text-[12px] font-semibold text-brand hover:underline"
+        className="flex-none rounded-control px-2 py-1 text-[12px] font-semibold text-brand hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         Add details
       </Link>

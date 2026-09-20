@@ -28,6 +28,7 @@ import type { ApprovalPreview as ApprovalPreviewData } from "@/lib/workflows/typ
 import { ApprovalPreview } from "./approval-preview";
 import { BuilderChat, type ChatSuggestion } from "./builder-chat";
 import { WorkflowLogo } from "./workflow-logo";
+import { WorkflowActivationDialog } from "@/components/workflow-activation-dialog";
 import Loading from "./loading";
 
 /**
@@ -60,6 +61,8 @@ interface WorkflowListItem extends Workflow {
   recent: (string | null)[];
   /** Toolkit slug for the lead integration's logo, or null. */
   logo: string | null;
+  /** Real provider writes, supplied by the list API for activation consent. */
+  externalActions: string[];
 }
 
 /** One run, from /api/workflows/runs — across every automation. */
@@ -207,6 +210,7 @@ function WorkflowsContent() {
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState<string | null>(null);
   const [createdHref, setCreatedHref] = useState<string | null>(null);
+  const [activationTarget, setActivationTarget] = useState<WorkflowListItem | null>(null);
   const [isOpening, startOpening] = useTransition();
   /** React state is not a mutex: this closes same-frame template clicks. */
   const creatingRef = useRef(false);
@@ -420,10 +424,9 @@ function WorkflowsContent() {
    * and that refusal is the useful half — it names what is unfinished — so it
    * is surfaced rather than swallowed into a generic failure.
    */
-  async function toggleActive(wf: WorkflowListItem) {
+  async function updateActive(wf: WorkflowListItem, next: boolean) {
     if (busy[wf.id]) return;
     startBusy(wf.id, "toggle");
-    const next = !wf.active;
     try {
       const res = await fetch(`/api/workflows/${wf.id}`, {
         method: "PATCH",
@@ -448,6 +451,14 @@ function WorkflowsContent() {
     } finally {
       endBusy(wf.id);
     }
+  }
+
+  function toggleActive(wf: WorkflowListItem) {
+    if (wf.active) {
+      void updateActive(wf, false);
+      return;
+    }
+    setActivationTarget(wf);
   }
 
   /** Approve or reject a run that stopped for a person. */
@@ -983,11 +994,23 @@ function WorkflowsContent() {
             notice — so nobody builds one of these unwarned, they just hear it
             one screen later. */}
         <BrandGap
-          className="mt-3 flex items-start gap-2 rounded-card border border-warning-border bg-warning-surface px-3.5 py-3"
+          className="mt-3 flex min-w-0 items-center gap-2 border-b border-warning-border/70 py-2 text-[12px] leading-snug"
           readiness={readiness}
           needed={!!gated && needsBrandGrounding(gated.graph)}
         />
       </Dialog>
+      <WorkflowActivationDialog
+        open={activationTarget !== null}
+        name={activationTarget?.name ?? ""}
+        externalActions={activationTarget?.externalActions ?? []}
+        onClose={() => setActivationTarget(null)}
+        onConfirm={() => {
+          if (!activationTarget) return;
+          const target = activationTarget;
+          setActivationTarget(null);
+          void updateActive(target, true);
+        }}
+      />
     </div>
   );
 }

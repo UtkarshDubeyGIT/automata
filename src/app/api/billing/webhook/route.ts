@@ -20,7 +20,7 @@ async function saveSubscription(
   const { error } = await db.from("billing_customers").upsert({ workspace_id: workspaceId, ...fields }, { onConflict: "workspace_id" });
   if (error) throw new Error(error.message);
 
-  // workspaces.plan is the strict `plan_id` enum (free/pro/team).
+  // workspaces.plan is the strict current `plan_id` enum.
   // billing_customers.plan (just written above) is plain text and can carry
   // a legacy Zidane label (starter/growth/scale) for display — but writing
   // that same label to the enum column throws 22P02. Leave the enum column

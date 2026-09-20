@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getBalance, priceBook } from "@/lib/credits";
 import { resolveRequestContext, getWorkspaceContext } from "@/lib/workspace";
 import { supabaseConfigured } from "@/lib/env";
+import { normalizePlanId } from "@/lib/billing/plans";
 
 /**
  * Balance and the price book, together with the active plan.
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   if (!supabaseConfigured) {
     const context = await getWorkspaceContext();
-    return NextResponse.json({ credits: context.credits, plan: context.plan, prices: priceBook(), demo: true });
+    return NextResponse.json({ credits: context.credits, plan: normalizePlanId(context.plan), prices: priceBook(), demo: true });
   }
   const rc = await resolveRequestContext();
   let credits = 0;
@@ -34,5 +35,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ credits, plan, prices: priceBook(), demo: false });
+  return NextResponse.json({ credits, plan: normalizePlanId(plan), prices: priceBook(), demo: false });
 }

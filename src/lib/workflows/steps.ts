@@ -771,9 +771,22 @@ const AUTOFILL: Record<AutofillSource, (entityId: string) => Promise<string>> = 
     }
     return metaObjectId(saved);
   },
+  ga4_property: async (entityId) => {
+    const brand = await getBrandProfileForWorkspace(entityId);
+    const saved = String(brand?.analytics?.ga4PropertyId ?? "").trim();
+    if (!saved) {
+      throw new Error(
+        "No GA4 property id — save one under Settings → Google Analytics, or fill in property on this step.",
+      );
+    }
+    return saved;
+  },
 };
 
 const blankArg = (v: unknown) => v === undefined || v === null || String(v).trim() === "";
+const legacyGa4PropertyRef = (value: unknown) =>
+  typeof value === "string" &&
+  /^\{\{\s*steps\.manual_start\.input\.google_analytics_property\s*\}\}$/.test(value);
 
 /**
  * Fill the arguments the author left blank: the tool's own constants first,
@@ -790,7 +803,9 @@ async function fillArgs(
     if (blankArg(out[key])) out[key] = value;
   }
   for (const [key, source] of Object.entries(spec.autofill ?? {})) {
-    if (blankArg(out[key])) out[key] = await AUTOFILL[source](entityId);
+    if (blankArg(out[key]) || (source === "ga4_property" && legacyGa4PropertyRef(out[key]))) {
+      out[key] = await AUTOFILL[source](entityId);
+    }
   }
   return out;
 }

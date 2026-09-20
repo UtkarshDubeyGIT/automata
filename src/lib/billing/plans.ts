@@ -1,4 +1,4 @@
-export type PlanId = "free" | "pro" | "team";
+export type PlanId = "free" | "pro";
 
 export interface Plan {
   id: PlanId;
@@ -29,15 +29,6 @@ export const PLANS: Record<PlanId, Plan> = {
     memberLimit: 3,
     retentionDays: 30,
   },
-  team: {
-    id: "team",
-    name: "Team",
-    monthlyPrice: 59,
-    monthlyCredits: 40_000,
-    activeWorkflowLimit: null,
-    memberLimit: 10,
-    retentionDays: 90,
-  },
 };
 
 export function canActivateWorkflow(planId: PlanId, activeCount: number): boolean {
@@ -46,7 +37,7 @@ export function canActivateWorkflow(planId: PlanId, activeCount: number): boolea
 }
 
 /**
- * True only for a real `workspaces.plan` enum value (free/pro/team).
+ * True only for a currently supported `workspaces.plan` value (free/pro).
  *
  * `planById` also matches legacy Zidane labels (starter/growth/scale) for
  * display, but those are not valid values for the `plan_id` Postgres enum —
@@ -55,6 +46,15 @@ export function canActivateWorkflow(planId: PlanId, activeCount: number): boolea
  */
 export function isPlanId(id: string): id is PlanId {
   return Object.prototype.hasOwnProperty.call(PLANS, id);
+}
+
+/**
+ * Team was retired in favor of Pro. Keep old workspace and Stripe records on
+ * Pro until the database migration reaches them, without making Team a plan
+ * that UI or checkout can offer again.
+ */
+export function normalizePlanId(id: string | null | undefined): PlanId {
+  return id === "team" || id === "pro" ? "pro" : "free";
 }
 
 export interface BillingPlan {
@@ -89,5 +89,6 @@ const LEGACY_PLANS: BillingPlan[] = [
 ];
 
 export function planById(id: string): BillingPlan | undefined {
+  if (id === "team") return BILLING_PLANS.find((plan) => plan.id === "pro");
   return BILLING_PLANS.find((plan) => plan.id === id) ?? LEGACY_PLANS.find((plan) => plan.id === id);
 }

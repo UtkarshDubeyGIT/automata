@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { signOut as signOutAction } from "@/app/(auth)/actions";
 import { Logo } from "@/components/logo";
+import { SignOutButton } from "@/components/sign-out-button";
 import { Avatar } from "@/components/ui/avatar";
 import { useCredits } from "@/components/ui/credits";
 import { ProgressBar } from "@/components/ui/feedback";
@@ -273,16 +273,7 @@ function AccountMenu({
           </div>
 
           <div className="border-t border-line p-1.5">
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                role="menuitem"
-                className="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-[13.5px] font-medium text-danger transition-colors hover:bg-danger-surface"
-              >
-                <Icon name="logout" size={16} />
-                Sign out
-              </button>
-            </form>
+            <SignOutButton menuItem />
           </div>
         </div>
       )}

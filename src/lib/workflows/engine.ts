@@ -125,6 +125,14 @@ async function drive(
       destination: step.type === "ai_step" ? (destinationOf(graph, cursor) ?? undefined) : undefined,
     };
 
+    // A journal entry is deliberately written only AFTER a handler succeeds:
+    // writing it earlier would make a restart skip a side effect that never
+    // landed. The UI still needs to show a slow handler, though, so persist a
+    // separate ephemeral marker before entering it. A restart overwrites this
+    // marker when it drives the next unjournaled step.
+    log.active = activeStep(cursor, step);
+    await store.saveRun(runId, { log });
+
     let output: Record<string, unknown>;
     try {
       output = await handler(ctx);
@@ -140,6 +148,7 @@ async function drive(
          * across re-parks so the step's own horizon measures the whole wait
          * rather than restarting on every beat.
          */
+        delete log.active;
         log.awaiting = {
           kind: err.kind,
           stepId: cursor,
@@ -160,6 +169,7 @@ async function drive(
         // change what the approval card says is up for approval. It is
         // best-effort by contract: a run must never fail over a preview it
         // could not describe.
+        delete log.active;
         log.pending = { token: err.token, stepId: cursor, prompt: err.prompt };
         try {
           const preview = buildApprovalPreview(graph, cursor, log);
@@ -191,6 +201,7 @@ async function drive(
     log.journal.push(entry(cursor, step, stored));
     log.context.steps[cursor] = stored;
     log.context.last = stored;
+    delete log.active;
     if (log.pending?.stepId === cursor) delete log.pending;
     if (log.awaiting?.stepId === cursor) delete log.awaiting;
     await store.saveRun(runId, { log });
@@ -198,6 +209,7 @@ async function drive(
     cursor = route(step, output);
   }
 
+  delete log.active;
   await store.saveRun(runId, { status: "completed", log, finished: true });
   return { runId, status: "completed" };
 }
@@ -262,6 +274,7 @@ async function fail(
   message: string,
   stepId?: string,
 ): Promise<RunResult> {
+  delete log.active;
   log.error = String(message).slice(0, 2000);
   // WHICH step stopped the run. A failing step is never journaled (it produced
   // no output), so without this nothing downstream — the canvas replay above
@@ -269,6 +282,15 @@ async function fail(
   if (stepId) log.failed = { stepId, message: log.error };
   await store.saveRun(runId, { status: "failed", log, finished: true });
   return { runId, status: "failed", error: log.error };
+}
+
+function activeStep(stepId: string, step: StepDef) {
+  return {
+    stepId,
+    type: step.type as StepType,
+    title: typeof step.title === "string" ? step.title : stepId,
+    startedAt: new Date().toISOString(),
+  };
 }
 
 function entry(stepId: string, step: StepDef, output: Record<string, unknown>): JournalEntry {

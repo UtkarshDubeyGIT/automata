@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import localFont from "next/font/local";
 
 import { BRAND } from "@/config/brand";
+import { SITE_URL } from "@/config/seo";
 
 import "./globals.css";
 import "./marketing.css";
@@ -12,11 +13,32 @@ const hanken = localFont({ src: "./fonts/hanken-grotesk-latin.woff2", variable: 
 const geistMono = localFont({ src: "./fonts/geist-mono-latin.woff2", variable: "--font-geist-mono", weight: "100 900", display: "swap" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: `${BRAND.name} — ${BRAND.tagline}`,
     template: `%s · ${BRAND.name}`,
   },
   description: BRAND.description,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: BRAND.name,
+    title: `${BRAND.name} — ${BRAND.tagline}`,
+    description: BRAND.description,
+  },
+  twitter: {
+    card: "summary",
+    title: `${BRAND.name} — ${BRAND.tagline}`,
+    description: BRAND.description,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 /**

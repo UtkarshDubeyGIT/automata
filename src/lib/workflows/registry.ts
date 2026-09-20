@@ -64,7 +64,7 @@ export interface ToolSpec {
  * stays an ordinary required argument — there is no saved home for it, and a
  * business with several numbers would need us to guess which one speaks.
  */
-export type AutofillSource = "meta_ad_account";
+export type AutofillSource = "meta_ad_account" | "ga4_property";
 
 /**
  * Apps that have NO Composio toolkit (verified against the live v3 catalog).
@@ -1316,6 +1316,22 @@ export const TOOLS: Record<string, ToolSpec> = {
     required: ["label_name"],
     desc: "Create label — Creates a new label with a unique name in the specified user's Gmail account. Returns a labelId (e.g., 'Label_123') requ",
     argHint: '{\"label_name\":\"\",\"user_id\":\"\",\"text_color\":\"\",\"background_color\":\"\",\"label_list_visibility\":\"\"}',
+  },
+  GOOGLE_ANALYTICS_RUN_REPORT: {
+    app: "google_analytics",
+    kind: "read",
+    external: false,
+    required: [],
+    desc: "Run a GA4 traffic report — reads metrics and dimensions from the connected Google Analytics property. Defaults to a daily report for the last 30 days; override property, date_ranges, dimensions, metrics, filters, ordering, offset or limit as needed.",
+    argHint:
+      '{"property":"","date_ranges":"[{\\"startDate\\":\\"30daysAgo\\",\\"endDate\\":\\"today\\"}]","dimensions":"[\\"date\\"]","metrics":"[\\"activeUsers\\",\\"sessions\\",\\"screenPageViews\\"]","limit":100,"dimension_filter":"","metric_filter":"","order_bys":""}',
+    defaults: {
+      date_ranges: [{ startDate: "30daysAgo", endDate: "today" }],
+      dimensions: ["date"],
+      metrics: ["activeUsers", "sessions", "screenPageViews"],
+      limit: 100,
+    },
+    autofill: { property: "ga4_property" },
   },
   // Search Console. Verified against the live catalog: the toolkit has six
   // tools and these are the four a marketing automation has any use for.
@@ -9033,4 +9049,3 @@ export function renderToolLine(slug: string, t: ToolSpec): string {
   const vis = t.external ? " [external/visible]" : "";
   return `  - ${slug} (${t.app}, ${t.kind.toUpperCase()}${vis}): ${t.desc} — args: ${t.argHint}`;
 }
-
