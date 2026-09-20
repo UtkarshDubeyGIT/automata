@@ -42,7 +42,6 @@ import type { WorkflowGraph } from "@/lib/workflows/types";
 import {
   adoptableAfterSave,
   connectSteps,
-  diffWorkflowGraphs,
   draftIssues,
   initialCanvasPositions,
   positionsAfterGraphChange,
@@ -133,6 +132,8 @@ export default function WorkflowDetailPage() {
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   /** Last persisted graph — the dirty check and Discard both compare to this. */
   const [savedGraph, setSavedGraph] = useState<string>("");
+  /** The persisted graph snapshot, available before React commits state updates. */
+  const savedGraphRef = useRef(savedGraph);
   const [positions, setPositions] = useState<WorkflowPositions>({});
   const [savedPositions, setSavedPositions] = useState<string>("{}");
   const [revision, setRevision] = useState(0);
@@ -151,6 +152,8 @@ export default function WorkflowDetailPage() {
   const [saving, setSaving] = useState(false);
   /** Only a save the user asked for spins the Save button. Auto-save must be invisible. */
   const [manualSaving, setManualSaving] = useState(false);
+  /** The visible Save is committing a valid draft as the runnable automation. */
+  const [committing, setCommitting] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
   const [chatOpen, setChatOpen] = useState(searchParams.get("chat") === "1");
   const [modulesOpen, setModulesOpen] = useState(true);
@@ -174,9 +177,9 @@ export default function WorkflowDetailPage() {
   /**
    * Saves run one at a time, in order.
    *
-   * Pressing Save or Publish a fraction of a second after the auto-save timer
+   * Pressing Save a fraction of a second after the auto-save timer
    * fired used to be swallowed by the "already saving" guard: the button did
-   * nothing, and Publish quietly gave up. Queueing behind the request in
+   * nothing. Queueing behind the request in
    * flight means the click always lands.
    */
   const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -225,7 +228,9 @@ export default function WorkflowDetailPage() {
         setRuns(data.runs ?? []);
         if (data.graph) {
           const fetchedPositions = initialCanvasPositions(data.graph, data.positions ?? {});
-          setSavedGraph(JSON.stringify(data.graph));
+          const nextSavedGraph = JSON.stringify(data.graph);
+          savedGraphRef.current = nextSavedGraph;
+          setSavedGraph(nextSavedGraph);
           setSavedPositions(JSON.stringify(fetchedPositions));
           revisionRef.current = data.revision ?? 0;
           setRevision(data.revision ?? 0);
@@ -307,6 +312,11 @@ export default function WorkflowDetailPage() {
   // to also touch a step.
   const nameDirty = Boolean(wf) && (wf?.name ?? "") !== savedName;
   const dirty = graphDirty || positionsDirty || nameDirty;
+  /** A background-saved draft still needs the visible Save before it can run. */
+  const hasUncommittedDraft = useMemo(
+    () => Boolean(graph && publishedGraph && JSON.stringify(graph) !== JSON.stringify(publishedGraph)),
+    [graph, publishedGraph],
+  );
 
   // Leaving with unsaved changes is almost always a mistake.
   useEffect(() => {
@@ -387,7 +397,6 @@ export default function WorkflowDetailPage() {
    */
   const sampleFed = Boolean(graph && graph.steps[graph.start]?.type === "app_event_trigger");
   const blocking = issues.filter((i) => i.severity === "error");
-  const publishBlocks = blocking.length + editorIssues.length;
 
   /**
    * This automation generates something, but nothing has told us what the
@@ -611,9 +620,12 @@ export default function WorkflowDetailPage() {
       // forever: "Unsaved changes" latched on, beforeunload fired on every
       // navigation, and Run refused with "Save first" permanently.
       if (data.graph) {
-        setSavedGraph(JSON.stringify(data.graph));
+        const nextSavedGraph = JSON.stringify(data.graph);
+        savedGraphRef.current = nextSavedGraph;
+        setSavedGraph(nextSavedGraph);
         if (adopt.graph) setGraph(data.graph);
       } else {
+        savedGraphRef.current = sentGraph;
         setSavedGraph(sentGraph);
       }
       const storedPositions = data.positions ?? (JSON.parse(sentPositions) as WorkflowPositions);
@@ -633,7 +645,7 @@ export default function WorkflowDetailPage() {
       if (!silent) {
         setHistory([]);
         setFuture([]);
-        toast({ title: "Draft saved", description: "Published behavior is unchanged." });
+        toast({ title: "Draft saved", description: "Press Save to make this version runnable." });
       }
       return true;
     } catch {
@@ -666,28 +678,47 @@ export default function WorkflowDetailPage() {
     return () => window.clearTimeout(timer);
   }, [dirty, saving, saveConflict, saveError, graph, positions, wf?.name, save]);
 
-  const publish = useCallback(async () => {
-    if (!graph || !publishedGraph) return;
-    if (dirty && !(await save())) return;
-    const diff = diffWorkflowGraphs(publishedGraph, graph);
-    const summary = [
-      diff.added.length ? `Added: ${diff.added.join(", ")}` : "",
-      diff.removed.length ? `Removed: ${diff.removed.join(", ")}` : "",
-      diff.changed.length ? `Changed: ${diff.changed.join(", ")}` : "",
-      liveWrites(graph, demoApps).length
-        ? `External writes: ${liveWrites(graph, demoApps).join(", ")}`
-        : "",
-    ].filter(Boolean).join("\n");
-    if (!window.confirm(`Publish this draft?\n\n${summary || "No module changes."}`)) return;
-    const res = await fetch(`/api/workflows/${workflowId}/publish`, { method: "POST" });
-    const data = (await res.json().catch(() => null)) as { graph?: WorkflowGraph; error?: string } | null;
-    if (!res.ok || !data?.graph) {
-      toast({ title: "Couldn't publish", description: data?.error, tone: "danger" });
-      return;
+  const commitDraft = useCallback(async () => {
+    if (!graph || committing) return;
+    setCommitting(true);
+    try {
+      // The visible Save owns both halves: first preserve the live canvas as a
+      // draft, then commit that same draft as the version an automation may run.
+      if (dirty && !(await save({ silent: true }))) return;
+      const committedDraft = savedGraphRef.current;
+      const res = await fetch(`/api/workflows/${workflowId}/publish`, { method: "POST" });
+      const data = (await res.json().catch(() => null)) as {
+        graph?: WorkflowGraph;
+        error?: string;
+        gaps?: Record<string, string[]>;
+        issues?: { message: string }[];
+      } | null;
+      if (!res.ok || !data?.graph) {
+        const missing = Object.entries(data?.gaps ?? {}).flatMap(([id, items]) =>
+          items.map((item) => `${graph.steps[id]?.title ?? id}: ${item}`),
+        );
+        toast({
+          title: "Complete the workflow before saving",
+          description: data?.issues?.[0]?.message ?? missing[0] ?? data?.error,
+          tone: "warning",
+        });
+        return;
+      }
+      // The commit endpoint can repair references. Adopt its graph only if
+      // nobody edited while the request was in flight; otherwise preserve the
+      // newer draft and let auto-save record it after this commit completes.
+      if (JSON.stringify(graphRef.current) === committedDraft) {
+        const nextSavedGraph = JSON.stringify(data.graph);
+        savedGraphRef.current = nextSavedGraph;
+        setGraph(data.graph);
+        setSavedGraph(nextSavedGraph);
+      }
+      setPublishedGraph(data.graph);
+      toast({ title: "Saved", description: "This version is ready to switch on." });
+    } finally {
+      setCommitting(false);
     }
-    setPublishedGraph(data.graph);
-    toast({ title: "Published", description: "Scheduled and external runs now use this version." });
-  }, [demoApps, dirty, graph, publishedGraph, save, toast, workflowId]);
+  }, [committing, dirty, graph, save, toast, workflowId]);
 
   const saveAsCopy = useCallback(async () => {
     if (!graph) return;
@@ -704,13 +735,13 @@ export default function WorkflowDetailPage() {
     router.push(`/app/workflows/${data.id}`);
   }, [graph, positions, router, toast, wf?.name, workflowId]);
 
-  // Cmd/Ctrl+S saves, Cmd/Ctrl+Z undoes — the two shortcuts people reach for.
+  // Cmd/Ctrl+S is the same validated commit as the visible Save button.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.key === "s") {
         e.preventDefault();
-        if (dirty) void save();
+        if (dirty || hasUncommittedDraft) void commitDraft();
       } else if (e.key === "z" && !e.shiftKey) {
         const el = document.activeElement?.tagName;
         if (el === "INPUT" || el === "TEXTAREA") return;
@@ -725,7 +756,7 @@ export default function WorkflowDetailPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dirty, save, undo, redo]);
+  }, [commitDraft, dirty, hasUncommittedDraft, undo, redo]);
 
   async function runNow() {
     if (runningNow || !wf || !graph) return;
@@ -896,10 +927,9 @@ export default function WorkflowDetailPage() {
       });
       return;
     }
-    // The switch runs what is SAVED and PUBLISHED. A project picked a moment
-    // ago lives only in this tab until it is saved, so the server would refuse
-    // over a field the user can see is filled. Under a conflict nothing can be
-    // saved, so say what to do; otherwise save first, as Publish does.
+    // The switch runs only a visible-Save commit. A local edit and an
+    // auto-saved draft are both intentionally non-runnable until Save passes
+    // the full workflow validation.
     if (next && saveConflict) {
       toast({
         title: "Resolve the newer changes first",
@@ -908,7 +938,14 @@ export default function WorkflowDetailPage() {
       });
       return;
     }
-    if (next && dirty && !(await save())) return;
+    if (next && (dirty || hasUncommittedDraft)) {
+      toast({
+        title: "Save changes first",
+        description: "Save this draft before switching the automation on.",
+        tone: "warning",
+      });
+      return;
+    }
     const previous = active;
     setActive(next);
     setTogglingActive(true);
@@ -935,13 +972,13 @@ export default function WorkflowDetailPage() {
           ? missing.slice(0, 3).join(" · ") +
             (missing.length > 3 ? ` · and ${missing.length - 3} more` : "")
           : "";
-        // The draft is complete; only the published version is behind. Naming
+        // The draft is complete; only the saved version is behind. Naming
         // the field would send the user back to a dropdown that already shows
         // the right answer.
         if (data.publishFirst) {
           toast({
-            title: "Publish your draft first",
-            description: `The switch runs the published version, which still needs: ${missingText}`,
+            title: "Save your draft first",
+            description: `The switch runs the last saved version, which still needs: ${missingText}`,
             tone: "warning",
           });
           return;
@@ -1028,9 +1065,9 @@ export default function WorkflowDetailPage() {
         connectedTools={connections.every((connection) => connection.status === "connected") ? connections : []}
         active={active}
         dirty={dirty}
-        saving={manualSaving}
+        hasUncommittedDraft={hasUncommittedDraft}
+        saving={manualSaving || committing}
         runningNow={runningNow}
-        blocking={publishBlocks}
         chatOpen={chatOpen}
         openRuns={openRuns}
         togglingActive={togglingActive}
@@ -1041,9 +1078,8 @@ export default function WorkflowDetailPage() {
         onRename={(name) => setWf((w) => (w ? { ...w, name } : w))}
         onToggleActive={toggleActive}
         onTest={() => void runNow()}
-        onSave={() => void save()}
+        onSave={() => void commitDraft()}
         onUndo={undo}
-        onPublish={() => void publish()}
         onReload={() => void refresh()}
         onSaveAsCopy={() => void saveAsCopy()}
         onToggleChat={() => setChatOpen((o) => !o)}
@@ -1105,7 +1141,7 @@ export default function WorkflowDetailPage() {
         <div className="flex items-start gap-2 rounded-card border border-danger-border bg-danger-surface px-4 py-3">
           <Icon name="info" size={15} className="mt-0.5 flex-none text-danger" />
           <div className="min-w-0 text-[13px] text-ink-muted">
-            <span className="font-semibold text-danger">This draft can&apos;t be published yet — </span>
+            <span className="font-semibold text-danger">This draft can&apos;t be saved yet — </span>
             <button
               className="text-left hover:underline"
               onClick={() => setSelectedId(editorIssues[0]?.stepId ?? blocking[0]?.stepId ?? null)}
@@ -1379,9 +1415,9 @@ function Header({
   connectedTools,
   active,
   dirty,
+  hasUncommittedDraft,
   saving,
   runningNow,
-  blocking,
   chatOpen,
   openRuns,
   togglingActive,
@@ -1394,7 +1430,6 @@ function Header({
   onTest,
   onSave,
   onUndo,
-  onPublish,
   onReload,
   onSaveAsCopy,
   onToggleChat,
@@ -1404,9 +1439,9 @@ function Header({
   connectedTools: AppConnection[];
   active: boolean;
   dirty: boolean;
+  hasUncommittedDraft: boolean;
   saving: boolean;
   runningNow: boolean;
-  blocking: number;
   chatOpen: boolean;
   /** Runs that have not landed yet — kept out of the success rate above. */
   openRuns: number;
@@ -1420,7 +1455,6 @@ function Header({
   onTest: () => void;
   onSave: () => void;
   onUndo: () => void;
-  onPublish: () => void;
   onReload: () => void;
   onSaveAsCopy: () => void;
   onToggleChat: () => void;
@@ -1492,13 +1526,10 @@ function Header({
             icon="save"
             aria-label="Save"
             loading={saving}
-            disabled={!dirty || conflict}
+            disabled={(!dirty && !hasUncommittedDraft) || conflict}
             onClick={onSave}
           >
             <span className="max-md:sr-only">Save</span>
-          </Button>
-          <Button aria-label="Publish" variant="secondary" size="sm" icon="check" disabled={blocking > 0 || dirty || conflict} onClick={onPublish}>
-            <span className="max-md:sr-only">Publish</span>
           </Button>
 
           <div className="relative">
