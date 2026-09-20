@@ -152,9 +152,9 @@ export function SpaceLanding() {
           mask="linear-gradient(to bottom, #000 0%, #000 60%, rgba(0,0,0,0.4) 85%, transparent 100%)"
           className="opacity-60 lg:opacity-100"
         />
-        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:pb-36 lg:pt-24">
+        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:pb-36 lg:pt-20">
           <div>
-            <h1 className={`${styles.display} ${styles.rise} text-[clamp(46px,7vw,88px)]`}>
+            <h1 className={`${styles.display} ${styles.rise} text-[clamp(44px,6.4vw,80px)]`}>
               Describe the outcome.<br /><em>Automata builds the work.</em>
             </h1>
             <div className={`${styles.rise} mt-9 flex flex-wrap items-center gap-3`}>
