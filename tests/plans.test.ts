@@ -29,6 +29,12 @@ test("launch plans expose the agreed monthly credits and retention", () => {
   assert.equal(PLANS.pro.retentionDays, 30);
 });
 
+test("pricing features do not advertise workspace members", () => {
+  const lookup = (plans as unknown as { BILLING_PLANS?: Array<{ features: string[] }> }).BILLING_PLANS;
+  assert.ok(lookup);
+  assert.equal(lookup?.some((plan) => plan.features.some((feature) => /members?/i.test(feature))), false);
+});
+
 test("free workspaces cannot activate a third workflow", () => {
   assert.equal(canActivateWorkflow("free", 1), true);
   assert.equal(canActivateWorkflow("free", 2), false);

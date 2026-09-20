@@ -253,7 +253,6 @@ export function ClassicLanding() {
                 <hr />
                 <ul>
                   <li><Check size={15} />{plan.activeWorkflowLimit ?? "Unlimited"} active automations</li>
-                  <li><Check size={15} />{plan.memberLimit} {plan.memberLimit === 1 ? "member" : "members"}</li>
                   <li><Check size={15} />{plan.retentionDays}-day run history</li>
                 </ul>
               </div>

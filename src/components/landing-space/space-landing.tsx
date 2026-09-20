@@ -306,7 +306,6 @@ export function SpaceLanding() {
                 <Link className={`${popular ? styles.primary : styles.ghost} mt-7`} href="/signup">{plan.id === "free" ? "Start free" : `Get ${plan.name}`}</Link>
                 <ul className="mt-7 grid gap-3 text-[14px] text-[var(--ink-muted)]">
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.activeWorkflowLimit ?? "Unlimited"} active automations</li>
-                  <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.memberLimit} {plan.memberLimit === 1 ? "member" : "members"}</li>
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.retentionDays}-day run history</li>
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> Approvals and preflight on every plan</li>
                 </ul>

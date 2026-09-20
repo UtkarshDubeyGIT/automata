@@ -6,7 +6,6 @@ export interface Plan {
   monthlyPrice: number;
   monthlyCredits: number;
   activeWorkflowLimit: number | null;
-  memberLimit: number;
   retentionDays: number;
 }
 
@@ -17,7 +16,6 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPrice: 0,
     monthlyCredits: 1_000,
     activeWorkflowLimit: 2,
-    memberLimit: 1,
     retentionDays: 7,
   },
   pro: {
@@ -26,7 +24,6 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPrice: 19,
     monthlyCredits: 10_000,
     activeWorkflowLimit: null,
-    memberLimit: 3,
     retentionDays: 30,
   },
 };
@@ -76,7 +73,6 @@ export const BILLING_PLANS: BillingPlan[] = Object.values(PLANS).map((plan) => (
   features: [
     `${plan.monthlyCredits.toLocaleString("en-US")} ${plan.monthlyPrice === 0 ? "credits to start" : "credits / month"}`,
     plan.activeWorkflowLimit === null ? "Unlimited active workflows" : `${plan.activeWorkflowLimit} active workflows`,
-    `${plan.memberLimit} workspace ${plan.memberLimit === 1 ? "member" : "members"}`,
     `${plan.retentionDays} days of run history`,
   ],
 }));
