@@ -14,7 +14,7 @@ import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
 import { readCachedIntegrations } from "@/lib/social/integrations-store";
 
 const FIRECRAWL_UNAVAILABLE = setupNotice(
-  "Web research isn't available yet, so this automation can't be published. Please try again later.",
+  "Web research isn't available yet, so this automation can't be saved. Please try again later.",
   "FIRECRAWL_API_KEY is not set, so web research steps cannot run.",
 );
 
@@ -25,7 +25,7 @@ export async function POST(
   const { id } = await ctx.params;
   const rc = await resolveRequestContext();
   if (!rc.supabase || !rc.workspaceId) {
-    return NextResponse.json({ error: "Sign in to publish automations" }, { status: 401 });
+    return NextResponse.json({ error: "Sign in to save automations" }, { status: 401 });
   }
 
   const { data: row, error } = await rc.supabase
@@ -42,13 +42,13 @@ export async function POST(
   try {
     validateGraph(graph);
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : "This draft cannot be published" }, { status: 400 });
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : "This draft cannot be saved" }, { status: 400 });
   }
   const issues = draftIssues(graph);
   if (issues.length) return NextResponse.json({ error: issues[0].message, issues }, { status: 400 });
   const gaps = setupGaps(graph);
   if (Object.values(gaps).some((items) => items.length)) {
-    return NextResponse.json({ error: "Finish the required module fields before publishing", gaps }, { status: 400 });
+    return NextResponse.json({ error: "Finish the required module fields before saving", gaps }, { status: 400 });
   }
 
   // Web research has no per-workspace connection: it is on when the server
@@ -64,7 +64,7 @@ export async function POST(
       const own = await serverOwnedRows(rc, await readCachedIntegrations(rc));
       const missing = unconnected(connectionsOf(requiredAppsOf(graph), [...connected, ...own], true));
       if (missing.length) {
-        return NextResponse.json({ error: `Connect ${missing.map((item) => item.label).join(" and ")} before publishing` }, { status: 409 });
+        return NextResponse.json({ error: `Connect ${missing.map((item) => item.label).join(" and ")} before saving` }, { status: 409 });
       }
     } catch {
       // Composio availability must not turn a valid draft into data loss.
@@ -73,7 +73,7 @@ export async function POST(
   if (needsBrandGrounding(graph)) {
     try {
       if (!brandKnowsProduct(await getBrandProfileForWorkspace(rc.workspaceId))) {
-        return NextResponse.json({ error: "Complete the Brand voice profile before publishing AI-generated output" }, { status: 409 });
+        return NextResponse.json({ error: "Complete the Brand voice profile before saving AI-generated output" }, { status: 409 });
       }
     } catch {
       // Existing activation checks still protect unattended execution.
@@ -88,7 +88,7 @@ export async function POST(
   };
   const { data: saved, error: saveError } = await rc.supabase
     .from("workflows")
-    .update({ config, schedule: scheduleText(config) })
+    .update({ config, draft_config: config, schedule: scheduleText(config) })
     .eq("id", id)
     .eq("draft_revision", row.draft_revision)
     .select("id")

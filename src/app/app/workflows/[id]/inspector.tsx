@@ -2592,7 +2592,7 @@ function WebhookPanel({
     if (
       webhookRotationNeedsConfirmation(active, publishedSecret) &&
       !window.confirm(
-        "Create a replacement webhook URL?\n\nThe current endpoint stays live until you publish. Publishing the replacement will invalidate the URL in your app.",
+        "Create a replacement webhook URL?\n\nThe current endpoint stays live until you save. Saving the replacement will invalidate the URL in your app.",
       )
     ) return;
     setSample(null);
@@ -2626,7 +2626,7 @@ function WebhookPanel({
       <div className="flex flex-col gap-2">
         <div className="break-all rounded-card border border-line bg-inset px-3 py-2 font-mono text-[11.5px] text-ink-muted">
           {url || (endpoint.pendingPublish
-            ? "Publish these changes before an endpoint can receive requests."
+            ? "Save these changes before an endpoint can receive requests."
             : "Create a webhook URL below to connect your app.")}
         </div>
         <div className="flex gap-2">
@@ -2654,7 +2654,7 @@ function WebhookPanel({
         </div>
         {endpoint.pendingPublish && url && (
           <div className="rounded-card border border-warning-border bg-warning-surface px-3 py-2 text-[12px] text-warning">
-            The endpoint above is still live. Publish these changes to activate the replacement URL.
+            The endpoint above is still live. Save these changes to activate the replacement URL.
           </div>
         )}
         <div className={cn("rounded-card border px-3 py-2.5 text-[12px]", sample ? "border-success-border bg-success-surface text-success" : "border-line bg-sunken text-ink-subtle")}>

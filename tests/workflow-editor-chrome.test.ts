@@ -79,15 +79,25 @@ test("the open trigger inspector exposes trigger actions without relying on hove
   assert.match(inspector, /This starts your automation/);
 });
 
-test("the webhook inspector explains endpoint creation and publication", () => {
+test("the webhook inspector explains endpoint creation and saving", () => {
   assert.match(inspector, /Custom webhook endpoint/);
   assert.match(inspector, /Create a webhook URL/);
   assert.match(inspector, /Copy endpoint/);
-  assert.match(inspector, /Publish these changes/);
+  assert.match(inspector, /Save these changes/);
 });
 
-test("publishing stops when saving the current draft fails", () => {
-  assert.match(editor, /if \(dirty && !\(await save\(\)\)\) return/);
+test("Save is the sole control that commits a draft as runnable", () => {
+  assert.match(editor, /const hasUncommittedDraft = useMemo\(/);
+  assert.match(editor, /onSave=\{\(\) => void commitDraft\(\)\}/);
+  assert.doesNotMatch(editor, /onPublish=/);
+  assert.doesNotMatch(editor, /aria-label="Publish"/);
+});
+
+test("activation refuses a draft that has not been committed with Save", () => {
+  assert.match(editor, /if \(next && \(dirty \|\| hasUncommittedDraft\)\)/);
+  assert.match(editor, /title: "Save changes first"/);
+  assert.match(workflowRoute, /code: "save_first"/);
+  assert.match(workflowRoute, /The latest draft must be saved before this automation can be switched on\./);
 });
 
 test("captured webhook samples are scoped to the endpoint token", () => {

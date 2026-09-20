@@ -72,8 +72,16 @@ export interface SelectedTools {
   degraded: boolean;
 }
 
-/** One-line description per integration, for the narrowing call. */
-async function integrationDescriptions(slugs: string[]): Promise<Map<string, string>> {
+/**
+ * One-line description per integration, for the narrowing call.
+ *
+ * Exported (only from `integrationDescriptions` and `narrowIntegrations`, not
+ * `selectTools`'s other internals) so scripts/eval-jev-narrowing.ts can run
+ * the real narrowing prompt against real retrieval output rather than a
+ * hand-rolled reimplementation that would drift from production. Research
+ * branch only — revert on merge/discard if this doesn't ship.
+ */
+export async function integrationDescriptions(slugs: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!slugs.length) return out;
   try {
@@ -105,7 +113,7 @@ async function integrationDescriptions(slugs: string[]): Promise<Map<string, str
  * broader than ideal but always buildable. A failed narrowing must never mean
  * an empty catalog.
  */
-async function narrowIntegrations(
+export async function narrowIntegrations(
   requestText: string,
   candidates: string[],
   descriptions: Map<string, string>,

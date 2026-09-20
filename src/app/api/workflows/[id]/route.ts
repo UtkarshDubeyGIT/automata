@@ -151,6 +151,21 @@ export async function PATCH(
   if (body.active === true) {
     const row = await getWorkflowRow(rc.supabase, id);
 
+    // Draft auto-save is intentionally not permission to run it. The visible
+    // Save is the only action that commits a draft as the runnable version, so
+    // direct API callers must meet the same boundary as the editor.
+    const draftGraph = row?.draft_config?.graph ?? row?.config?.graph;
+    const committedGraph = row?.config?.graph;
+    if (JSON.stringify(draftGraph ?? null) !== JSON.stringify(committedGraph ?? null)) {
+      return NextResponse.json(
+        {
+          error: "The latest draft must be saved before this automation can be switched on.",
+          code: "save_first",
+        },
+        { status: 409 },
+      );
+    }
+
     // Plan gate: an already-active workflow re-sending `active: true` is a
     // no-op and must not get caught by its own count. A workflow that isn't
     // active yet only counts every OTHER currently active workflow.
