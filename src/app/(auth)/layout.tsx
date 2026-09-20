@@ -14,12 +14,12 @@ export default function AuthLayout({
   return (
     <div className="theme-light grid min-h-dvh lg:grid-cols-2">
       {/* Form side */}
-      <div className="flex flex-col px-6 py-8">
+      <div className="flex flex-col px-6 py-8 lg:py-4">
         <div className="mx-auto w-full max-w-sm flex-none">
           <Logo />
         </div>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="w-full max-w-sm py-10">{children}</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="auth-content w-full max-w-sm">{children}</div>
         </div>
       </div>
 
