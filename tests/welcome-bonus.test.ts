@@ -101,7 +101,8 @@ test("the landing offer waits 4.5 seconds before a decorated celebration", () =>
   assert.match(modal, /ConfettiBurst/);
   assert.match(modal, /markSeen\(LANDING_PROMO_KEY\)/);
   assert.match(modal, /href="\/signup"/);
-  assert.match(modal, /name="sparkles"/);
+  assert.doesNotMatch(modal, /name="sparkles"/, "the banner uses ambient CSS sparkles instead of an AI icon");
+  assert.match(modal, /sparkleEight/);
   assert.match(modal, /landing-promo-modal\.module\.css/);
 
   const landing = readFileSync("src/components/landing-space/space-landing.tsx", "utf8");

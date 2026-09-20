@@ -56,8 +56,14 @@ export function LandingPromoModal() {
       >
         <div className={styles.content}>
           <div className={styles.ornament} aria-hidden="true">
-            <Icon name="sparkles" size={18} className={`${styles.sparkle} ${styles.sparkleLeft}`} />
-            <Icon name="sparkles" size={14} className={`${styles.sparkle} ${styles.sparkleRight}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleOne}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleTwo}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleThree}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleFour}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleFive}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleSix}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleSeven}`} />
+            <span className={`${styles.sparkle} ${styles.sparkleEight}`} />
             <span className={`${styles.confetti} ${styles.confettiOne}`} />
             <span className={`${styles.confetti} ${styles.confettiTwo}`} />
             <span className={`${styles.confetti} ${styles.confettiThree}`} />
@@ -65,9 +71,6 @@ export function LandingPromoModal() {
             <span className={`${styles.confetti} ${styles.confettiFive}`} />
           </div>
           <div className="relative z-[1] flex flex-col items-center gap-3 py-1 text-center">
-            <span className={styles.sparkleBadge}>
-              <Icon name="sparkles" size={18} strokeWidth={2} />
-            </span>
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">New account bonus</p>
             <h2 className="text-[25px] font-semibold leading-tight tracking-[-0.025em] text-ink">
               {bonus} credits to start
