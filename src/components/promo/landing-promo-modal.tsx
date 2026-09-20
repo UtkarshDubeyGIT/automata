@@ -7,6 +7,7 @@ import { Button, Dialog, Icon } from "@/components/ui";
 import { hasSeen, LANDING_PROMO_KEY, markSeen, WELCOME_BONUS_CREDITS } from "@/lib/promo/welcome-bonus";
 
 import { ConfettiBurst } from "./confetti";
+import styles from "./landing-promo-modal.module.css";
 
 // Let visitors orient themselves before the celebration takes over the page.
 // Confetti mounts from the same `open` state, so it appears at this moment too.
@@ -53,14 +54,28 @@ export function LandingPromoModal() {
           </>
         }
       >
-        <div className="flex flex-col items-center gap-3 py-1 text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">New account bonus</p>
-          <h2 className="text-[25px] font-semibold leading-tight tracking-[-0.025em] text-ink">
-            {bonus} credits to start
-          </h2>
-          <p className="max-w-[22rem] text-[15px] leading-relaxed text-ink-subtle">
-            Build your first workflow. No card required.
-          </p>
+        <div className={styles.content}>
+          <div className={styles.ornament} aria-hidden="true">
+            <Icon name="sparkles" size={18} className={`${styles.sparkle} ${styles.sparkleLeft}`} />
+            <Icon name="sparkles" size={14} className={`${styles.sparkle} ${styles.sparkleRight}`} />
+            <span className={`${styles.confetti} ${styles.confettiOne}`} />
+            <span className={`${styles.confetti} ${styles.confettiTwo}`} />
+            <span className={`${styles.confetti} ${styles.confettiThree}`} />
+            <span className={`${styles.confetti} ${styles.confettiFour}`} />
+            <span className={`${styles.confetti} ${styles.confettiFive}`} />
+          </div>
+          <div className="relative z-[1] flex flex-col items-center gap-3 py-1 text-center">
+            <span className={styles.sparkleBadge}>
+              <Icon name="sparkles" size={18} strokeWidth={2} />
+            </span>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">New account bonus</p>
+            <h2 className="text-[25px] font-semibold leading-tight tracking-[-0.025em] text-ink">
+              {bonus} credits to start
+            </h2>
+            <p className="max-w-[22rem] text-[15px] leading-relaxed text-ink-subtle">
+              Build your first workflow. No card required.
+            </p>
+          </div>
         </div>
       </Dialog>
     </>

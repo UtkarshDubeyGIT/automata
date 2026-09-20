@@ -1,0 +1,153 @@
+.content {
+  position: relative;
+  isolation: isolate;
+}
+
+.ornament {
+  position: absolute;
+  inset: -20px -24px -16px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ornament::before {
+  position: absolute;
+  top: -48px;
+  left: 50%;
+  width: 190px;
+  height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(242 179 87 / 0.16), transparent 68%);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.sparkle {
+  position: absolute;
+  color: rgb(242 179 87 / 0.84);
+  filter: drop-shadow(0 0 8px rgb(242 179 87 / 0.2));
+  animation: promo-sparkle 3.8s ease-in-out infinite;
+}
+
+.sparkleLeft {
+  top: 20px;
+  left: 22px;
+}
+
+.sparkleRight {
+  top: 41px;
+  right: 26px;
+  animation-delay: -1.7s;
+}
+
+.confetti {
+  position: absolute;
+  width: 11px;
+  height: 5px;
+  border-radius: 2px;
+  background: rgb(242 179 87 / 0.9);
+  box-shadow: 0 0 8px rgb(242 179 87 / 0.14);
+  animation: promo-confetti 4.2s ease-in-out infinite;
+}
+
+.confettiOne {
+  top: 17px;
+  left: 74px;
+  transform: rotate(26deg);
+}
+
+.confettiTwo {
+  top: 78px;
+  left: 14px;
+  width: 7px;
+  background: rgb(255 255 255 / 0.68);
+  transform: rotate(-32deg);
+  animation-delay: -1.4s;
+}
+
+.confettiThree {
+  top: 68px;
+  right: 76px;
+  width: 8px;
+  background: rgb(255 255 255 / 0.62);
+  transform: rotate(55deg);
+  animation-delay: -2.6s;
+}
+
+.confettiFour {
+  top: 20px;
+  right: 72px;
+  width: 7px;
+  transform: rotate(-44deg);
+  animation-delay: -0.8s;
+}
+
+.confettiFive {
+  top: 99px;
+  right: 18px;
+  width: 12px;
+  background: rgb(242 179 87 / 0.56);
+  transform: rotate(18deg);
+  animation-delay: -3.1s;
+}
+
+.sparkleBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 1px;
+  border: 1px solid rgb(242 179 87 / 0.34);
+  border-radius: 12px;
+  color: rgb(242 179 87 / 0.96);
+  background: linear-gradient(145deg, rgb(242 179 87 / 0.18), rgb(255 255 255 / 0.04));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 8px 24px rgb(242 179 87 / 0.08);
+}
+
+@keyframes promo-sparkle {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.86) rotate(-8deg);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(8deg);
+  }
+}
+
+@keyframes promo-confetti {
+  0%,
+  100% {
+    opacity: 0.46;
+    transform: translateY(0) rotate(20deg);
+  }
+
+  50% {
+    opacity: 0.92;
+    transform: translateY(5px) rotate(36deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkle,
+  .confetti {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ornament {
+    inset-inline: -14px;
+  }
+
+  .sparkleLeft {
+    left: 12px;
+  }
+
+  .sparkleRight {
+    right: 14px;
+  }
+}
