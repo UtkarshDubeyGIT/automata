@@ -102,3 +102,11 @@ export const WALL_TOOLKITS: WallToolkit[] = [
   { slug: "gumroad", name: "Gumroad", tools: 7, triggers: 0 },
   { slug: "lemon_squeezy", name: "Lemon Squeezy", tools: 32, triggers: 0 },
 ];
+
+/**
+ * The landing wall is texture, not an integration directory. Keep the first
+ * paint curated and bounded; the full catalog remains available elsewhere in
+ * the app instead of turning a decorative strip into a hundred-image request
+ * burst.
+ */
+export const WALL_VISIBLE_TOOLKITS = WALL_TOOLKITS.slice(0, 32);

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { jsonBody } from "@/lib/request";
 import { resolveRequestContext } from "@/lib/workspace";
 import { validateGraph } from "@/lib/workflows/builder";
-import { getWorkflowBuild, type BuildJobDb } from "@/lib/workflows/build-jobs";
+import { getWorkflowBuild, type BuildJobDb, type WorkflowBuildJob } from "@/lib/workflows/build-jobs";
 import { deriveDisplay, leadLogo, scheduleText, toWorkflowView } from "@/lib/workflows/display";
 import { insertWorkflowOnce, listWorkflowRows, OPEN_STATUSES } from "@/lib/workflows/store";
 import { getTemplate } from "@/lib/workflows/templates";
@@ -11,6 +11,8 @@ import type { RunStatus, WorkflowConfig } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
 import { liveWrites } from "@/lib/workflows/validate";
+import { createAdminClient } from "@/lib/supabase/server";
+import { recordWorkflowBuildEvent } from "@/lib/workflows/diagnostics";
 
 /**
  * GET  — list the workspace's automations, enriched with run history
@@ -136,6 +138,7 @@ export async function POST(req: Request) {
   let name: string;
   let description: string;
   let config: WorkflowConfig;
+  let buildJob: WorkflowBuildJob | null = null;
 
   if (body.template) {
     const template = getTemplate(body.template);
@@ -159,6 +162,7 @@ export async function POST(req: Request) {
     if (!build?.config?.graph) {
       return NextResponse.json({ error: "The workflow build is not ready" }, { status: 409 });
     }
+    buildJob = job;
     name = String(build.name ?? "Untitled automation").slice(0, 60);
     description = String(build.description ?? "").slice(0, 200);
     // Build output is loaded from the durable server row rather than trusted
@@ -195,6 +199,23 @@ export async function POST(req: Request) {
     );
   }
 
+  // Reaching this point means the owner accepted the durable preview and the
+  // server has re-validated the graph. Keep that milestone distinct from the
+  // later workflow-created event so support can separate a discarded/failed
+  // save from a build that never reached preview.
+  if (buildJob) {
+    void recordWorkflowBuildEvent(createAdminClient(), {
+      workspaceId: ctx.workspaceId,
+      actorId: ctx.userId,
+      buildJobId: buildJob.id,
+      correlationId: buildJob.correlation_id,
+      eventType: "preview_accepted",
+      stage: "preview",
+      eventKey: `${buildJob.id}:preview_accepted`,
+      metadata: { creationKey },
+    });
+  }
+
   const { row, duplicate } = await insertWorkflowOnce(ctx.supabase, {
     workspaceId: ctx.workspaceId,
     name,
@@ -209,8 +230,29 @@ export async function POST(req: Request) {
     creationKey,
   });
   if (!row) {
+    void recordWorkflowBuildEvent(createAdminClient(), {
+      workspaceId: ctx.workspaceId,
+      actorId: ctx.userId,
+      buildJobId: buildJob?.id,
+      correlationId: buildJob?.correlation_id,
+      eventType: "workflow_creation_failed",
+      stage: "save",
+      level: "error",
+      eventKey: `${buildJob?.id ?? creationKey}:workflow_creation_failed`,
+      metadata: { creationKey },
+    });
     return NextResponse.json({ error: "Could not save the workflow" }, { status: 502 });
   }
+  void recordWorkflowBuildEvent(createAdminClient(), {
+    workspaceId: ctx.workspaceId,
+    actorId: ctx.userId,
+    buildJobId: buildJob?.id,
+    correlationId: buildJob?.correlation_id,
+    eventType: duplicate ? "workflow_creation_duplicate" : "workflow_created",
+    stage: "save",
+    eventKey: `${buildJob?.id ?? creationKey}:${duplicate ? "workflow_creation_duplicate" : "workflow_created"}`,
+    metadata: { creationKey, workflowId: row.id },
+  });
   return NextResponse.json({ workflow: toWorkflowView(row), duplicate });
 }
 

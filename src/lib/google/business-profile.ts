@@ -1,6 +1,14 @@
 import crypto from "node:crypto";
 import { env, googleBusinessConfigured } from "@/lib/env";
 import { readCredential, saveCredential, deleteCredential } from "@/lib/credentials";
+import {
+  dateRangeDates,
+  frozenDateRange,
+  previousCompleteDateRange,
+  reportCoverage,
+  reportReferenceDate,
+  reportScheduleTimeZone,
+} from "@/lib/analytics/reporting";
 
 /**
  * Google Business Profile — the one Google integration that is our own code.
@@ -32,6 +40,7 @@ const ACCOUNTS = "https://mybusinessaccountmanagement.googleapis.com/v1";
 const INFORMATION = "https://mybusinessbusinessinformation.googleapis.com/v1";
 /** Reviews live only on the legacy surface. Not a fallback — the only route. */
 const REVIEWS = "https://mybusiness.googleapis.com/v4";
+const PERFORMANCE = "https://businessprofileperformance.googleapis.com/v1";
 
 /** The single scope that covers reading and replying. */
 const SCOPE = "https://www.googleapis.com/auth/business.manage";
@@ -469,6 +478,143 @@ export async function replyToReview(
     { method: "PUT", body: JSON.stringify({ comment: text }) },
   );
   return { ok: true };
+}
+
+const PERFORMANCE_METRICS = new Map([
+  ["WEBSITE_CLICKS", "websiteClicks"],
+  ["CALL_CLICKS", "calls"],
+  ["BUSINESS_DIRECTION_REQUESTS", "directions"],
+  ["BUSINESS_IMPRESSIONS_DESKTOP_MAPS", "impressions"],
+  ["BUSINESS_IMPRESSIONS_MOBILE_MAPS", "impressions"],
+  ["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH", "impressions"],
+  ["BUSINESS_IMPRESSIONS_MOBILE_SEARCH", "impressions"],
+  ["BOOKINGS", "bookings"],
+  ["FOOD_ORDERS", "orders"],
+  ["BUSINESS_FOOD_ORDERS", "orders"],
+]);
+
+interface PerformanceDate {
+  year?: number;
+  month?: number;
+  day?: number;
+}
+
+/** Convert Google's one-series-per-metric response into bounded daily rows. */
+export function normalizePerformanceRows(input: unknown[]): Record<string, unknown>[] {
+  const byDate = new Map<string, Record<string, unknown>>();
+  for (const series of input) {
+    if (!series || typeof series !== "object") continue;
+    const item = series as Record<string, unknown>;
+    const metric = PERFORMANCE_METRICS.get(String(item.dailyMetric ?? ""));
+    if (!metric) continue;
+    const values = ((item.timeSeries as Record<string, unknown> | undefined)?.datedValues ?? []) as unknown;
+    if (!Array.isArray(values)) continue;
+    for (const entry of values) {
+      if (!entry || typeof entry !== "object") continue;
+      const value = entry as Record<string, unknown>;
+      const date = value.date as PerformanceDate | undefined;
+      if (!date?.year || !date.month || !date.day) continue;
+      const key = `${String(date.year).padStart(4, "0")}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
+      // Google may omit a value for a date/metric. Missing is unavailable, not
+      // a measured zero; callers use the coverage metadata to surface it.
+      if (value.value === undefined || value.value === null || value.value === "") continue;
+      const numeric = Number(value.value);
+      if (!Number.isFinite(numeric)) continue;
+      const row = byDate.get(key) ?? { date: key };
+      row[metric] = Number(row[metric] ?? 0) + numeric;
+      byDate.set(key, row);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 30);
+}
+
+export async function runPerformanceReport(
+  workspaceId: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const state = await resolveState(workspaceId);
+  if (!state.ok) return { complete: false, error: stateMessage(state.reason, state.detail) };
+  if (args.location && String(args.location) !== state.location) {
+    throw new Error("The selected Google Business Profile location is not connected to this workspace.");
+  }
+  const timeZone = reportScheduleTimeZone(args.time_zone);
+  const referenceAt = reportReferenceDate(args.reference_at);
+  const range = args.start_date && args.end_date
+    ? frozenDateRange(args.start_date, args.end_date, timeZone)
+    : previousCompleteDateRange(referenceAt, timeZone);
+  const requestedMetrics = Array.isArray(args.daily_metrics)
+    ? args.daily_metrics.map(String).slice(0, 20)
+    : ["WEBSITE_CLICKS", "CALL_CLICKS", "BUSINESS_DIRECTION_REQUESTS"];
+  const metrics = requestedMetrics.filter((metric) => PERFORMANCE_METRICS.has(metric));
+  const unsupportedMetrics = requestedMetrics.filter((metric) => !PERFORMANCE_METRICS.has(metric));
+  if (!metrics.length) throw new Error("Choose at least one supported Google Business Profile metric.");
+  const start = new Date(`${range.startDate}T12:00:00Z`);
+  const end = new Date(`${range.endDate}T12:00:00Z`);
+  const params = new URLSearchParams();
+  for (const metric of metrics) params.append("dailyMetric", metric);
+  for (const [prefix, date] of [["dailyRange.start_date", start], ["dailyRange.end_date", end]] as const) {
+    params.set(`${prefix}.year`, String(date.getUTCFullYear()));
+    params.set(`${prefix}.month`, String(date.getUTCMonth() + 1));
+    params.set(`${prefix}.day`, String(date.getUTCDate()));
+  }
+  const body = await call<{ multiDailyMetricTimeSeries?: unknown[] }>(
+    state.token,
+    `${PERFORMANCE}/${state.location}:fetchMultiDailyMetricsTimeSeries?${params.toString()}`,
+  );
+  const rows = normalizePerformanceRows(body.multiDailyMetricTimeSeries ?? []);
+  const totals: Record<string, number> = {};
+  for (const row of rows) {
+    for (const [key, value] of Object.entries(row)) {
+      if (key === "date" || typeof value !== "number") continue;
+      totals[key] = (totals[key] ?? 0) + value;
+    }
+  }
+  const coverage = reportCoverage(rows, range);
+  const expectedDates = dateRangeDates(range);
+  const missingDatesByMetric: Record<string, string[]> = {};
+  for (const metric of metrics) {
+    const dates = new Set<string>();
+    for (const entry of body.multiDailyMetricTimeSeries ?? []) {
+      if (!entry || typeof entry !== "object" || String((entry as Record<string, unknown>).dailyMetric ?? "") !== metric) continue;
+      const values = (((entry as Record<string, unknown>).timeSeries as Record<string, unknown> | undefined)?.datedValues ?? []) as unknown[];
+      for (const valueEntry of values) {
+        if (!valueEntry || typeof valueEntry !== "object") continue;
+        const value = valueEntry as Record<string, unknown>;
+        const date = value.date as PerformanceDate | undefined;
+        if (value.value === undefined || value.value === null || value.value === "" || !date?.year || !date.month || !date.day) continue;
+        dates.add(`${String(date.year).padStart(4, "0")}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
+      }
+    }
+    missingDatesByMetric[metric] = expectedDates.filter((date) => !dates.has(date));
+  }
+  const missingMetrics = Object.entries(missingDatesByMetric).filter(([, dates]) => dates.length === expectedDates.length).map(([metric]) => metric);
+  const missingMetricDates = [...new Set(Object.values(missingDatesByMetric).flat())];
+  const complete = rows.length > 0 && Object.values(missingDatesByMetric).every((dates) => dates.length === 0);
+  return {
+    provider: "google_business_profile",
+    location: state.location,
+    range,
+    rows,
+    totals,
+    complete,
+    generatedAt: new Date().toISOString(),
+    sourceTimeZone: timeZone,
+    scheduleTimeZone: reportScheduleTimeZone(args.schedule_time_zone),
+    currency: null,
+    units: { websiteClicks: "actions", calls: "actions", directions: "actions", impressions: "views", bookings: "actions", orders: "orders" },
+    availability: {
+      requestedMetrics,
+      supportedMetrics: metrics,
+      unsupportedMetrics,
+      missingMetrics,
+      missingDatesByMetric,
+      coverage,
+      missingMetricDates,
+      dailyRowsTruncated: rows.length > 30,
+      note: complete ? "All requested calendar days returned a value." : "Some requested calendar days or metrics were unavailable; missing values are not zero.",
+    },
+    freshness: "Google Business Profile daily series",
+  };
 }
 
 export function stateMessage(reason: BusinessProfileFailure, detail?: string): string {

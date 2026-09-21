@@ -367,6 +367,8 @@ body:has(.page) {
   gap: 14px;
   padding-block: 20px 4px;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 110px;
   /* Kept quiet by scale and spacing rather than by dimming the marks: the
      logos show their real colours, small and widely spaced behind an edge
      mask, so the band is texture without being washed out. */
@@ -398,11 +400,21 @@ body:has(.page) {
 .wallTile {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   /* A light plate so dark marks (GitHub, Notion, X) do not sink into the sky,
      and so every logo in the band sits on the same backing. No hover state. */
   padding: 5px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.92);
+}
+.wallPlaceholder {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
 }
 @media (prefers-reduced-motion: reduce) {
   .wallRow { animation: none; }

@@ -1,6 +1,16 @@
 import "server-only";
 
 import { proxyFor } from "@/lib/social/composio-proxy";
+import {
+  aggregateMetricRows,
+  frozenDateRange,
+  paginateReport,
+  previousCompleteDateRange,
+  reportCoverage,
+  reportReferenceDate,
+  reportScheduleTimeZone,
+  type MetricRow,
+} from "@/lib/analytics/reporting";
 
 const DATA_API = "https://analyticsdata.googleapis.com/v1beta";
 const DEFAULT_DATE_RANGES = [{ startDate: "30daysAgo", endDate: "today" }];
@@ -151,6 +161,15 @@ function readableRows(response: GaReportResponse): Record<string, string>[] {
   });
 }
 
+function normalizeRollingRows(rows: Record<string, string>[]): MetricRow[] {
+  return rows.map((row) => {
+    const date = String(row.date ?? "");
+    return /^\d{8}$/.test(date)
+      ? { ...row, date: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}` }
+      : row;
+  });
+}
+
 function providerMessage(response: GaReportResponse): string {
   return response.error?.message?.trim() || "unknown provider error";
 }
@@ -188,5 +207,69 @@ export async function runGa4Report(workspaceId: string, args: JsonRecord): Promi
     metadata: report.metadata ?? {},
     report,
     text,
+  };
+}
+
+/**
+ * Rolling GA4 reports use frozen completed-day dates and consume every offset
+ * page before returning a report. The legacy action above intentionally keeps
+ * its relative-date defaults for existing saved workflows.
+ */
+export async function runGa4RollingReport(workspaceId: string, args: JsonRecord): Promise<JsonRecord> {
+  const property = ga4Property(args.property);
+  const timeZone = reportScheduleTimeZone(args.time_zone);
+  const referenceAt = reportReferenceDate(args.reference_at);
+  const range = args.start_date && args.end_date
+    ? frozenDateRange(args.start_date, args.end_date, timeZone)
+    : previousCompleteDateRange(referenceAt, timeZone);
+  const limitValue = Math.min(Number(args.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
+  if (!Number.isSafeInteger(limitValue) || limitValue < 1) throw new Error("limit must be a positive whole number.");
+  let complete = false;
+  let decodedBytes = 0;
+  const started = Date.now();
+  const paged = await paginateReport<MetricRow>(async (offset) => {
+    if (Date.now() - started > 60_000) throw new Error("GA4 report exceeded the 60 second execution limit.");
+    const page = await runGa4Report(workspaceId, {
+      ...args,
+      property,
+      date_ranges: [{ startDate: range.startDate, endDate: range.endDate }],
+      limit: limitValue,
+      offset,
+    });
+    decodedBytes += new TextEncoder().encode(JSON.stringify(page.report ?? {})).byteLength;
+    if (decodedBytes > 10 * 1024 * 1024) throw new Error("GA4 report exceeded the 10 MB response limit.");
+    const pageRows = normalizeRollingRows((page.rows as Record<string, string>[] | undefined) ?? []);
+    const totalRows = Number.isFinite(Number(page.row_count)) ? Number(page.row_count) : undefined;
+    const hasMore = totalRows !== undefined
+      ? offset + pageRows.length < totalRows
+      : pageRows.length >= limitValue;
+    return { rows: pageRows, totalRows, hasMore };
+  }, { pageSize: limitValue, maxRows: 100_000, maxBytes: 10 * 1024 * 1024 });
+  complete = paged.complete;
+  if (!complete) throw new Error(`Google Analytics report pagination was incomplete (${paged.reason ?? "provider did not finish"}); no report was delivered.`);
+  const aggregate = aggregateMetricRows(paged.rows);
+  const requestedMetrics = Array.isArray(args.metrics)
+    ? args.metrics.map((metric) => typeof metric === "string" ? metric : String((metric as Record<string, unknown>)?.name ?? "")).filter(Boolean)
+    : DEFAULT_METRICS;
+  const coverage = reportCoverage(paged.rows, range);
+  const unavailableMetrics = requestedMetrics.filter((metric) => aggregate.totals[metric] === undefined);
+  return {
+    provider: "ga4",
+    property,
+    range,
+    rows: aggregate.daily,
+    totals: aggregate.totals,
+    complete: true,
+    generatedAt: new Date().toISOString(),
+    sourceTimeZone: timeZone,
+    scheduleTimeZone: reportScheduleTimeZone(args.schedule_time_zone),
+    units: { activeUsers: "users (period total unavailable without a separate aggregate query)" },
+    availability: {
+      requestedMetrics,
+      unavailableMetrics,
+      coverage,
+      dailyRowsTruncated: aggregate.dailyRowsTruncated,
+    },
+    freshness: "GA4 processing may revise recent completed days",
   };
 }

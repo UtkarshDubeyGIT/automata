@@ -27,6 +27,8 @@ const UNIQUE: Record<string, string[][]> = {
   credit_ledger: [["workspace_id", "idem_key"]],
   job_locks: [["name"]],
   message_deliveries: [["idempotency_key"], ["twilio_message_sid"]],
+  workflow_build_events: [["workspace_id", "event_key", "event_type"]],
+  workflow_report_deliveries: [["idempotency_key"]],
 };
 
 function violates(table: string, rows: Row[], candidate: Row): boolean {

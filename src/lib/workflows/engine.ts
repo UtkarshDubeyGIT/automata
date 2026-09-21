@@ -51,7 +51,7 @@ export async function startRun(store: RunStore, opts: StartOptions): Promise<Run
   const log: RunLog = {
     v: 1,
     journal: [],
-    context: { steps: {}, input: opts.input ?? {} },
+    context: { steps: {}, input: opts.input ?? {}, runStartedAt: new Date().toISOString() },
   };
   const runId = await store.createRun(opts.workflowId, log);
   return drive(store, opts.graph, runId, opts.entityId);

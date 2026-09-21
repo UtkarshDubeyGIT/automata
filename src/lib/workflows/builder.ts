@@ -7,7 +7,7 @@ import { NODE_TYPES } from "./blocks";
 import { buildResponse, deriveDisplay } from "./display";
 import { repairRefs, repairSchedules, stripPlaceholders } from "./repair";
 import { getTool, triggersForPrompt } from "./registry";
-import { selectTools } from "./tool-selection";
+import { selectTools, type SelectedTools } from "./tool-selection";
 import { BuildError, validateGraph } from "./validate";
 import type { ToolSpec } from "./registry";
 import type { StepDef, WorkflowConfig, WorkflowGraph } from "./types";
@@ -101,6 +101,24 @@ export interface BuildOutput {
   /** Does it generate copy or images? Then the brand profile decides how good they are. */
   needsBrand: boolean;
 }
+
+export interface BuildEvent {
+  eventType: string;
+  stage: "tool_selection" | "model" | "validation" | "repair";
+  level?: "info" | "warn" | "error";
+  attempt?: number;
+  errorCode?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BuildOptions {
+  deadline?: number;
+  /** Best-effort operational events; failures must never affect the build. */
+  onEvent?: (event: BuildEvent) => Promise<void> | void;
+}
+
+// The deadline-only call shape (`options?: { deadline?: number }`) remains a
+// valid subset for existing workers and test seams; onEvent is additive.
 
 // ---------------------------------------------------------------------------
 // The node catalog — the contract. Not in ./blocks.ts = the AI cannot emit it.
@@ -305,9 +323,18 @@ Return the JSON now.`;
 
 const MAX_REPAIRS = 2;
 
+async function emitBuildEvent(observer: BuildOptions["onEvent"], event: BuildEvent): Promise<void> {
+  if (!observer) return;
+  try {
+    await observer(event);
+  } catch {
+    // Diagnostics are deliberately non-authoritative.
+  }
+}
+
 export async function buildWorkflow(
   description: string,
-  options?: { deadline?: number },
+  options?: BuildOptions,
 ): Promise<BuildOutput> {
   if (!openaiConfigured) {
     const graph = fallbackGraph();
@@ -318,10 +345,39 @@ export async function buildWorkflow(
   // Generated once and reused for every retry below — a repair must never see
   // a catalog different from the one the first attempt was shown, or it can
   // "fix" the JSON into a tool slug that was never on offer.
-  const selection = await selectTools(description);
+  let selection: SelectedTools;
+  try {
+    selection = await selectTools(description);
+    await emitBuildEvent(options?.onEvent, {
+      eventType: "build_tool_selection",
+      stage: "tool_selection",
+      metadata: { status: "selected" },
+    });
+  } catch (error) {
+    await emitBuildEvent(options?.onEvent, {
+      eventType: "build_tool_selection_failed",
+      stage: "tool_selection",
+      level: "error",
+      errorCode: "tool_selection_failed",
+    });
+    throw error;
+  }
   const prompt = systemPrompt(selection.text);
   const user = `User's automation request:\n${description}`;
-  let raw = await ask(prompt, user, deadline);
+  await emitBuildEvent(options?.onEvent, { eventType: "build_model_attempt", stage: "model", attempt: 0 });
+  let raw: string;
+  try {
+    raw = await ask(prompt, user, deadline);
+  } catch (error) {
+    await emitBuildEvent(options?.onEvent, {
+      eventType: "build_model_failed",
+      stage: "model",
+      level: "error",
+      attempt: 0,
+      errorCode: "model_failed",
+    });
+    throw error;
+  }
   let lastErr = "";
 
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
@@ -338,21 +394,71 @@ export async function buildWorkflow(
       // live pointed at a repository called `<repo>`.
       const { graph } = stripPlaceholders(repairSchedules(repairRefs(graphOf(parsed)).graph));
       validateGraph(graph);
+      await emitBuildEvent(options?.onEvent, {
+        eventType: "build_validation_passed",
+        stage: "validation",
+        attempt,
+      });
       const name = String(parsed.title ?? "Untitled automation").slice(0, 60);
       const desc = String(parsed.description ?? description).slice(0, 160);
       return toOutput(name, desc, description, graph, false);
     } catch (err) {
       // A dead provider cannot be repaired by asking again — surface it now
       // rather than spending the remaining attempts on a call that must fail.
-      if (err instanceof ProviderError) throw err;
-      if (err instanceof BuildRefusal) throw new BuildError(err.message);
+      if (err instanceof ProviderError) {
+        await emitBuildEvent(options?.onEvent, {
+          eventType: "build_model_failed",
+          stage: "model",
+          level: "error",
+          attempt,
+          errorCode: "provider_error",
+        });
+        throw err;
+      }
+      if (err instanceof BuildRefusal) {
+        await emitBuildEvent(options?.onEvent, {
+          eventType: "build_refused",
+          stage: "validation",
+          level: "warn",
+          attempt,
+          errorCode: "unsupported_request",
+        });
+        throw new BuildError(err.message);
+      }
       lastErr = (err as Error).message;
-      if (attempt >= MAX_REPAIRS) break;
-      raw = await ask(
-        prompt,
-        `The previous JSON was invalid: ${lastErr}\nHere is what you produced:\n${raw}\n\nFix it. Output ONLY the corrected JSON object, nothing else.`,
-        deadline,
-      );
+      if (attempt >= MAX_REPAIRS) {
+        await emitBuildEvent(options?.onEvent, {
+          eventType: "build_repair_exhausted",
+          stage: "repair",
+          level: "error",
+          attempt,
+          errorCode: "validation_failed",
+        });
+        break;
+      }
+      await emitBuildEvent(options?.onEvent, {
+        eventType: "build_repair_requested",
+        stage: "repair",
+        attempt,
+        metadata: { status: "retrying" },
+      });
+      await emitBuildEvent(options?.onEvent, { eventType: "build_model_attempt", stage: "model", attempt: attempt + 1 });
+      try {
+        raw = await ask(
+          prompt,
+          `The previous JSON was invalid: ${lastErr}\nHere is what you produced:\n${raw}\n\nFix it. Output ONLY the corrected JSON object, nothing else.`,
+          deadline,
+        );
+      } catch (error) {
+        await emitBuildEvent(options?.onEvent, {
+          eventType: "build_model_failed",
+          stage: "model",
+          level: "error",
+          attempt: attempt + 1,
+          errorCode: "model_failed",
+        });
+        throw error;
+      }
     }
   }
   throw new BuildError(

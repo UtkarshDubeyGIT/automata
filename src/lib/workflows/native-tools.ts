@@ -5,7 +5,10 @@ import {
   replyToReview,
   type BusinessReview,
 } from "@/lib/google/business-profile";
-import { runGa4Report } from "@/lib/google/analytics";
+import { runGa4Report, runGa4RollingReport } from "@/lib/google/analytics";
+import { runGoogleAdsReport } from "@/lib/google/ads";
+import { composioConfigured } from "@/lib/env";
+import { runMetaRollingReport } from "@/lib/analytics/ads";
 import {
   listVikunjaProjects,
   vikunjaClientFor,
@@ -32,7 +35,7 @@ import {
  */
 
 /** Apps whose tools run through this module rather than Composio. */
-const NATIVE_APPS = new Set(["googlebusinessprofile", "vikunja"]);
+const NATIVE_APPS = new Set(["googlebusinessprofile", "googleads", "vikunja"]);
 
 /**
  * Can this app run for real here and now?
@@ -45,6 +48,7 @@ const NATIVE_APPS = new Set(["googlebusinessprofile", "vikunja"]);
 export function runsNatively(app: string): boolean {
   if (!NATIVE_APPS.has(app)) return false;
   if (app === "googlebusinessprofile") return businessProfileConfigured;
+  if (app === "googleads") return composioConfigured;
   if (app === "vikunja") return true;
   return false;
 }
@@ -225,9 +229,44 @@ export async function executeNativeTool(
 
     case "GOOGLE_ANALYTICS_RUN_REPORT": {
       try {
-        return { successful: true, data: await runGa4Report(workspaceId, args) };
+        return {
+          successful: true,
+          data: args.rolling === true || args.report_mode === "rolling"
+            ? await runGa4RollingReport(workspaceId, args)
+            : await runGa4Report(workspaceId, args),
+        };
       } catch (error) {
         return failure(error instanceof Error ? error.message : "Could not run the GA4 report.");
+      }
+    }
+
+    case "GOOGLEBUSINESS_GET_PERFORMANCE_REPORT": {
+      try {
+        // Keep the long-standing reviews native-tool seam compatible with
+        // deployments/tests that only provide the reviews client. Performance
+        // reporting is an additive capability and is loaded only when used.
+        const { runPerformanceReport } = await import("@/lib/google/business-profile");
+        const report = await runPerformanceReport(workspaceId, args);
+        if (report.complete === false) return failure(String(report.error ?? "Google Business Profile is unavailable."));
+        return { successful: true, data: report };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not run the Google Business Profile report.");
+      }
+    }
+
+    case "GOOGLEADS_GET_REPORT": {
+      try {
+        return { successful: true, data: await runGoogleAdsReport(workspaceId, args) };
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Could not run the Google Ads report.");
+      }
+    }
+
+    case "METAADS_GET_ROLLING_REPORT": {
+      try {
+        return { successful: true, data: await runMetaRollingReport(workspaceId, args) };
+      } catch (error) {
+        return { successful: false, error: error instanceof Error ? error.message : "Could not run the Meta Ads report.", data: {} };
       }
     }
 

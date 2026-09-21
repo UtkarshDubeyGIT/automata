@@ -1,4 +1,8 @@
-import { COMPOSIO_CATALOG_SIZE, WALL_TOOLKITS } from "@/lib/integrations/composio-wall";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+import { COMPOSIO_CATALOG_SIZE, WALL_VISIBLE_TOOLKITS } from "@/lib/integrations/composio-wall";
 
 import { ToolLogo } from "@/components/tool-logo";
 
@@ -13,8 +17,33 @@ import styles from "./space-landing.module.css";
  * small, widely spaced marks behind a soft edge mask keep it from shouting.
  */
 export function ToolWall() {
-  const half = Math.ceil(WALL_TOOLKITS.length / 2);
-  const rows = [WALL_TOOLKITS.slice(0, half), WALL_TOOLKITS.slice(half)];
+  const wallRef = useRef<HTMLDivElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const half = Math.ceil(WALL_VISIBLE_TOOLKITS.length / 2);
+  const rows = [WALL_VISIBLE_TOOLKITS.slice(0, half), WALL_VISIBLE_TOOLKITS.slice(half)];
+
+  useEffect(() => {
+    const wall = wallRef.current;
+    if (!wall) return;
+    if (typeof IntersectionObserver === "undefined") {
+      const timer = globalThis.setTimeout(() => setReady(true), 0);
+      return () => globalThis.clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setReady(true);
+          observer.disconnect();
+        }
+      },
+      // Fetch just before the wall is readable, not during the hero's first
+      // paint. This also keeps slow mobile connections from paying for a
+      // below-the-fold decoration they never scroll to.
+      { rootMargin: "240px 0px" },
+    );
+    observer.observe(wall);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section className="relative" aria-label="Connected app catalog">
@@ -25,7 +54,7 @@ export function ToolWall() {
         </span>
       </p>
 
-      <div className={styles.wall}>
+      <div ref={wallRef} className={styles.wall} data-loaded={ready ? "true" : "false"}>
         {rows.map((row, index) => (
           <div key={index} className={`${styles.wallRow} ${index === 1 ? styles.wallRowSlow : ""}`}>
             {/* Rendered twice so the loop point is invisible. */}
@@ -33,7 +62,11 @@ export function ToolWall() {
               <ul key={copy} className={styles.wallTrack} aria-hidden={copy === 1 ? true : undefined}>
                 {row.map((toolkit) => (
                   <li key={toolkit.slug} className={styles.wallTile} title={toolkit.name}>
-                    <ToolLogo slug={toolkit.slug} label={toolkit.name} size={26} />
+                    {ready ? (
+                      <ToolLogo slug={toolkit.slug} label={toolkit.name} size={26} />
+                    ) : (
+                      <span className={styles.wallPlaceholder} aria-hidden="true" />
+                    )}
                   </li>
                 ))}
               </ul>

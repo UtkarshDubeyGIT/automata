@@ -95,7 +95,7 @@ export async function claimRun(opts: ClaimOptions): Promise<ClaimResult> {
   const log: RunLog = {
     v: 1,
     journal: [],
-    context: { steps: {}, input: opts.input ?? {} },
+    context: { steps: {}, input: opts.input ?? {}, runStartedAt: new Date().toISOString() },
   };
 
   const { data, error } = await admin

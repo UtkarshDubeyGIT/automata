@@ -5,6 +5,9 @@ export type BuildJobStatus = "queued" | "running" | "completed" | "failed";
 export interface BuildJobView {
   id: string;
   status: BuildJobStatus;
+  /** Stable server correlation that survives retries and preview/save. */
+  correlationId?: string;
+  errorCode?: string;
   build?: BuildOutput;
   error?: string;
 }

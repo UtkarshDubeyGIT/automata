@@ -224,6 +224,8 @@ export interface RunDecision {
 /** Accumulated run state, available to every step. */
 export interface RunContext {
   steps: Record<string, Record<string, unknown>>;
+  /** Persisted once at claim/start so delayed report steps keep the same slot. */
+  runStartedAt?: string;
   last?: Record<string, unknown>;
   input?: Record<string, unknown>;
   /**

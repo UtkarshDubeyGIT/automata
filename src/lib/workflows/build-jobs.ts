@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { CREDIT_COST, grantCredits } from "@/lib/credits";
 import { createAdminClient } from "@/lib/supabase/server";
 import { claimJob } from "@/lib/jobs/lock";
-import type { BuildOutput } from "./builder";
+import type { BuildEvent, BuildOutput } from "./builder";
 import { buildWorkflow } from "./builder";
 import type { BuildJobStatus, BuildJobView } from "./build-request";
+import { recordWorkflowBuildEvent } from "./diagnostics";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type BuildJobDb = { from(table: string): any; rpc(name: string, args: Record<string, unknown>): any };
@@ -13,6 +14,7 @@ export interface WorkflowBuildJob {
   id: string;
   workspace_id: string;
   request_key: string;
+  correlation_id?: string | null;
   prompt: string;
   status: BuildJobStatus;
   result: BuildOutput | null;
@@ -35,6 +37,8 @@ export function workflowBuildView(job: WorkflowBuildJob): BuildJobView {
   return {
     id: job.id,
     status: job.status,
+    ...(job.correlation_id ? { correlationId: job.correlation_id } : {}),
+    ...(job.error_code ? { errorCode: job.error_code } : {}),
     ...(job.status === "completed" && job.result ? { build: job.result } : {}),
     ...(job.status === "failed" && job.error ? { error: job.error } : {}),
   };
@@ -95,7 +99,7 @@ export async function runWorkflowBuild(
   db: BuildJobDb,
   id: string,
   deps?: {
-    build?: (prompt: string, options?: { deadline?: number }) => Promise<BuildOutput>;
+    build?: (prompt: string, options?: { deadline?: number; onEvent?: (event: BuildEvent) => Promise<void> | void }) => Promise<BuildOutput>;
     refund?: (workspaceId: string, jobId: string) => Promise<void>;
     now?: () => Date;
     holder?: string;
@@ -110,6 +114,14 @@ export async function runWorkflowBuild(
   // Recovery finishes the refund and never calls the model again.
   if (existing.status === "failed") {
     if (!existing.charged_at || existing.refunded_at) return existing;
+    await recordWorkflowBuildEvent(db, {
+      workspaceId: existing.workspace_id,
+      buildJobId: existing.id,
+      correlationId: existing.correlation_id,
+      eventType: "build_recovery_started",
+      stage: "recovery",
+      eventKey: `${existing.id}:recovery:start`,
+    });
     try {
       await refund(existing.workspace_id, existing.id);
       const refundedAt = now().toISOString();
@@ -121,9 +133,27 @@ export async function runWorkflowBuild(
         .is("refunded_at", null)
         .select("*")
         .maybeSingle();
+      await recordWorkflowBuildEvent(db, {
+        workspaceId: existing.workspace_id,
+        buildJobId: existing.id,
+        correlationId: existing.correlation_id,
+        eventType: "build_recovery_completed",
+        stage: "recovery",
+        eventKey: `${existing.id}:recovery:completed`,
+      });
       return (data as WorkflowBuildJob | null) ?? getWorkflowBuild(db, id);
     } catch (err) {
       console.error("[workflows/build] refund recovery failed:", err);
+      await recordWorkflowBuildEvent(db, {
+        workspaceId: existing.workspace_id,
+        buildJobId: existing.id,
+        correlationId: existing.correlation_id,
+        eventType: "build_recovery_failed",
+        stage: "recovery",
+        level: "error",
+        errorCode: "refund_recovery_failed",
+        eventKey: `${existing.id}:recovery:failed`,
+      });
       return existing;
     }
   }
@@ -143,17 +173,66 @@ export async function runWorkflowBuild(
       .eq("status", "queued")
       .select("*")
       .maybeSingle();
-    if (failed) return runWorkflowBuild(db, id, deps);
+    if (failed) {
+      await recordWorkflowBuildEvent(db, {
+        workspaceId: existing.workspace_id,
+        buildJobId: existing.id,
+        correlationId: existing.correlation_id,
+        eventType: "build_attempts_exhausted",
+        stage: "recovery",
+        level: "error",
+        attempt: existing.attempts,
+        errorCode: "attempts_exhausted",
+        eventKey: `${existing.id}:attempts-exhausted`,
+      });
+      return runWorkflowBuild(db, id, deps);
+    }
     return getWorkflowBuild(db, id);
   }
 
   const holder = deps?.holder ?? randomUUID();
   const job = await claimWorkflowBuild(db, id, holder, now());
   if (!job) return getWorkflowBuild(db, id);
+  await recordWorkflowBuildEvent(db, {
+    workspaceId: job.workspace_id,
+    buildJobId: job.id,
+    correlationId: job.correlation_id,
+    eventType: "build_claimed",
+    stage: "claim",
+    attempt: job.attempts,
+    eventKey: `${job.id}:attempt:${job.attempts}:claim`,
+    metadata: { requestKey: job.request_key },
+  });
   const build = deps?.build ?? buildWorkflow;
+  const startedAt = Date.now();
+  await recordWorkflowBuildEvent(db, {
+    workspaceId: job.workspace_id,
+    buildJobId: job.id,
+    correlationId: job.correlation_id,
+    eventType: "build_started",
+    stage: "model",
+    attempt: job.attempts,
+    eventKey: `${job.id}:attempt:${job.attempts}:model`,
+  });
 
   try {
-    const result = await build(job.prompt, { deadline: Date.now() + BUILD_BUDGET_MS });
+    const result = await build(job.prompt, {
+      deadline: Date.now() + BUILD_BUDGET_MS,
+      onEvent: async (event) => {
+        await recordWorkflowBuildEvent(db, {
+          workspaceId: job.workspace_id,
+          buildJobId: job.id,
+          correlationId: job.correlation_id,
+          eventType: event.eventType,
+          stage: event.stage,
+          level: event.level,
+          attempt: event.attempt ?? job.attempts,
+          errorCode: event.errorCode,
+          eventKey: `${job.id}:attempt:${job.attempts}:${event.eventType}:${event.attempt ?? 0}`,
+          metadata: event.metadata,
+        });
+      },
+    });
     const finishedAt = now().toISOString();
     const { data } = await db
       .from("workflow_builds")
@@ -172,6 +251,16 @@ export async function runWorkflowBuild(
       .eq("claimed_by", holder)
       .select("*")
       .maybeSingle();
+    await recordWorkflowBuildEvent(db, {
+      workspaceId: job.workspace_id,
+      buildJobId: job.id,
+      correlationId: job.correlation_id,
+      eventType: "build_completed",
+      stage: "validation",
+      attempt: job.attempts,
+      durationMs: Date.now() - startedAt,
+      eventKey: `${job.id}:build_completed`,
+    });
     return (data as WorkflowBuildJob | null) ?? getWorkflowBuild(db, id);
   } catch (err) {
     const finishedAt = now().toISOString();
@@ -193,6 +282,18 @@ export async function runWorkflowBuild(
       .select("*")
       .maybeSingle();
     if (!failed) return getWorkflowBuild(db, id);
+    await recordWorkflowBuildEvent(db, {
+      workspaceId: job.workspace_id,
+      buildJobId: job.id,
+      correlationId: job.correlation_id,
+      eventType: "build_failed",
+      stage: "model",
+      level: "error",
+      attempt: job.attempts,
+      durationMs: Date.now() - startedAt,
+      errorCode: safe.code,
+      eventKey: `${job.id}:attempt:${job.attempts}:failed`,
+    });
     try {
       await refund(job.workspace_id, job.id);
       const refundedAt = now().toISOString();
@@ -204,6 +305,15 @@ export async function runWorkflowBuild(
         .is("refunded_at", null)
         .select("*")
         .maybeSingle();
+      await recordWorkflowBuildEvent(db, {
+        workspaceId: job.workspace_id,
+        buildJobId: job.id,
+        correlationId: job.correlation_id,
+        eventType: "build_refunded",
+        stage: "refund",
+        attempt: job.attempts,
+        eventKey: `${job.id}:refunded`,
+      });
       return (data as WorkflowBuildJob | null) ?? getWorkflowBuild(db, id);
     } catch (refundErr) {
       console.error("[workflows/build] refund failed:", refundErr);

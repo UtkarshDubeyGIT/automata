@@ -64,7 +64,7 @@ export interface ToolSpec {
  * stays an ordinary required argument — there is no saved home for it, and a
  * business with several numbers would need us to guess which one speaks.
  */
-export type AutofillSource = "meta_ad_account" | "ga4_property";
+export type AutofillSource = "meta_ad_account" | "ga4_property" | "google_ads_customer";
 
 /**
  * Apps that have NO Composio toolkit (verified against the live v3 catalog).
@@ -818,6 +818,18 @@ export const TOOLS: Record<string, ToolSpec> = {
     },
     autofill: { object_id: "meta_ad_account" },
   },
+  METAADS_GET_ROLLING_REPORT: {
+    app: "metaads",
+    kind: "read",
+    external: false,
+    required: [],
+    desc:
+      "Read a complete, daily account-level Meta Ads report for the previous 30 completed days. " +
+      "The account id is autofilled from Settings and the report preserves spend, impressions, clicks and reach.",
+    argHint: '{"object_id":"","start_date":"","end_date":"","time_zone":"UTC"}',
+    autofill: { object_id: "meta_ad_account" },
+    limits: ["Meta account access and currently granted read permissions must be verified before activation."],
+  },
   GOOGLEBUSINESS_GET_REVIEWS: {
     app: "googlebusinessprofile",
     kind: "read",
@@ -825,6 +837,24 @@ export const TOOLS: Record<string, ToolSpec> = {
     required: [],
     desc: "Read recent customer reviews from the Google Business Profile",
     argHint: '{"limit": 20}',
+  },
+  GOOGLEBUSINESS_GET_PERFORMANCE_REPORT: {
+    app: "googlebusinessprofile",
+    kind: "read",
+    external: false,
+    required: [],
+    desc:
+      "Read a complete rolling Google Business Profile performance report for one connected location. " +
+      "Use start_date/end_date for a frozen previous-30-completed-day window and only supported daily metrics.",
+    argHint:
+      '{"location":"","start_date":"","end_date":"","time_zone":"UTC","daily_metrics":["WEBSITE_CLICKS","CALL_CLICKS","BUSINESS_DIRECTION_REQUESTS"]}',
+    defaults: {
+      daily_metrics: ["WEBSITE_CLICKS", "CALL_CLICKS", "BUSINESS_DIRECTION_REQUESTS"],
+    },
+    limits: [
+      "Google Business Profile performance requires approved project access, quota and a location the connected account can manage.",
+      "Monthly keyword impressions are not an exact rolling daily window and are not included.",
+    ],
   },
   GOOGLEBUSINESS_REPLY_TO_REVIEW: {
     app: "googlebusinessprofile",
@@ -1332,6 +1362,22 @@ export const TOOLS: Record<string, ToolSpec> = {
       limit: 100,
     },
     autofill: { property: "ga4_property" },
+  },
+  GOOGLEADS_GET_REPORT: {
+    app: "googleads",
+    kind: "read",
+    external: false,
+    required: [],
+    desc:
+      "Read an allowlisted, source-labeled Google Ads account report for the previous 30 completed days. " +
+      "Customer id is taken from Settings when left blank; do not provide arbitrary GAQL.",
+    argHint:
+      '{"customer_id":"","start_date":"","end_date":"","time_zone":"UTC"}',
+    autofill: { customer_id: "google_ads_customer" },
+    limits: [
+      "Google Ads API access follows the Google Cloud project and OAuth connection; verify customer authorization before activation.",
+      "Account/location totals are supported in v1; campaign and ad-group breakdowns are deferred.",
+    ],
   },
   // Search Console. Verified against the live catalog: the toolkit has six
   // tools and these are the four a marketing automation has any use for.

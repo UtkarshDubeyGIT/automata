@@ -18,6 +18,7 @@ import {
 } from "@/lib/ai/image";
 import { CREDIT_COST, grantCredits, spendCredits } from "@/lib/credits";
 import { createAdminClient } from "@/lib/supabase/server";
+import { claimReportDelivery, compactProviderResult, transitionReportDelivery } from "./report-delivery";
 import { queueWorkflowReminder } from "@/lib/whatsapp/service";
 import { recentStepOutputs } from "./store";
 import { executeNativeTool, runsNatively } from "./native-tools";
@@ -192,6 +193,107 @@ function workflowAIContext(data: RunContext): string {
 
 /** A read action is idempotent, so it may be retried; a write never is. */
 const READ_RETRIES = 1;
+
+type ReportDeliveryError = Error & { deliveryStatus?: "definitive_failure" | "unknown" };
+
+function providerFailure(message: string): ReportDeliveryError {
+  const error = new Error(message) as ReportDeliveryError;
+  // An explicit provider response means the request was rejected, rather than
+  // accepted and lost in transit. Thrown timeout/network errors stay unknown.
+  error.deliveryStatus = "definitive_failure";
+  return error;
+}
+
+/**
+ * Report sends have a provider-acceptance window that the workflow journal
+ * cannot close on its own. The durable row is claimed before the provider call
+ * and ambiguous outcomes are parked as `unknown`, never retried blindly.
+ */
+async function reportDelivery<T>(
+  ctx: StepCtx,
+  input: {
+    app: string;
+    recipient: string;
+    payload: Record<string, unknown>;
+    send: () => Promise<{ value: T; receiptId?: string | null }>;
+  },
+): Promise<T> {
+  if (ctx.step.report_delivery !== true) return (await input.send()).value;
+  const db = createAdminClient();
+  if (!db) return (await input.send()).value;
+  // Prefer an explicit account/connection id when a provider action supplies
+  // one. The toolkit slug is the safe fallback for existing saved graphs.
+  const explicitAccount = String(
+    ctx.step.destination_account_id ??
+      input.payload.destination_account_id ??
+      input.payload.account_id ??
+      "",
+  ).trim();
+  let account = explicitAccount;
+  if (!account) {
+    try {
+      // Resolve the actual Composio account for the delivery identity. The
+      // dynamic import keeps existing provider mocks and native integrations
+      // independent of the optional Composio connector.
+      const proxy = await import("@/lib/social/composio-proxy");
+      if (typeof proxy.connectedAccountId === "function") {
+        account = (await proxy.connectedAccountId(ctx.entityId, input.app)) ?? "";
+      }
+    } catch {
+      // The toolkit slug remains a deterministic fallback for legacy graphs.
+    }
+  }
+  account = account || input.app;
+  let window: { startDate: string; endDate: string; timeZone: string } | undefined;
+  for (const output of Object.values(ctx.data.steps).reverse()) {
+    const result = output?.result;
+    if (!result || typeof result !== "object") continue;
+    const range = (result as Record<string, unknown>).range;
+    if (!range || typeof range !== "object") continue;
+    const candidate = range as Record<string, unknown>;
+    if (
+      typeof candidate.startDate === "string" &&
+      typeof candidate.endDate === "string" &&
+      typeof candidate.timeZone === "string"
+    ) {
+      window = { startDate: candidate.startDate, endDate: candidate.endDate, timeZone: candidate.timeZone };
+      break;
+    }
+  }
+  const claimed = await claimReportDelivery(db, {
+    workspaceId: ctx.entityId,
+    runId: ctx.runId,
+    stepId: ctx.stepId,
+    destinationAccountId: account,
+    recipient: input.recipient,
+    payload: input.payload,
+    window,
+  });
+  if (!claimed.created) {
+    if (claimed.delivery.status === "sent") {
+      const stored = claimed.delivery.payload.providerResult;
+      return (stored === undefined ? {} : stored) as T;
+    }
+    if (claimed.delivery.status === "definitive_failure") throw new Error("This report delivery already failed definitively; use an explicit resend.");
+    if (claimed.delivery.status === "unknown") throw new Error("This report delivery has an unknown provider outcome; reconcile it before resending.");
+    throw new Error("This report delivery is already pending or in progress; it was not sent again.");
+  }
+  await transitionReportDelivery(db, claimed.delivery.id, "sending");
+  try {
+    const result = await input.send();
+    await transitionReportDelivery(db, claimed.delivery.id, "sent", {
+      ...(result.receiptId ? { providerReceiptId: result.receiptId } : {}),
+      ...(result.value && typeof result.value === "object" ? { providerResult: compactProviderResult(result.value) } : {}),
+    });
+    return result.value;
+  } catch (error) {
+    const status = (error as ReportDeliveryError)?.deliveryStatus ?? "unknown";
+    await transitionReportDelivery(db, claimed.delivery.id, status, {
+      errorCode: status === "definitive_failure" ? "provider_rejected" : "provider_outcome_unknown",
+    }).catch(() => {});
+    throw error;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SIMULATION TAINT
@@ -781,12 +883,28 @@ const AUTOFILL: Record<AutofillSource, (entityId: string) => Promise<string>> = 
     }
     return saved;
   },
+  google_ads_customer: async (entityId) => {
+    const brand = await getBrandProfileForWorkspace(entityId);
+    const saved = String(brand?.ads?.googleAdsCustomerId ?? "").trim();
+    if (!saved) {
+      throw new Error(
+        "No Google Ads customer id — save one under Settings → Paid channels, or fill in customer_id on this step.",
+      );
+    }
+    return saved;
+  },
 };
 
 const blankArg = (v: unknown) => v === undefined || v === null || String(v).trim() === "";
 const legacyGa4PropertyRef = (value: unknown) =>
   typeof value === "string" &&
   /^\{\{\s*steps\.manual_start\.input\.google_analytics_property\s*\}\}$/.test(value);
+const REPORT_TOOLS = new Set([
+  "GOOGLE_ANALYTICS_RUN_REPORT",
+  "GOOGLEBUSINESS_GET_PERFORMANCE_REPORT",
+  "GOOGLEADS_GET_REPORT",
+  "METAADS_GET_ROLLING_REPORT",
+]);
 
 /**
  * Fill the arguments the author left blank: the tool's own constants first,
@@ -823,6 +941,14 @@ const appAction: StepHandler = async (ctx) => {
   // still wins; before the assertResolved sweep below, so a filled value is
   // checked like any other.
   args = await fillArgs(spec, args, ctx.entityId);
+  // Scheduled slots and manual runs persist their reference instant in the
+  // run context. Report providers use it when no explicit frozen dates were
+  // supplied, so a delayed worker/retry cannot roll the 30-day window over at
+  // midnight. It is internal metadata and never appears in user input.
+  if (REPORT_TOOLS.has(tool) && args.start_date === undefined && args.end_date === undefined) {
+    const referenceAt = ctx.data.input?.scheduledAt ?? ctx.data.runStartedAt;
+    if (referenceAt) args = { ...args, reference_at: referenceAt };
+  }
   // EVERY argument, not only the required ones, and nested values too. An
   // optional field still holding a literal "{{steps.x.y}}" is a template string
   // landing in somebody's real record — the same defect as a required one, just
@@ -909,18 +1035,24 @@ const appAction: StepHandler = async (ctx) => {
 
   // A read may be retried; a write may NOT — a timed-out write may well have
   // landed at the provider, and a retry would create the record twice.
-  const res = await executeTool(
-    tool,
-    ctx.entityId,
-    args,
-    {
-      ...(spec.kind === "read" ? { retries: READ_RETRIES } : {}),
-      ...(spec.version ? { version: spec.version } : {}),
+  const res = await reportDelivery(ctx, {
+    app: spec.app,
+    recipient: String(args.recipient_email ?? args.to ?? args.channel ?? spec.app),
+    payload: args,
+    send: async () => {
+      const value = await executeTool(
+        tool,
+        ctx.entityId,
+        args,
+        {
+          ...(spec.kind === "read" ? { retries: READ_RETRIES } : {}),
+          ...(spec.version ? { version: spec.version } : {}),
+        },
+      );
+      if (!value.successful) throw providerFailure(`${tool} failed: ${value.error ?? "unknown error"}`);
+      return { value };
     },
-  );
-  if (!res.successful) {
-    throw new Error(`${tool} failed: ${res.error ?? "unknown error"}`);
-  }
+  });
 
   const data = (res.data ?? {}) as Record<string, unknown>;
   const inner = (data.data && typeof data.data === "object" ? data.data : data) as Record<
@@ -1089,16 +1221,24 @@ const socialPost: StepHandler = async (ctx) => {
       }
     : undefined;
 
-  const res = await socialProvider.post({
-    entityId: ctx.entityId,
-    platform,
-    text,
-    mediaUrl,
-    media,
-    link,
-    options: options as PostInput["options"],
+  const res = await reportDelivery(ctx, {
+    app: platform,
+    recipient: String(options.channel ?? options.recipient ?? platform),
+    payload: { platform, text, options },
+    send: async () => {
+      const value = await socialProvider.post({
+        entityId: ctx.entityId,
+        platform,
+        text,
+        mediaUrl,
+        media,
+        link,
+        options: options as PostInput["options"],
+      });
+      if (!value.ok) throw providerFailure(value.error ?? `Posting to ${platform} failed`);
+      return { value, receiptId: value.externalId };
+    },
   });
-  if (!res.ok) throw new Error(res.error ?? `Posting to ${platform} failed`);
   const simulated = res.simulated ?? false;
   return {
     platform,

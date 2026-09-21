@@ -89,6 +89,12 @@ export interface BrandProfile {
     targetAudience?: string;
     category?: string;
   };
+  /** Reviewed workspace-level style guidance learned from selected evidence. */
+  learnedVoice?: {
+    version: number;
+    guidance: string;
+    status: "accepted" | "disabled";
+  };
 }
 
 export interface BrandReadiness {
@@ -166,7 +172,32 @@ export async function getBrandProfileForWorkspace(
   if (error) {
     return null;
   }
-  return (data?.brand_profile as BrandProfile) ?? null;
+  const profile = ((data?.brand_profile as BrandProfile) ?? null);
+  if (!profile) return null;
+  // The dedicated table is authoritative for learned voice. The JSON field is
+  // only a compact cache for generation callers that already load a profile;
+  // a missing migration must not make every workflow fail.
+  try {
+    const learned = await db
+      .from("workspace_brand_voice_profiles")
+      .select("version, guidance, status")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "accepted")
+      .maybeSingle();
+    if (learned.data?.guidance) {
+      return {
+        ...profile,
+        learnedVoice: {
+          version: Number(learned.data.version ?? 0),
+          guidance: String(learned.data.guidance),
+          status: "accepted",
+        },
+      };
+    }
+  } catch {
+    // Existing deployments can run before the additive voice migration.
+  }
+  return profile;
 }
 
 export function brandContext(
@@ -188,8 +219,18 @@ export function brandContext(
   if (details.audience) lines.push(`Target Audience: ${details.audience}`);
   const language = profile.language || profile.analysis?.language;
   if (language) lines.push(`Content Language: ${language}`);
-  const voice = profile.tone || profile.analysis?.voice;
-  if (voice) lines.push(`Brand Voice: ${voice}`);
+  const explicitVoice = profile.tone || profile.voiceGuidelines;
+  if (profile.tone) lines.push(`Brand Voice: ${profile.tone}`);
+  if (!explicitVoice && profile.learnedVoice?.status === "accepted" && profile.learnedVoice.guidance) {
+    lines.push(`Learned Brand Voice: ${profile.learnedVoice.guidance}`);
+  }
+  if (
+    !explicitVoice &&
+    (profile.learnedVoice?.status !== "accepted" || !profile.learnedVoice?.guidance) &&
+    profile.analysis?.voice
+  ) {
+    lines.push(`Brand Voice: ${profile.analysis.voice}`);
+  }
   // Whether the workspace speaks as a person or an organization. Without it the
   // model guesses, and a solo freelancer ends up writing "our team is excited
   // to announce" about themselves.

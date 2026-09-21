@@ -357,12 +357,37 @@ export function AuthOrbits({
     ro.observe(host);
     resize();
 
+    // The hero art is decorative. Stop all canvas work while it is below the
+    // fold (and restart from a settled clock when it re-enters) so scrolling
+    // does not compete with the content the visitor is reading.
+    let inViewport = true;
+    let raf = 0;
+    let startAnimation = () => {};
+    const io = "IntersectionObserver" in window
+      ? new IntersectionObserver(([entry]) => {
+          inViewport = entry?.isIntersecting ?? true;
+          if (still) {
+            if (inViewport) draw(2.4);
+            return;
+          }
+          if (!inViewport) {
+            cancelAnimationFrame(raf);
+            raf = 0;
+          } else if (!document.hidden && !raf) {
+            startAnimation();
+          }
+        }, { threshold: 0.01 })
+      : null;
+    io?.observe(host);
+
     if (still) {
       draw(2.4); // a settled frame, since the intro ramp never runs
-      return () => ro.disconnect();
+      return () => {
+        io?.disconnect();
+        ro.disconnect();
+      };
     }
 
-    let raf = 0;
     let clock = 0;
     let last = 0;
 
@@ -376,15 +401,18 @@ export function AuthOrbits({
       draw(clock);
       raf = requestAnimationFrame(frame);
     };
-    raf = requestAnimationFrame(frame);
+    startAnimation = () => {
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    };
+    if (inViewport && !document.hidden) startAnimation();
 
     const onVisibility = () => {
       if (document.hidden) {
         cancelAnimationFrame(raf);
         raf = 0;
-      } else if (!raf) {
-        last = 0;
-        raf = requestAnimationFrame(frame);
+      } else if (inViewport && !raf) {
+        startAnimation();
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
@@ -392,6 +420,7 @@ export function AuthOrbits({
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
+      io?.disconnect();
       ro.disconnect();
     };
   }, [fx, fy, fs]);

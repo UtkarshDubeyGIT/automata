@@ -7,6 +7,8 @@ import {
   workflowBuildView,
   type BuildJobDb,
 } from "@/lib/workflows/build-jobs";
+import { createAdminClient } from "@/lib/supabase/server";
+import { recordWorkflowBuildEvent } from "@/lib/workflows/diagnostics";
 
 /**
  * Persist and charge before returning. The provider work runs after the 202,
@@ -51,6 +53,16 @@ export async function POST(req: Request) {
       );
     }
 
+    void recordWorkflowBuildEvent(createAdminClient(), {
+      workspaceId,
+      actorId: rc.userId,
+      buildJobId: queued.job.id,
+      correlationId: queued.job.correlation_id,
+      eventType: queued.duplicate ? "build_enqueue_duplicate" : "build_enqueued",
+      stage: "enqueue",
+      eventKey: `${queued.job.id}:${queued.duplicate ? "enqueue_duplicate" : "enqueued"}`,
+      metadata: { requestKey },
+    });
     after(kickWorkflowBuilds());
     return NextResponse.json(
       { job: workflowBuildView(queued.job) },

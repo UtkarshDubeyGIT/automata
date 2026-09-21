@@ -10,6 +10,8 @@ import { kickWorkflowBuilds, type BuildJobDb } from "@/lib/workflows/build-jobs"
 import { drainWhatsAppDeliveries } from "@/lib/whatsapp/service";
 import { setupNotice } from "@/lib/setup-notice";
 import { sweepVideos } from "@/lib/video/advance";
+import { purgeWorkflowBuildEvents } from "@/lib/workflows/diagnostics";
+import { expireReportDeliveries } from "@/lib/workflows/report-delivery";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -44,6 +46,24 @@ export async function POST(req: NextRequest) {
   }
 
   const db = createAdminClient();
+
+  // Operational diagnostics are intentionally short-lived. Purging them from
+  // the existing maintenance beat keeps the table bounded without a second
+  // scheduler or a dashboard-specific retention job.
+  if (db && typeof (db as { from?: unknown }).from === "function") {
+    try {
+      await purgeWorkflowBuildEvents(db);
+    } catch (err) {
+      // Diagnostics are non-authoritative; a migration or transient database
+      // issue must not prevent workflow runs from being drained.
+      console.error("[cron] workflow diagnostics purge failed:", err);
+    }
+    try {
+      await expireReportDeliveries(db);
+    } catch (err) {
+      console.error("[cron] report delivery expiry failed:", err);
+    }
+  }
 
   let workflowBuilds = { examined: 0, completed: 0, failed: 0, deferred: 0 };
   try {
