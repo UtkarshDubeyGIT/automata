@@ -1,7 +1,7 @@
 # Audit-tag implementation plan
 
 Date: 2026-09-21
-Status: implemented in the working tree; verification is complete and the release commit/push is next.
+Status: implemented, verified, committed, and pushed to `main`.
 Scope: the five tasks in the supplied screenshot. The user explicitly selected **audit and build** for #3/#2 and **workspace brand voice** for #19.
 
 ## 1. Outcomes and verified starting point
