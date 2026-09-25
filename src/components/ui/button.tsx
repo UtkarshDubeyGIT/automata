@@ -15,7 +15,7 @@ const VARIANT: Record<Variant, string> = {
   ghost: "bg-transparent text-ink-muted hover:bg-inset hover:text-ink",
   subtle:
     "bg-brand-subtle text-brand border border-brand-border hover:bg-brand-subtle-hover",
-  danger: "bg-danger text-on-brand hover:brightness-95",
+  danger: "bg-transparent text-danger hover:bg-transparent hover:text-danger",
 };
 
 const SIZE: Record<Size, string> = {
