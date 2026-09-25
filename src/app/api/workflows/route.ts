@@ -1,9 +1,9 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { jsonBody } from "@/lib/request";
-import { resolveRequestContext } from "@/lib/workspace";
+import { resolveRequestContext, type RequestContext, type ServerSupabase } from "@/lib/workspace";
 import { validateGraph } from "@/lib/workflows/builder";
-import { getWorkflowBuild, type BuildJobDb, type WorkflowBuildJob } from "@/lib/workflows/build-jobs";
+import { claimWorkflowDraft, getWorkflowBuild, type BuildJobDb, type WorkflowBuildJob } from "@/lib/workflows/build-jobs";
 import { deriveDisplay, leadLogo, scheduleText, toWorkflowView } from "@/lib/workflows/display";
 import { insertWorkflowOnce, listWorkflowRows, OPEN_STATUSES } from "@/lib/workflows/store";
 import { getTemplate } from "@/lib/workflows/templates";
@@ -29,6 +29,17 @@ interface RunSlice {
   /** Non-null while the run is parked on machine work, not a person. */
   awaiting?: unknown;
 }
+
+interface CreateWorkflowBody {
+  prompt?: string;
+  buildId?: string;
+  expectedRevision?: string;
+  template?: string;
+  name?: string;
+  description?: string;
+}
+
+type SaveContext = RequestContext & { supabase: ServerSupabase; workspaceId: string };
 
 export async function GET() {
   const ctx = await resolveRequestContext();
@@ -121,19 +132,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Sign in to save automations" }, { status: 401 });
   }
 
-  const body = await jsonBody<{
-    prompt?: string;
-    buildId?: string;
-    template?: string;
-    name?: string;
-    description?: string;
-  }>(req);
+  const body = await jsonBody<CreateWorkflowBody>(req);
   if (!body) {
     return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
   }
+  if (body.buildId !== undefined) {
+    if (typeof body.buildId !== "string" || !body.buildId.trim()) {
+      return NextResponse.json({ error: "Invalid workflow build ID" }, { status: 400 });
+    }
+    body.buildId = body.buildId.trim();
+  }
   const suppliedNonce = (req.headers.get("x-workflow-nonce") ?? "").trim();
   const creationKey = suppliedNonce.slice(0, 100) || randomUUID();
+  const saveContext: SaveContext = { ...ctx, supabase: ctx.supabase, workspaceId: ctx.workspaceId };
 
+  if (!body.buildId) return saveWorkflow(saveContext, body, creationKey);
+  const admin = createAdminClient();
+  if (!admin) {
+    return NextResponse.json({ error: "Workflow saving is unavailable" }, { status: 503 });
+  }
+  const lock = await claimWorkflowDraft(admin as unknown as BuildJobDb, body.buildId);
+  if (!lock.ok) {
+    return NextResponse.json({ error: "This draft is being edited or saved. Try again shortly." }, { status: 409 });
+  }
+  try {
+    return await saveWorkflow(saveContext, body, creationKey);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function saveWorkflow(ctx: SaveContext, body: CreateWorkflowBody, creationKey: string) {
   // Resolve whichever build path was used into (name, description, config).
   let name: string;
   let description: string;
@@ -161,6 +190,9 @@ export async function POST(req: Request) {
     const build = job?.status === "completed" ? job.result : null;
     if (!build?.config?.graph) {
       return NextResponse.json({ error: "The workflow build is not ready" }, { status: 409 });
+    }
+    if (!body.expectedRevision || body.expectedRevision !== job?.updated_at) {
+      return NextResponse.json({ error: "This draft changed after the preview. Refresh it before saving." }, { status: 409 });
     }
     buildJob = job;
     name = String(build.name ?? "Untitled automation").slice(0, 60);

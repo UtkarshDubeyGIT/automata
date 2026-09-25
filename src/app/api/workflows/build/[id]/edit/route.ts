@@ -92,7 +92,7 @@ export async function POST(
       return NextResponse.json({ error: "This workflow draft changed or expired. Please try again." }, { status: 409 });
     }
 
-    return NextResponse.json({ edit: { build: revised } });
+    return NextResponse.json({ edit: { build: revised, updatedAt: updated } });
   } catch (err) {
     if (err instanceof BuildError) {
       return NextResponse.json({ error: err.message }, { status: 502 });

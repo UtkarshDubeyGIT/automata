@@ -27,6 +27,7 @@ export interface WorkflowBuildJob {
   refunded_at: string | null;
   available_at: string;
   expires_at: string;
+  updated_at: string;
 }
 
 export type EnqueueWorkflowBuildResult =
@@ -37,6 +38,7 @@ export function workflowBuildView(job: WorkflowBuildJob): BuildJobView {
   return {
     id: job.id,
     status: job.status,
+    updatedAt: job.updated_at,
     ...(job.correlation_id ? { correlationId: job.correlation_id } : {}),
     ...(job.error_code ? { errorCode: job.error_code } : {}),
     ...(job.status === "completed" && job.result ? { build: job.result } : {}),
@@ -80,17 +82,23 @@ export async function updateWorkflowBuildResult(
   id: string,
   workspaceId: string,
   result: BuildOutput,
-): Promise<boolean> {
+): Promise<string | null> {
+  const updatedAt = new Date().toISOString();
   const { data, error } = await db
     .from("workflow_builds")
-    .update({ result, updated_at: new Date().toISOString() })
+    .update({ result, updated_at: updatedAt })
     .eq("id", id)
     .eq("workspace_id", workspaceId)
     .eq("status", "completed")
-    .select("id")
+    .select("updated_at")
     .maybeSingle();
   if (error) throw new Error(`Could not save workflow draft edit: ${error.message}`);
-  return Boolean(data);
+  return data?.updated_at ?? null;
+}
+
+/** Serialize draft edits with one another and with workflow creation. */
+export function claimWorkflowDraft(db: BuildJobDb, id: string) {
+  return claimJob(db, `workflow-draft:${id.toLowerCase()}`, 150_000, randomUUID());
 }
 
 export async function claimWorkflowBuild(

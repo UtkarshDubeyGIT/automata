@@ -103,6 +103,7 @@ test("a follow-up updates the existing build and Save persists the revised graph
     { params: Promise.resolve({ id: "build-1" }) },
   );
   assert.equal(edit.status, 200);
+  const editBody = await edit.json();
   assert.equal(db.table("workflow_builds").length, 1);
   const updated = db.table("workflow_builds")[0].result as BuildOutput;
   assert.equal(updated.config.graph.steps.review, undefined);
@@ -111,10 +112,30 @@ test("a follow-up updates the existing build and Save persists the revised graph
   const save = await saveWorkflow(new Request("http://localhost/api/workflows", {
     method: "POST",
     headers: { "content-type": "application/json", "x-workflow-nonce": "save-build-1" },
-    body: JSON.stringify({ buildId: "build-1" }),
+    body: JSON.stringify({ buildId: "build-1", expectedRevision: editBody.edit.updatedAt }),
   }));
   assert.equal(save.status, 200);
   const saved = db.table("workflows")[0].config as WorkflowConfig;
   assert.equal(saved.graph.steps.review, undefined);
   assert.equal(saved.graph.steps.start.next, "send");
+});
+
+test("saving rejects an invalid build ID", async () => {
+  const response = await saveWorkflow(new Request("http://localhost/api/workflows", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ buildId: { id: "build-1" } }),
+  }));
+
+  assert.equal(response.status, 400);
+});
+
+test("saving rejects a draft revision older than the server preview", async () => {
+  const response = await saveWorkflow(new Request("http://localhost/api/workflows", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-workflow-nonce": "stale-build-1" },
+    body: JSON.stringify({ buildId: "build-1", expectedRevision: "2020-01-01T00:00:00.000Z" }),
+  }));
+
+  assert.equal(response.status, 409);
 });

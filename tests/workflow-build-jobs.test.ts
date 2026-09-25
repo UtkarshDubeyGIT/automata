@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { FakeDb } from "./helpers/fake-supabase";
 import {
+  claimWorkflowDraft,
   claimWorkflowBuild,
   deleteExpiredWorkflowBuilds,
   enqueueWorkflowBuild,
@@ -110,6 +111,18 @@ test("a completed status response carries the stored build", async () => {
     kind: "job",
     job: { id: "build-1", status: "completed", build },
   });
+});
+
+test("draft edits and saves cannot claim the same build at once", async () => {
+  const db = new FakeDb() as unknown as BuildJobDb;
+  const edit = await claimWorkflowDraft(db, "BUILD-1");
+  assert.equal(edit.ok, true);
+  assert.equal((await claimWorkflowDraft(db, "build-1")).ok, false);
+
+  await edit.release();
+  const save = await claimWorkflowDraft(db, "build-1");
+  assert.equal(save.ok, true);
+  await save.release();
 });
 
 test("enqueue is one atomic database operation keyed by the browser request", async () => {
@@ -275,6 +288,7 @@ function sampleJob(): WorkflowBuildJob {
     refunded_at: null,
     available_at: "2026-09-02T10:00:00.000Z",
     expires_at: "2026-09-03T10:00:00.000Z",
+    updated_at: "2026-09-02T10:00:00.000Z",
   };
 }
 

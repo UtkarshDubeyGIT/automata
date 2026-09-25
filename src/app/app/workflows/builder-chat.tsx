@@ -54,6 +54,7 @@ interface AssistantMsg {
   build?: BuildOutput;
   /** Durable server row used to save without trusting the client preview. */
   buildId?: string;
+  buildRevision?: string;
   /** True once saved or discarded — hides the action row. */
   dismissed?: boolean;
 }
@@ -132,6 +133,8 @@ export function BuilderChat({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /** Drop in-flight requests superseded by a conversation reset. */
   const seqRef = useRef(0);
+  /** Block a second submit before React renders the building state. */
+  const buildingRef = useRef(false);
   /** React state updates later; this closes same-frame double saves. */
   const savingRef = useRef(false);
 
@@ -166,8 +169,9 @@ export function BuilderChat({
         taRef.current?.focus();
         return;
       }
-      if (building || savingRef.current || navigationPending) return;
+      if (buildingRef.current || savingRef.current || navigationPending) return;
       const seq = ++seqRef.current;
+      buildingRef.current = true;
       setMessages((prev) => [...prev, { role: "user", text: t }]);
       setInput("");
       setBuilding(true);
@@ -274,16 +278,18 @@ export function BuilderChat({
             }
 
             const data = (await res.json().catch(() => null)) as {
-              edit?: { build?: BuildOutput };
+              edit?: { build?: BuildOutput; updatedAt?: string };
               error?: string;
             } | null;
             if (seq !== seqRef.current) return;
-            if (!res.ok || !data?.edit?.build) {
+            const edited = data?.edit;
+            if (!res.ok || !edited?.build || !edited.updatedAt) {
               fail(data?.error ?? "I couldn't update that workflow draft — try describing the change differently.");
               return;
             }
 
-            const revised = data.edit.build;
+            const revised = edited.build;
+            const revisedAt = edited.updatedAt;
             setMessages((prev) => [
               ...prev.map((msg) =>
                 msg.role === "assistant" && msg.buildId
@@ -296,6 +302,7 @@ export function BuilderChat({
                 preview: revised.groups,
                 build: revised,
                 buildId: draft.buildId,
+                buildRevision: revisedAt,
               },
             ]);
             return;
@@ -344,6 +351,7 @@ export function BuilderChat({
             preview: build.groups,
             build,
             buildId: job.id,
+            buildRevision: job.updatedAt,
           },
         ]);
       } catch {
@@ -354,7 +362,10 @@ export function BuilderChat({
             : "The builder hit an unexpected error — try again.",
         );
       } finally {
-        if (seq === seqRef.current) setBuilding(false);
+        if (seq === seqRef.current) {
+          buildingRef.current = false;
+          setBuilding(false);
+        }
       }
     },
     [navigationPending, messages, onRunTest, mode, workflowId, graph, onEdited, refreshCredits],
@@ -364,6 +375,7 @@ export function BuilderChat({
     // A create POST may already have committed even if its fetch is aborted.
     if (savingRef.current || navigationPending) return;
     seqRef.current++;
+    buildingRef.current = false;
     setMessages([]);
     setInput("");
     setBuilding(false);
@@ -371,13 +383,16 @@ export function BuilderChat({
   }, [navigationPending]);
 
   async function save(msg: AssistantMsg, index: number) {
-    if (!msg.build || !msg.buildId || building || savingRef.current || navigationPending) return;
+    if (!msg.build || !msg.buildId || !msg.buildRevision || buildingRef.current || savingRef.current || navigationPending) return;
     const seq = seqRef.current;
     savingRef.current = true;
     setSaving(true);
     let keepLocked = false;
     try {
-      const outcome = await requestWorkflowCreation(`chat:${msg.buildId}`, { buildId: msg.buildId });
+      const outcome = await requestWorkflowCreation(`chat:${msg.buildId}`, {
+        buildId: msg.buildId,
+        expectedRevision: msg.buildRevision,
+      });
       if (seq !== seqRef.current) return;
       if (outcome.kind === "unknown") {
         toast({
