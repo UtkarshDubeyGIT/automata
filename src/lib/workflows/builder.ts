@@ -664,7 +664,15 @@ export interface EditOutput {
  * ordinary graph the user can keep editing by hand.
  */
 export async function editWorkflow(
-  current: { name: string; description: string; graph: WorkflowGraph },
+  current: {
+    name: string;
+    description: string;
+    graph: WorkflowGraph;
+    /** Original create request, retained so draft edits keep their context. */
+    originalRequest?: string;
+    /** Recent chat turns help resolve references that are not explicit in the graph. */
+    conversation?: string;
+  },
   instruction: string,
 ): Promise<EditOutput> {
   if (!openaiConfigured) {
@@ -690,7 +698,9 @@ export async function editWorkflow(
   );
   let raw = await askWith(
     prompt,
-    `Current workflow:\n${payload}\n\nRequested change:\n${instruction}`,
+    `${current.originalRequest ? `Original automation request:\n${current.originalRequest}\n\n` : ""}` +
+      `${current.conversation ? `Recent conversation:\n${current.conversation}\n\n` : ""}` +
+      `Current workflow:\n${payload}\n\nRequested change:\n${instruction}`,
   );
   let lastErr = "";
 

@@ -26,8 +26,8 @@ import { requestWorkflowCreation } from "@/lib/workflows/create-request";
  * gallery and the visual canvas.
  *
  * Two modes over the same UI:
- *   "build" (list page)  — a prompt designs a NEW workflow, previewed inline
- *                          and saved on confirmation.
+ *   "build" (list page)  — the first prompt designs a workflow; later turns
+ *                          revise that unsaved draft until it is saved.
  *   "edit"  (editor page) — a prompt changes the workflow ON the canvas. The
  *                          result is handed straight to the editor as unsaved
  *                          changes, so an AI edit and a hand edit are the same
@@ -59,6 +59,18 @@ interface AssistantMsg {
 }
 
 type Msg = UserMsg | AssistantMsg;
+
+function recentConversation(messages: Msg[]): string {
+  return messages
+    .slice(-10)
+    .map((msg) =>
+      msg.role === "user"
+        ? `User: ${msg.text}`
+        : `Assistant: ${msg.paragraphs.flat().map((segment) => segment.t).join("")}`,
+    )
+    .join("\n")
+    .slice(-5000);
+}
 
 /** What an AI edit hands back to the editor page. */
 export interface AppliedEdit {
@@ -118,7 +130,7 @@ export function BuilderChat({
   const [saving, setSaving] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  /** Drop in-flight builds superseded by a newer prompt or a reset. */
+  /** Drop in-flight requests superseded by a conversation reset. */
   const seqRef = useRef(0);
   /** React state updates later; this closes same-frame double saves. */
   const savingRef = useRef(false);
@@ -154,7 +166,7 @@ export function BuilderChat({
         taRef.current?.focus();
         return;
       }
-      if (building || navigationPending) return;
+      if (building || savingRef.current || navigationPending) return;
       const seq = ++seqRef.current;
       setMessages((prev) => [...prev, { role: "user", text: t }]);
       setInput("");
@@ -172,7 +184,11 @@ export function BuilderChat({
             res = await fetch(`/api/workflows/${workflowId}/edit`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ instruction: t, graph: graph ?? undefined }),
+              body: JSON.stringify({
+                instruction: t,
+                graph: graph ?? undefined,
+                history: recentConversation(messages),
+              }),
               signal: AbortSignal.timeout(60_000),
             });
           } catch (fetchErr) {
@@ -230,6 +246,62 @@ export function BuilderChat({
           return;
         }
 
+        if (mode === "build") {
+          const draft = [...messages].reverse().find(
+            (msg): msg is AssistantMsg =>
+              msg.role === "assistant" && Boolean(msg.build && msg.buildId && !msg.dismissed),
+          );
+          if (draft?.buildId) {
+            let res: Response;
+            try {
+              res = await fetch(`/api/workflows/build/${draft.buildId}/edit`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ instruction: t, history: recentConversation(messages) }),
+                signal: AbortSignal.timeout(60_000),
+              });
+            } catch (fetchErr) {
+              if (seq !== seqRef.current) return;
+              const isTimeout =
+                fetchErr instanceof Error &&
+                (fetchErr.name === "TimeoutError" || fetchErr.name === "AbortError");
+              fail(
+                isTimeout
+                  ? "The draft edit timed out — try a simpler change or use Start fresh to build another workflow."
+                  : "Couldn't connect to the server — check that the app is running, then try again.",
+              );
+              return;
+            }
+
+            const data = (await res.json().catch(() => null)) as {
+              edit?: { build?: BuildOutput };
+              error?: string;
+            } | null;
+            if (seq !== seqRef.current) return;
+            if (!res.ok || !data?.edit?.build) {
+              fail(data?.error ?? "I couldn't update that workflow draft — try describing the change differently.");
+              return;
+            }
+
+            const revised = data.edit.build;
+            setMessages((prev) => [
+              ...prev.map((msg) =>
+                msg.role === "assistant" && msg.buildId
+                  ? { ...msg, build: undefined, buildId: undefined, preview: undefined, dismissed: true }
+                  : msg,
+              ),
+              {
+                role: "assistant",
+                paragraphs: revised.response,
+                preview: revised.groups,
+                build: revised,
+                buildId: draft.buildId,
+              },
+            ]);
+            return;
+          }
+        }
+
         const started = await requestWorkflowBuild(t);
         void refreshCredits();
         if (seq !== seqRef.current) return;
@@ -285,7 +357,7 @@ export function BuilderChat({
         if (seq === seqRef.current) setBuilding(false);
       }
     },
-    [building, navigationPending, onRunTest, mode, workflowId, graph, onEdited, refreshCredits],
+    [navigationPending, messages, onRunTest, mode, workflowId, graph, onEdited, refreshCredits],
   );
 
   const reset = useCallback(() => {
@@ -299,7 +371,7 @@ export function BuilderChat({
   }, [navigationPending]);
 
   async function save(msg: AssistantMsg, index: number) {
-    if (!msg.build || !msg.buildId || savingRef.current || navigationPending) return;
+    if (!msg.build || !msg.buildId || building || savingRef.current || navigationPending) return;
     const seq = seqRef.current;
     savingRef.current = true;
     setSaving(true);
@@ -360,7 +432,7 @@ export function BuilderChat({
       placeholders={placeholders}
       hintsEnabled={messages.length === 0}
       building={building}
-      disabled={navigationPending}
+      disabled={navigationPending || saving}
       taRef={setTa}
       hero={hero}
     />
@@ -399,7 +471,7 @@ export function BuilderChat({
             <AssistantMessage
               key={i}
               msg={msg}
-              showActions={i === lastPreviewIndex && !msg.dismissed}
+              showActions={i === lastPreviewIndex && !msg.dismissed && !building}
               saving={saving}
               onSave={() => void save(msg, i)}
               onDiscard={() => discard(i)}
@@ -661,7 +733,7 @@ function PromptBox({
             {rotating && empty ? (
               <><kbd className="font-sans font-medium">Tab</kbd> to fill · </>
             ) : null}
-            <kbd className="font-sans font-medium">Enter</kbd> to build
+            <kbd className="font-sans font-medium">Enter</kbd> to send
           </span>
         ) : (
           <span className="pl-1 text-[11.5px] text-ink-subtle">

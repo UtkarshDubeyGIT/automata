@@ -70,6 +70,29 @@ export async function getWorkflowBuild(
   return (data as WorkflowBuildJob | null) ?? null;
 }
 
+/**
+ * Persist an AI edit to its existing preview job. Create-mode follow-ups keep
+ * the same job id, so the ordinary save endpoint still loads and validates the
+ * latest graph from the server rather than trusting a client-supplied graph.
+ */
+export async function updateWorkflowBuildResult(
+  db: BuildJobDb,
+  id: string,
+  workspaceId: string,
+  result: BuildOutput,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("workflow_builds")
+    .update({ result, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("workspace_id", workspaceId)
+    .eq("status", "completed")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`Could not save workflow draft edit: ${error.message}`);
+  return Boolean(data);
+}
+
 export async function claimWorkflowBuild(
   db: BuildJobDb,
   id: string,

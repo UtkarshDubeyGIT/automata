@@ -18,13 +18,16 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  let body: { instruction?: string; graph?: WorkflowGraph };
+  let body: { instruction?: string; graph?: WorkflowGraph; history?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
   }
-  const instruction = (body.instruction ?? "").trim().slice(0, 1000);
+  const instruction = typeof body.instruction === "string"
+    ? body.instruction.trim().slice(0, 1000)
+    : "";
+  const history = typeof body.history === "string" ? body.history.trim().slice(-5000) : "";
   if (!instruction) {
     return NextResponse.json({ error: "Describe the change you want" }, { status: 400 });
   }
@@ -46,7 +49,13 @@ export async function POST(
 
   try {
     const result = await editWorkflow(
-      { name: row.name, description: row.description ?? "", graph },
+      {
+        name: row.name,
+        description: row.description ?? "",
+        graph,
+        originalRequest: row.config?.prompt,
+        conversation: history,
+      },
       instruction,
     );
     return NextResponse.json({ edit: { ...result, gaps: setupGaps(result.graph) } });
