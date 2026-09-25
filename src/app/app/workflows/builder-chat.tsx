@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon, IconTile, type IconName } from "@/components/ui/icon";
+import { MatrixDotLoader } from "@/components/ui/matrix-dot-loader";
 import { useToast } from "@/components/ui/toast";
 import { useCredits } from "@/components/ui/credits";
 import { cn } from "@/lib/utils";
@@ -496,9 +497,8 @@ export function BuilderChat({
 
         {building && (
           <div className="flex gap-3">
-            <AssistantAvatar />
+            <AssistantAvatar busy />
             <div className="flex items-center gap-2 text-[14px] text-ink-subtle">
-              <Icon name="sparkles" size={15} className="animate-pulse text-brand" />
               {mode === "edit" ? "Updating your workflow…" : "Designing your workflow…"}
             </div>
           </div>
@@ -760,13 +760,13 @@ function PromptBox({
         )}
         <Button
           size="sm"
-          icon="send"
-          aria-label="Send to agent"
+          icon={building ? undefined : "send"}
+          aria-label={building ? "Agent is working" : "Send to agent"}
           onClick={onSubmit}
-          loading={building}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || building || !value.trim()}
           className="ml-auto disabled:bg-inset disabled:text-ink-disabled disabled:shadow-none disabled:opacity-100"
         >
+          {building && <MatrixDotLoader />}
           Enter
         </Button>
       </div>
@@ -774,10 +774,10 @@ function PromptBox({
   );
 }
 
-function AssistantAvatar() {
+function AssistantAvatar({ busy = false }: { busy?: boolean }) {
   return (
     <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[10px] bg-brand-subtle text-brand">
-      <Icon name="sparkles" size={16} />
+      {busy ? <MatrixDotLoader /> : <Icon name="sparkles" size={16} />}
     </span>
   );
 }
