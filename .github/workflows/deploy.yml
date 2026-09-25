@@ -37,11 +37,14 @@ jobs:
       - name: Pull and rebuild
         env:
           TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
-          ssh "$TARGET" bash -euo pipefail <<'EOF'
+          ssh "$TARGET" "DEPLOY_SHA=$DEPLOY_SHA bash -euo pipefail" <<'EOF'
           cd /opt/automata
           git fetch --prune origin main
-          git reset --hard origin/main
+          git cat-file -e "$DEPLOY_SHA^{commit}"
+          git reset --hard "$DEPLOY_SHA"
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
           docker compose --env-file .env.local up -d --build
           docker image prune -f
           EOF

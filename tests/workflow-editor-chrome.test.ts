@@ -149,11 +149,20 @@ test("Tab accepts the visible workflow suggestion into the composer", () => {
   assert.match(chat, /e\.preventDefault\(\);\s*onChange\(hint\.text\);/);
 });
 
-test("the workflow AI chat has a clickable Enter control that submits the prompt", () => {
-  assert.match(
-    chat,
-    /<Button\s+size="sm"\s+icon="send"\s+aria-label="Send to agent"\s+onClick=\{onSubmit\}\s+loading=\{building\}\s+disabled=\{[^}]+\}\s+className="[^"]*ml-auto[^"]*"\s*>\s*Enter\s*<\/Button>/,
-  );
+test("the workflow AI chat keeps its Enter submit control wired and state-aware", () => {
+  const promptBoxStart = chat.indexOf("function PromptBox(");
+  assert.notEqual(promptBoxStart, -1);
+  const promptBox = chat.slice(promptBoxStart);
+  const enterButton = promptBox.match(/<Button\b[\s\S]*?<\/Button>/)?.[0];
+
+  assert.ok(enterButton, "PromptBox should render an Enter button");
+  assert.match(enterButton, /onClick=\{onSubmit\}/);
+  assert.match(enterButton, /disabled=\{disabled \|\| building \|\| !value\.trim\(\)\}/);
+  assert.match(enterButton, /aria-label=\{building \? "Agent is working" : "Send to agent"\}/);
+  assert.match(enterButton, /icon=\{building \? undefined : "send"\}/);
+  assert.match(enterButton, /className="[^"]*ml-auto[^"]*"/);
+  assert.match(enterButton, /\{building && <MatrixDotLoader \/>}/);
+  assert.match(enterButton, />[\s\S]*?\bEnter\s*<\/Button>/);
 });
 
 test("a live run names its active node and sends that state to the canvas", () => {
