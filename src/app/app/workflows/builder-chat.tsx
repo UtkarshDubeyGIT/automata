@@ -760,13 +760,12 @@ function PromptBox({
         )}
         <Button
           size="sm"
-          icon={building ? undefined : "send"}
-          aria-label={building ? "Agent is working" : "Send to agent"}
+          icon="send"
+          aria-label="Send to agent"
           onClick={onSubmit}
           disabled={disabled || building || !value.trim()}
           className="ml-auto disabled:bg-inset disabled:text-ink-disabled disabled:shadow-none disabled:opacity-100"
         >
-          {building && <MatrixDotLoader />}
           Enter
         </Button>
       </div>
