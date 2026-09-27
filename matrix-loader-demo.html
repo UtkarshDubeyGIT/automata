@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0b0c">
+  <title>Automata — Matrix loader studies</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0c;
+      --surface: #111113;
+      --line: #28282d;
+      --muted: #898990;
+      --text: #f4f4f5;
+      --matrix-base: #3b3b43;
+      --matrix-active: #c4b5fd;
+      --matrix-ease: ease-in-out;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 44px 24px 72px;
+      background: radial-gradient(ellipse at 50% 12%, rgba(111,89,184,.1), transparent 48%), var(--bg);
+    }
+    main { width: min(100%, 860px); margin: 0 auto; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 58px; color: #f7f7f8; }
+    .brand svg { width: 30px; height: 30px; }
+    .brand-name { font-size: 18px; font-weight: 650; letter-spacing: -.045em; }
+    .eyebrow { margin: 0 0 12px; color: #a39bb8; font-size: 11px; font-weight: 650; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(29px, 5vw, 42px); line-height: 1.1; font-weight: 570; letter-spacing: -.055em; }
+    .intro { margin: 15px 0 36px; max-width: 530px; color: #a3a3aa; font-size: 14px; line-height: 1.7; }
+    .gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--surface);
+      box-shadow: 0 12px 35px rgba(0,0,0,.13);
+    }
+    .stage {
+      height: 170px;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(rgba(255,255,255,.014) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px),
+        #141416;
+      background-size: 26px 26px;
+    }
+    .matrix { display: grid; grid-template-columns: repeat(5, 6px); grid-auto-rows: 6px; gap: 5px; }
+    .matrix i {
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--matrix-base);
+      animation: dot-trail var(--duration, 2500ms) var(--matrix-ease) infinite;
+      animation-delay: var(--delay, 0ms);
+    }
+    .card[data-variant="orbit"] .matrix i.is-inner { opacity: .28; animation: none; }
+    .card[data-variant="bloom"] .matrix i { animation-name: dot-bloom; }
+    .card[data-variant="scatter"] .matrix i { animation-name: dot-twinkle; }
+    @keyframes dot-trail {
+      0%, 3% { background: var(--matrix-base); transform: scale(.78); box-shadow: none; }
+      8% { background: var(--matrix-active); transform: scale(1.32); box-shadow: 0 0 11px rgba(196,181,253,.58); }
+      18% { background: #817799; transform: scale(1); box-shadow: 0 0 5px rgba(196,181,253,.16); }
+      32%, 100% { background: var(--matrix-base); transform: scale(.78); box-shadow: none; }
+    }
+    @keyframes dot-bloom {
+      0%, 5% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+      22% { background: var(--matrix-active); transform: scale(1.4); box-shadow: 0 0 13px rgba(196,181,253,.6); }
+      48%, 100% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+    }
+    @keyframes dot-twinkle {
+      0%, 5%, 26%, 100% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+      13% { background: #e0d8ff; transform: scale(1.45); box-shadow: 0 0 12px rgba(196,181,253,.62); }
+    }
+    .card-info { min-height: 98px; padding: 18px 19px 20px; border-top: 1px solid var(--line); }
+    .card-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .card h2 { margin: 0; font-size: 14px; font-weight: 620; letter-spacing: -.025em; }
+    .card-number { color: #777781; font-size: 10px; font-variant-numeric: tabular-nums; }
+    .card p { margin: 8px 0 0; color: #92929a; font-size: 12px; line-height: 1.5; }
+    .footer { margin: 20px 0 0; color: #777781; font-size: 11px; }
+    @media (max-width: 700px) { .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 480px) {
+      body { padding: 28px 18px 50px; }
+      .brand { margin-bottom: 42px; }
+      .gallery { grid-template-columns: 1fr; }
+      .stage { height: 140px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .matrix i { animation: none !important; }
+      .matrix i:nth-child(13) { background: var(--matrix-active); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand" aria-label="Automata">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.37 8.16 7.14 23.84M14.5 8 18 15M20.97 19.71 24.53 24.29M8.55 24.91 16.95 19.09M21.23 15.52 28.25 8.5M23.05 8.5h5.2v5.2" />
+        <circle cx="13.25" cy="5.5" r="2.2" /><circle cx="6.25" cy="26.5" r="2.2" /><circle cx="19.25" cy="17.5" r="2.2" /><circle cx="26.25" cy="26.5" r="2.2" />
+      </svg>
+      <span class="brand-name">Automata</span>
+    </div>
+    <p class="eyebrow">Motion studies · Matrix loader</p>
+    <h1>Six ways to show progress.</h1>
+    <p class="intro">Each variation uses the same 5 × 5 dot grid. The order and rhythm change, so you can compare how each one feels while it loops.</p>
+    <div class="gallery">
+      <article class="card" data-variant="spiral-in" style="--duration: 2500ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Spiral in</h2><span class="card-number">01</span></div><p>Clockwise from the edge to the center.</p></div>
+      </article>
+      <article class="card" data-variant="spiral-out" style="--duration: 2500ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Spiral out</h2><span class="card-number">02</span></div><p>Starts at the center and opens outward.</p></div>
+      </article>
+      <article class="card" data-variant="orbit" style="--duration: 2100ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Orbit</h2><span class="card-number">03</span></div><p>A steady lap around the perimeter.</p></div>
+      </article>
+      <article class="card" data-variant="diagonal" style="--duration: 2200ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Diagonal sweep</h2><span class="card-number">04</span></div><p>A soft wave crosses the full grid.</p></div>
+      </article>
+      <article class="card" data-variant="bloom" style="--duration: 1900ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Center bloom</h2><span class="card-number">05</span></div><p>Concentric rings expand from the middle.</p></div>
+      </article>
+      <article class="card" data-variant="scatter" style="--duration: 2600ms">
+        <div class="stage"><div class="matrix" aria-hidden="true"></div></div>
+        <div class="card-info"><div class="card-heading"><h2>Scatter</h2><span class="card-number">06</span></div><p>Scattered points briefly light up and fade.</p></div>
+      </article>
+    </div>
+    <p class="footer">Standalone HTML · Reduced motion supported</p>
+  </main>
+  <script>
+    const spiral = [0, 1, 2, 3, 4, 9, 14, 19, 24, 23, 22, 21, 20, 15, 10, 5, 6, 7, 8, 13, 18, 17, 16, 11, 12];
+    const perimeter = spiral.slice(0, 16);
+    const scattered = [12, 2, 18, 6, 23, 0, 14, 9, 21, 4, 16, 11, 7, 24, 1, 19, 5, 22, 8, 15, 3, 20, 10, 17, 13];
+    const orders = {
+      "spiral-in": spiral,
+      "spiral-out": [...spiral].reverse(),
+      orbit: perimeter,
+      scatter: scattered
+    };
+    const step = { "spiral-in": 100, "spiral-out": 100, orbit: 130, scatter: 104 };
+    document.querySelectorAll(".card").forEach((card) => {
+      const variant = card.dataset.variant;
+      const path = orders[variant] || [];
+      const stepByCell = new Map(path.map((cell, index) => [cell, index]));
+      const matrix = card.querySelector(".matrix");
+      for (let cell = 0; cell < 25; cell++) {
+        const dot = document.createElement("i");
+        const row = Math.floor(cell / 5);
+        const col = cell % 5;
+        if (variant === "orbit" && !stepByCell.has(cell)) {
+          dot.classList.add("is-inner");
+        } else {
+          const delay = variant === "diagonal"
+            ? (row + col) * 190
+            : variant === "bloom"
+              ? Math.max(Math.abs(row - 2), Math.abs(col - 2)) * 310
+              : stepByCell.get(cell) * step[variant];
+          dot.style.setProperty("--delay", `${delay}ms`);
+        }
+        matrix.appendChild(dot);
+      }
+    });
+  </script>
+</body>
+</html>

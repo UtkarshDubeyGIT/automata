@@ -305,35 +305,68 @@
   --transition-transform: transform var(--dur-base) var(--ease-out);
 }
 
-/* Matrix dot loader */
-:root {
-  --matrix-cycle: 1200ms;
-  --matrix-base: #d9d9d9;
-  --matrix-active: #85858f;
-  --matrix-ease: ease-in-out;
-}
-
+/* Agent matrix loader: one of six patterns is selected for each busy state. */
 .t-matrix {
+  --matrix-cycle: 2500ms;
+  --matrix-base: color-mix(in srgb, currentColor 30%, transparent);
+  --matrix-active: currentColor;
+  --matrix-trail: color-mix(in srgb, currentColor 58%, transparent);
+  --matrix-glow: color-mix(in srgb, currentColor 48%, transparent);
+  --matrix-ease: ease-in-out;
   display: grid;
-  grid-template-columns: repeat(4, 2px);
-  grid-auto-rows: 2px;
+  grid-template-columns: repeat(5, 4px);
+  grid-auto-rows: 4px;
   gap: 2px;
 }
 
 .t-matrix i {
   display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
   background: var(--matrix-base);
-  animation: t-matrix-pulse var(--matrix-cycle) var(--matrix-ease) infinite;
-  animation-delay: calc(var(--d, 0) * 1ms);
 }
 
-@keyframes t-matrix-pulse {
-  0%, 45%, 100% { background-color: var(--matrix-base); }
-  15% { background-color: var(--matrix-active); }
+.t-matrix[data-variant] i {
+  animation: t-matrix-trail var(--matrix-cycle) var(--matrix-ease) infinite;
+  animation-delay: var(--matrix-delay, 0ms);
+}
+
+.t-matrix[data-variant="orbit"] { --matrix-cycle: 2100ms; }
+.t-matrix[data-variant="diagonal"] { --matrix-cycle: 2200ms; }
+.t-matrix[data-variant="bloom"] { --matrix-cycle: 1900ms; }
+.t-matrix[data-variant="scatter"] { --matrix-cycle: 2600ms; }
+
+.t-matrix[data-variant="orbit"] i.is-inner {
+  opacity: .28;
+  animation: none;
+}
+
+.t-matrix[data-variant="bloom"] i { animation-name: t-matrix-bloom; }
+.t-matrix[data-variant="scatter"] i { animation-name: t-matrix-twinkle; }
+
+@keyframes t-matrix-trail {
+  0%, 3% { background: var(--matrix-base); transform: scale(.78); box-shadow: none; }
+  8% { background: var(--matrix-active); transform: scale(1.32); box-shadow: 0 0 6px var(--matrix-glow); }
+  18% { background: var(--matrix-trail); transform: scale(1); box-shadow: 0 0 3px var(--matrix-glow); }
+  32%, 100% { background: var(--matrix-base); transform: scale(.78); box-shadow: none; }
+}
+
+@keyframes t-matrix-bloom {
+  0%, 5% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+  22% { background: var(--matrix-active); transform: scale(1.4); box-shadow: 0 0 7px var(--matrix-glow); }
+  48%, 100% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+}
+
+@keyframes t-matrix-twinkle {
+  0%, 5%, 26%, 100% { background: var(--matrix-base); transform: scale(.7); box-shadow: none; }
+  13% { background: var(--matrix-active); transform: scale(1.45); box-shadow: 0 0 7px var(--matrix-glow); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .t-matrix i { animation: none !important; }
+  .t-matrix i:nth-child(13) { background: var(--matrix-active); }
+  .t-matrix[data-variant="orbit"] i:nth-child(13) { opacity: 1; }
 }
 
 /* ============================================================

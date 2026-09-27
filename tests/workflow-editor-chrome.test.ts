@@ -158,10 +158,10 @@ test("the workflow AI chat keeps its Enter submit control wired and state-aware"
   assert.ok(enterButton, "PromptBox should render an Enter button");
   assert.match(enterButton, /onClick=\{onSubmit\}/);
   assert.match(enterButton, /disabled=\{disabled \|\| building \|\| !value\.trim\(\)\}/);
-  assert.match(enterButton, /aria-label=\{building \? "Agent is working" : "Send to agent"\}/);
-  assert.match(enterButton, /icon=\{building \? undefined : "send"\}/);
+  assert.match(enterButton, /aria-label="Send to agent"/);
+  assert.match(enterButton, /icon="send"/);
   assert.match(enterButton, /className="[^"]*ml-auto[^"]*"/);
-  assert.match(enterButton, /\{building && <MatrixDotLoader \/>}/);
+  assert.doesNotMatch(enterButton, /MatrixDotLoader/);
   assert.match(enterButton, />[\s\S]*?\bEnter\s*<\/Button>/);
 });
 
