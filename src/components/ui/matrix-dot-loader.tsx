@@ -2,17 +2,13 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 
-const GRID_SIZE = 5;
+const GRID_SIZE = 4;
 const DOT_COUNT = GRID_SIZE * GRID_SIZE;
 
 const SPIRAL = [
-  0, 1, 2, 3, 4, 9, 14, 19, 24, 23, 22, 21, 20, 15, 10, 5, 6, 7, 8,
-  13, 18, 17, 16, 11, 12,
+  0, 1, 2, 3, 7, 11, 15, 14, 13, 12, 8, 4, 5, 6, 10, 9,
 ];
-const SCATTER = [
-  12, 2, 18, 6, 23, 0, 14, 9, 21, 4, 16, 11, 7, 24, 1, 19, 5, 22, 8,
-  15, 3, 20, 10, 17, 13,
-];
+const SCATTER = [10, 1, 14, 3, 8, 5, 12, 0, 15, 2, 9, 6, 13, 4, 11, 7];
 
 const VARIANTS = [
   "spiral-in",
@@ -29,7 +25,7 @@ type OrderedVariant = Exclude<MatrixVariant, "diagonal" | "bloom">;
 const ORDER: Record<OrderedVariant, readonly number[]> = {
   "spiral-in": SPIRAL,
   "spiral-out": [...SPIRAL].reverse(),
-  orbit: SPIRAL.slice(0, 16),
+  orbit: SPIRAL.slice(0, 12),
   scatter: SCATTER,
 };
 
@@ -39,7 +35,7 @@ function dotDelay(variant: MatrixVariant, cell: number): number {
 
   if (variant === "diagonal") return (row + col) * 190;
   if (variant === "bloom") {
-    return Math.max(Math.abs(row - 2), Math.abs(col - 2)) * 310;
+    return Math.max(Math.abs(row - 1.5), Math.abs(col - 1.5)) * 310;
   }
 
   const step = ORDER[variant].indexOf(cell);

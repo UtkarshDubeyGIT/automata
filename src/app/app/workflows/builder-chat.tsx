@@ -775,7 +775,11 @@ function PromptBox({
 
 function AssistantAvatar({ busy = false }: { busy?: boolean }) {
   return (
-    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[10px] bg-brand-subtle text-brand">
+    <span
+      className={`flex h-8 w-8 flex-none items-center justify-center text-brand ${
+        busy ? "" : "rounded-[10px] bg-brand-subtle"
+      }`}
+    >
       {busy ? <MatrixDotLoader /> : <Icon name="sparkles" size={16} />}
     </span>
   );
