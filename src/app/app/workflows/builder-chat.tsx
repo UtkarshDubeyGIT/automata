@@ -444,7 +444,7 @@ export function BuilderChat({
       value={input}
       onChange={setInput}
       onSubmit={() => void submit(input)}
-      placeholder={placeholder}
+      placeholder={mode === "build" && messages.length > 0 ? "Describe any changes" : placeholder}
       placeholders={placeholders}
       hintsEnabled={messages.length === 0}
       building={building}

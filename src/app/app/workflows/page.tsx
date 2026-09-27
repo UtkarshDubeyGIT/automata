@@ -30,6 +30,7 @@ import { BuilderChat, type ChatSuggestion } from "./builder-chat";
 import { WorkflowLogo } from "./workflow-logo";
 import { WorkflowActivationDialog } from "@/components/workflow-activation-dialog";
 import Loading from "./loading";
+import cardStyles from "./workflow-card.module.css";
 
 /**
  * Automations — four sub-tabs over one page.
@@ -1247,10 +1248,9 @@ function WorkflowCard({
       className={cn(
         "relative flex flex-col overflow-hidden rounded-card border border-line bg-card p-4 shadow-xs",
         "transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md",
-        // A left edge, so a card that wants something is findable in a grid
-        // without reading any of them.
+        // Waiting runs get a left edge; failures use a quieter full-card outline.
         blocked && "border-l-[3px] border-l-brand",
-        failing && "border-l-[3px] border-l-danger",
+        failing && cardStyles.failed,
       )}
     >
       {/* The whole card opens the editor; the switch sits above it. Nesting a

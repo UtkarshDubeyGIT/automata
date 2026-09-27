@@ -1,0 +1,3 @@
+.failed {
+  border-color: color-mix(in srgb, var(--color-danger) 12%, var(--color-line));
+}
