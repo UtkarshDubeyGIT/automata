@@ -9,6 +9,7 @@ import { repairRefs } from "@/lib/workflows/repair";
 import { setupGaps, validateGraph } from "@/lib/workflows/validate";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 
 /**
  * Run now — the Run button.
@@ -51,6 +52,13 @@ export async function POST(
   try {
     validateGraph(graph);
   } catch (error) {
+    const unavailable = comingSoonFeaturesForGraph(graph);
+    if (unavailable.length) {
+      return NextResponse.json(
+        { error: unavailable.map((feature) => feature.message).join(" "), code: "coming_soon", comingSoon: unavailable },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "The saved draft is not runnable" }, { status: 400 });
   }
   const issues = draftIssues(graph);

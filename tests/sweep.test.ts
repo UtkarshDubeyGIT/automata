@@ -103,6 +103,30 @@ test("a paused automation is never swept", async () => {
   assert.equal(db.table("workflow_runs").length, 0);
 });
 
+test("a Coming soon scheduled workflow does not enqueue or charge", async () => {
+  reset();
+  db.table("workflows")[0].config = {
+    v: 1,
+    display: { groups: [] },
+    graph: {
+      start: "trigger",
+      steps: {
+        trigger: { type: "schedule_trigger", cadence: "daily", hour: 9, next: "report" },
+        report: { type: "app_action", toolkit: "metaads", tool: "METAADS_GET_INSIGHTS", next: null },
+      },
+    },
+  };
+  const result = await sweepTriggers(db, {
+    now: new Date("2026-08-27T10:00:00Z"),
+    deadline: Date.now() + 10_000,
+  });
+  assert.equal(result.fired, 0);
+  assert.equal(db.table("workflow_runs").length, 0);
+  assert.equal(db.table("credit_ledger").filter((row) => row.reason === "workflow_run").length, 0);
+  assert.match(String((db.table("workflows")[0].trigger_state as { lastError: string }).lastError), /coming soon/i);
+  assert.equal(await getBalance(WORKSPACE), 100);
+});
+
 test("a workflow Composio is already watching is not also polled", async () => {
   reset({ realtime: { mode: "realtime", instanceId: "ti_123", at: "2026-08-27T09:00:00.000Z" } });
   db.table("workflows")[0].config = {

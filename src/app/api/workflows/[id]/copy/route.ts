@@ -5,6 +5,7 @@ import { validateDraftEnvelope, type WorkflowPositions } from "@/lib/workflows/e
 import type { WorkflowConfig, WorkflowGraph } from "@/lib/workflows/types";
 import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -14,6 +15,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!body?.graph) return NextResponse.json({ error: "Missing workflow graph" }, { status: 400 });
   const errors = validateDraftEnvelope(body.graph, body.positions ?? {});
   if (errors.length) return NextResponse.json({ error: errors[0] }, { status: 400 });
+  const unavailable = comingSoonFeaturesForGraph(body.graph);
+  if (unavailable.length) {
+    return NextResponse.json(
+      {
+        error: unavailable.map((feature) => feature.message).join(" "),
+        code: "coming_soon",
+        comingSoon: unavailable,
+      },
+      { status: 409 },
+    );
+  }
   if (Object.values(body.graph.steps).some((step) => step.type === "firecrawl") && !firecrawlConfigured) {
     return NextResponse.json(
       {

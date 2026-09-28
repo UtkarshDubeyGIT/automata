@@ -4,6 +4,7 @@ import { appEventKey, claimRun, scheduleKey } from "./claim";
 import { getTrigger, missingWatch, pollMinutes, SIMULATED_APPS, watchValues } from "./registry";
 import { executeNativeTool, runsNatively as nativePoll } from "./native-tools";
 import type { StepDef, TriggerState, WorkflowConfig } from "./types";
+import { comingSoonFeaturesForGraph } from "./availability";
 
 /**
  * The trigger sweep — everything that fires without a person pressing anything.
@@ -94,6 +95,15 @@ export async function sweepTriggers(
     const start: StepDef | undefined = graph?.steps?.[graph?.start ?? ""];
     if (!start) continue;
     const state = row.trigger_state ?? {};
+    const unavailable = comingSoonFeaturesForGraph(graph);
+    if (unavailable.length) {
+      await writeTriggerState(admin, row.id, {
+        ...state,
+        lastCheckedAt: nowIso,
+        lastError: unavailable.map((feature) => feature.message).join(" ").slice(0, 200),
+      });
+      continue;
+    }
 
     // ---- scheduled workflows -------------------------------------------
     if (start.type === "schedule_trigger") {

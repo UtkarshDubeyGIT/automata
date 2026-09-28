@@ -19,6 +19,7 @@ import type { ConnectMethod, ToolkitSummary } from "@/lib/social/composio";
 import { cn } from "@/lib/utils";
 import { setupNotice } from "@/lib/setup-notice";
 import { VikunjaConnectDialog } from "@/components/integrations/vikunja-connect-dialog";
+import { comingSoonForIntegration } from "@/lib/workflows/availability";
 
 type Status = "connected" | "pending" | "disconnected";
 
@@ -491,12 +492,16 @@ export default function IntegrationsPage() {
   function ChannelCard(ch: (typeof CHANNELS)[number]) {
     const state = status[ch.id];
     const method = channelMethod(ch.id, ch.managedAuth, ownApps, keyOffer);
+    const comingSoon = comingSoonForIntegration(ch.id);
     return (
       <Card key={`channel-${ch.id}`} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
         <Logo slug={ch.id} name={ch.name} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-ink" title={ch.name}>
-            {ch.name}
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="truncate text-[14px] font-semibold text-ink" title={ch.name}>
+              {ch.name}
+            </div>
+            {comingSoon && <Badge tone="warning" title={comingSoon.message} className="flex-none whitespace-nowrap">Coming soon</Badge>}
           </div>
           <div className="truncate text-[13px] text-ink-subtle" title={ch.description}>
             {ch.description}
@@ -520,6 +525,7 @@ export default function IntegrationsPage() {
     const state = status[t.slug];
     const method = keyOffer[t.slug] ? "key" : t.connectVia;
     const meta = t.description || t.categories.join(", ");
+    const comingSoon = comingSoonForIntegration(t.slug);
     return (
       <Card key={`catalog-${t.slug}`} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 p-4 sm:flex" hover>
         <Logo slug={t.slug} name={t.name} instanceUrl={t.slug === "vikunja" ? vikunjaInstanceUrl : undefined} />
@@ -529,8 +535,11 @@ export default function IntegrationsPage() {
             squeeze and lost. Demoted to the meta line, where it sits
             beside a description that can truncate harmlessly. */}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-ink" title={t.name}>
-            {t.name}
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="truncate text-[14px] font-semibold text-ink" title={t.name}>
+              {t.name}
+            </div>
+            {comingSoon && <Badge tone="warning" title={comingSoon.message} className="flex-none whitespace-nowrap">Coming soon</Badge>}
           </div>
           <div className="flex items-baseline gap-1.5 text-[13px] text-ink-subtle">
             <span className="flex-none font-mono text-[11px] text-ink-muted">

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Icon } from "@/components/ui/icon";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PLATFORMS, toolkitLogo } from "@/lib/social/platforms";
 import {
@@ -34,6 +35,7 @@ import type { EdgeRef } from "@/lib/workflows/graph";
 import type { StepDef, WorkflowGraph } from "@/lib/workflows/types";
 import { StepTile } from "./canvas";
 import { WhatsAppNodeStatus } from "./whatsapp-node-status";
+import { comingSoonForStep } from "@/lib/workflows/availability";
 
 /**
  * Step inspector — the right-hand panel of the visual builder.
@@ -315,6 +317,7 @@ function StepField({
   // Every control gets a real id so its <label> actually labels it — the
   // inspector is otherwise a wall of unnamed inputs to a screen reader.
   const fieldId = useId();
+  const step = graph.steps[stepId];
   const label = (
     <span className="flex items-center gap-1.5">
       {field.label}
@@ -396,7 +399,7 @@ function StepField({
           <Select id={fieldId} value={current} onChange={(e) => onChange(e.target.value)}>
             <option value="">Choose…</option>
             {choices.map((c) => (
-              <option key={c.value} value={c.value}>
+              <option key={c.value} value={c.value} disabled={c.disabled}>
                 {c.label}
               </option>
             ))}
@@ -419,7 +422,12 @@ function StepField({
 
     case "keyvalue":
       return (
-        <Field label={label} hint={field.hint}>
+        <Field
+          label={label}
+          hint={step.type === "social_post" && String(step.platform) === "linkedin"
+            ? "LinkedIn company-page publishing is coming soon. Leave pageId blank to publish as your personal profile."
+            : field.hint}
+        >
           <KeyValueEditor
             graph={graph}
             stepId={stepId}
@@ -466,6 +474,9 @@ function ToolPickerField({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const fieldId = useId();
   const selected = value ? getTool(value, toolSpec) : undefined;
+  const selectedUnavailable = selected
+    ? comingSoonForStep({ type: "app_action", tool: value, toolkit: selected.app, tool_spec: selected })
+    : null;
 
   const allTools = useMemo(() => {
     return { ...TOOLS, ...dynamicTools };
@@ -550,6 +561,7 @@ function ToolPickerField({
 
   function pick(slug: string) {
     const chosen = allTools[slug];
+    if (comingSoonForStep({ type: "app_action", tool: slug, toolkit: chosen.app, tool_spec: chosen })) return;
     onChange(slug, chosen);
     setOpen(false);
   }
@@ -561,7 +573,7 @@ function ToolPickerField({
           {field.label}
           {field.required && <span className="text-[11px] font-normal text-ink-subtle">required</span>}
         </span>
-      } hint={selected ? `${appLabel(selected.app)} · ${selected.kind === "read" ? "reads data" : "performs an action"}` : field.hint}>
+      } hint={selectedUnavailable?.message ?? (selected ? `${appLabel(selected.app)} · ${selected.kind === "read" ? "reads data" : "performs an action"}` : field.hint)}>
         <button
           id={fieldId}
           type="button"
@@ -660,14 +672,19 @@ function ToolPickerField({
                 </div>
               ) : (
                 <div className="grid gap-2 lg:grid-cols-2">
-                  {results.map(([slug, tool]) => (
-                    <button
+                  {results.map(([slug, tool]) => {
+                    const unavailable = comingSoonForStep({ type: "app_action", tool: slug, toolkit: tool.app, tool_spec: tool });
+                    return <button
                       key={slug}
                       type="button"
                       onClick={() => pick(slug)}
+                      disabled={Boolean(unavailable)}
+                      aria-disabled={Boolean(unavailable)}
+                      title={unavailable?.message}
                       className={cn(
                         "group flex min-h-[72px] min-w-0 items-start gap-3 rounded-card border bg-card p-3 text-left transition-[border-color,background-color,box-shadow]",
                         slug === value ? "border-brand bg-brand-subtle ring-1 ring-brand-border" : "border-line hover:border-line-strong hover:bg-sunken",
+                        unavailable && "cursor-not-allowed opacity-65 hover:border-line hover:bg-card",
                         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
                       )}
                     >
@@ -682,9 +699,10 @@ function ToolPickerField({
                           </span>
                         </span>
                       </span>
+                      {unavailable && <Badge tone="warning" className="mt-0.5 flex-none whitespace-nowrap px-2 py-0 text-[10.5px]">Coming soon</Badge>}
                       {slug === value && <Icon name="check" size={16} className="mt-0.5 flex-none text-brand" />}
-                    </button>
-                  ))}
+                    </button>;
+                  })}
                 </div>
               )}
               {results.length === MAX_ACTION_RESULTS && (
@@ -744,7 +762,7 @@ function resolveChoices(
   field: FieldSpec,
   graph: WorkflowGraph,
   stepId: string,
-): { value: string; label: string; hint?: string }[] {
+  ): { value: string; label: string; hint?: string; disabled?: boolean }[] {
   if (field.choices) return field.choices;
   switch (field.source) {
     case "triggers":
@@ -760,11 +778,15 @@ function resolveChoices(
         hint: `Arguments: ${t.argHint}`,
       }));
     case "platforms":
-      return PLATFORMS.filter((p) => p.id !== "youtube" && p.id !== "tiktok").map((p) => ({
-        value: p.id,
-        label: p.name,
-        hint: p.description,
-      }));
+      return PLATFORMS.filter((p) => p.id !== "youtube").map((p) => {
+        const unavailable = comingSoonForStep({ type: "social_post", platform: p.id, options: {} });
+        return {
+          value: p.id,
+          label: unavailable ? `${p.name} — Coming soon` : p.name,
+          hint: unavailable?.message ?? p.description,
+          disabled: Boolean(unavailable),
+        };
+      });
     case "steps":
       // Only upstream steps can be a data source — matching what validation allows.
       return availableRefs(graph, stepId).map((g) => ({ value: g.stepId, label: g.title }));

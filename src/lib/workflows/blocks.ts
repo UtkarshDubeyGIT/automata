@@ -3,6 +3,7 @@ import type { TileColor } from "@/lib/data/workflows";
 import { PLATFORMS, platformMeta } from "@/lib/social/platforms";
 import { appLabel, getTool, getTrigger, MIN_POLL_MINUTES, pollMinutes, TOOLS, TRIGGERS, watchValues, type ToolSpec } from "./registry";
 import type { StepDef, StepType } from "./types";
+import { comingSoonForStep, type ComingSoonFeature } from "./availability";
 
 /**
  * The block catalog — ONE definition of what a workflow node is, consumed by
@@ -974,7 +975,7 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
       linkStyle: 'LinkedIn website treatment: "none", "soft", or "direct"; prefer "soft"',
       linkLabel: "optional natural phrase before the website URL",
       options:
-        'platform specifics: reddit {"subreddit","title"}, slack {"channel"} or {"dmUser":"U…"} for a direct message, linkedin {"pageId"}',
+        'platform specifics: reddit {"subreddit","title"}, slack {"channel"} or {"dmUser":"U…"} for a direct message, linkedin {"pageId"} for company pages (coming soon; leave blank for personal posts)',
     },
     routing: ["next"],
     defaults: { text: "", mediaKind: "auto", linkStyle: "soft" },
@@ -1709,6 +1710,8 @@ export interface PaletteBlock {
   preset?: Record<string, unknown>;
   /** Keywords for the picker's search. */
   keywords?: string;
+  /** This block is visible for discovery but cannot be added yet. */
+  comingSoon?: ComingSoonFeature;
 }
 
 function block(spec: PaletteBlock): PaletteBlock {
@@ -1716,6 +1719,12 @@ function block(spec: PaletteBlock): PaletteBlock {
 }
 
 export function toolBlock(slug: string, spec: ToolSpec): PaletteBlock {
+  const comingSoon = comingSoonForStep({
+    type: "app_action",
+    tool: slug,
+    toolkit: spec.app,
+    tool_spec: spec,
+  }) ?? undefined;
   return block({
     id: `app:${slug}`,
     type: "app_action",
@@ -1734,6 +1743,7 @@ export function toolBlock(slug: string, spec: ToolSpec): PaletteBlock {
       stage: spec.kind === "read" ? "Fetch" : "Act",
     },
     keywords: `${slug} ${spec.app} ${spec.kind}`,
+    comingSoon,
   });
 }
 
@@ -1914,6 +1924,7 @@ export function palette(
         message: "{{steps.summary.text}}\n\nOpen in Automata for details.",
       },
       keywords: "whatsapp reminder notification summary meeting message",
+      comingSoon: comingSoonForStep({ type: "whatsapp_reminder" }) ?? undefined,
     }),
 
     // Output
@@ -1979,10 +1990,6 @@ export function palette(
 
   // One block per publishable channel.
   for (const p of PLATFORMS) {
-    // TikTok alone. YouTube publishes for real now (`youtube-upload.ts`);
-    // TikTok's Content Posting API still needs a developer app and an audit,
-    // so a block for it would offer a step that always fails.
-    if (p.id === "tiktok") continue;
     blocks.push(
       block({
         id: `social:${p.id}`,
@@ -1995,6 +2002,7 @@ export function palette(
         app: p.id,
         preset: { platform: p.id, text: "", title: `Post to ${p.name}`, stage: "Publish" },
         keywords: `${p.id} publish share post`,
+        comingSoon: comingSoonForStep({ type: "social_post", platform: p.id, options: {} }) ?? undefined,
       }),
     );
   }

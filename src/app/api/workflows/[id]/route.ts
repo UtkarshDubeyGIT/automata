@@ -28,6 +28,7 @@ import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
 import { readCachedIntegrations } from "@/lib/social/integrations-store";
 import type { RequestContext } from "@/lib/workspace";
 import { canActivateWorkflow, normalizePlanId, PLANS } from "@/lib/billing/plans";
+import { comingSoonFeaturesForGraph, comingSoonStepsAddedSince } from "@/lib/workflows/availability";
 
 /**
  * One automation.
@@ -77,7 +78,7 @@ export async function GET(
   const graph = row.draft_config?.graph ?? publishedGraph;
 
   return NextResponse.json({
-    workflow: { ...toWorkflowView(row), logo: leadLogo(graph) },
+    workflow: { ...toWorkflowView(row), comingSoon: comingSoonFeaturesForGraph(graph), logo: leadLogo(graph) },
     // The editor works on the raw graph; the view above is only for chrome.
     graph,
     positions: row.draft_positions ?? {},
@@ -150,6 +151,18 @@ export async function PATCH(
   // while any step is still missing required configuration.
   if (body.active === true) {
     const row = await getWorkflowRow(rc.supabase, id);
+
+    const unavailable = comingSoonFeaturesForGraph(row?.config?.graph);
+    if (unavailable.length) {
+      return NextResponse.json(
+        {
+          error: unavailable.map((feature) => feature.message).join(" "),
+          code: "coming_soon",
+          comingSoon: unavailable,
+        },
+        { status: 409 },
+      );
+    }
 
     // Draft auto-save is intentionally not permission to run it. The visible
     // Save is the only action that commits a draft as the runnable version, so
@@ -311,6 +324,18 @@ export async function PUT(
   const existing = await getWorkflowRow(rc.supabase, id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const additions = comingSoonStepsAddedSince(graph, existing.draft_config?.graph ?? existing.config?.graph);
+  if (additions.length) {
+    return NextResponse.json(
+      {
+        error: additions.map((feature) => feature.message).join(" "),
+        code: "coming_soon",
+        comingSoon: additions,
+      },
+      { status: 409 },
+    );
+  }
+
   const draftConfig = {
     ...(existing.draft_config ?? existing.config),
     v: 1,
@@ -349,7 +374,7 @@ export async function PUT(
   const row = saved as typeof existing;
 
   return NextResponse.json({
-    workflow: { ...toWorkflowView(row), logo: leadLogo(graph) },
+    workflow: { ...toWorkflowView(row), comingSoon: comingSoonFeaturesForGraph(graph), logo: leadLogo(graph) },
     graph,
     positions,
     revision: nextRevision,

@@ -8,6 +8,7 @@ import { platformMeta } from "@/lib/social/platforms";
 import { describeStep, isTriggerType, nodeSpec, scheduleLabel, stepApp } from "./blocks";
 import { orderedStepIds } from "./graph";
 import { getTool, getTrigger, missingWatch, pollMinutes, watchValues } from "./registry";
+import { comingSoonFeaturesForGraph } from "./availability";
 import type { StepDef, TriggerState, WorkflowConfig, WorkflowGraph } from "./types";
 
 /**
@@ -226,6 +227,7 @@ export function toWorkflowView(row: WorkflowRow): Workflow {
     runs: row.runs,
     success: row.success_rate ?? "—",
     groups: config?.display?.groups ?? (graph ? deriveDisplay(graph) : []),
+    comingSoon: comingSoonFeaturesForGraph(graph),
     trigger: config ? triggerInfo(config, row.trigger_state) : undefined,
   };
 }

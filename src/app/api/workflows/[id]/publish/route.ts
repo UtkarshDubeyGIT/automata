@@ -12,6 +12,7 @@ import { firecrawlConfigured } from "@/lib/env";
 import { setupNotice } from "@/lib/setup-notice";
 import { serverOwnedRows } from "@/lib/integrations/server-owned-rows";
 import { readCachedIntegrations } from "@/lib/social/integrations-store";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 
 const FIRECRAWL_UNAVAILABLE = setupNotice(
   "Web research isn't available yet, so this automation can't be saved. Please try again later.",
@@ -42,6 +43,13 @@ export async function POST(
   try {
     validateGraph(graph);
   } catch (cause) {
+    const unavailable = comingSoonFeaturesForGraph(graph);
+    if (unavailable.length) {
+      return NextResponse.json(
+        { error: unavailable.map((feature) => feature.message).join(" "), code: "coming_soon", comingSoon: unavailable },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: cause instanceof Error ? cause.message : "This draft cannot be saved" }, { status: 400 });
   }
   const issues = draftIssues(graph);

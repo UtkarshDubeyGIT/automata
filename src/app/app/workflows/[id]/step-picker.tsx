@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, IconTile } from "@/components/ui/icon";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import { tileColors } from "@/lib/data/workflows";
@@ -199,8 +200,12 @@ function BlockCard({ block, onPick }: { block: PaletteBlock; onPick: () => void 
   const [brokenLogo, setBrokenLogo] = useState(false);
   return (
     <button
+      type="button"
       onClick={onPick}
-      className="flex items-start gap-3 rounded-card border border-line bg-card p-3 text-left transition-colors hover:border-line-strong hover:bg-inset"
+      disabled={Boolean(block.comingSoon)}
+      aria-disabled={Boolean(block.comingSoon)}
+      title={block.comingSoon?.message}
+      className="flex items-start gap-3 rounded-card border border-line bg-card p-3 text-left transition-colors hover:border-line-strong hover:bg-inset disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:border-line disabled:hover:bg-card"
     >
       {block.app && !brokenLogo ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -217,7 +222,10 @@ function BlockCard({ block, onPick }: { block: PaletteBlock; onPick: () => void 
         <IconTile name={block.icon} bg={tc.bg} fg={tc.fg} size={32} iconSize={16} />
       )}
       <span className="min-w-0 flex-1">
-        <span className="block text-[13.5px] font-semibold leading-tight text-ink">{block.label}</span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[13.5px] font-semibold leading-tight text-ink">{block.label}</span>
+          {block.comingSoon && <Badge tone="warning" className="px-2 py-0 text-[10.5px]">Coming soon</Badge>}
+        </span>
         <span className="mt-0.5 block text-[12px] leading-snug text-ink-subtle">{block.desc}</span>
       </span>
     </button>

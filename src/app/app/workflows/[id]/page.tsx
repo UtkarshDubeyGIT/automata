@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { Switch } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
@@ -38,6 +39,7 @@ import { gapCount, lintGraph, liveWrites, setupGaps } from "@/lib/workflows/vali
 import { requestRun } from "@/lib/workflows/run-request";
 import { BrandGap, useBrandReadiness } from "@/components/brand-readiness";
 import { needsBrandGrounding } from "@/lib/workflows/apps";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 import type { WorkflowGraph } from "@/lib/workflows/types";
 import {
   adoptableAfterSave,
@@ -150,6 +152,7 @@ export default function WorkflowDetailPage() {
 
   // ---- editor state ----
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
+  const comingSoon = useMemo(() => comingSoonFeaturesForGraph(graph), [graph]);
   /** Last persisted graph — the dirty check and Discard both compare to this. */
   const [savedGraph, setSavedGraph] = useState<string>("");
   /** The persisted graph snapshot, available before React commits state updates. */
@@ -511,7 +514,7 @@ export default function WorkflowDetailPage() {
   }
 
   function onPick(block: PaletteBlock) {
-    if (!graph || !picker) return;
+    if (!graph || !picker || block.comingSoon) return;
     const result =
       picker.mode === "trigger"
         ? replaceTrigger(graph, block)
@@ -535,7 +538,7 @@ export default function WorkflowDetailPage() {
   }
 
   function addFromLibrary(block: PaletteBlock) {
-    if (!graph) return;
+    if (!graph || block.comingSoon) return;
     const result = appendAfter(graph, graph.start, block);
     apply(result.graph);
     setSelectedId(result.stepId);
@@ -544,7 +547,7 @@ export default function WorkflowDetailPage() {
   function dropFromLibrary(blockId: string, position: { x: number; y: number }, edge: EdgeRef | null) {
     if (!graph) return;
     const block = palette().find((candidate) => candidate.id === blockId);
-    if (!block) return;
+    if (!block || block.comingSoon) return;
     if (block.category === "trigger") {
       const result = replaceTrigger(graph, block);
       apply(result.graph);
@@ -804,6 +807,14 @@ export default function WorkflowDetailPage() {
 
   async function runNow() {
     if (runningNow || !wf || !graph) return;
+    if (comingSoon.length) {
+      toast({
+        title: "Coming soon",
+        description: comingSoon.map((feature) => feature.message).join(" "),
+        tone: "warning",
+      });
+      return;
+    }
     if (dirty) {
       toast({
         title: "Save first",
@@ -952,6 +963,14 @@ export default function WorkflowDetailPage() {
     // Without this a double-click sends two PATCHes whose responses can land
     // out of order, leaving the switch showing the opposite of the truth.
     if (togglingActive) return;
+    if (next && comingSoon.length) {
+      toast({
+        title: "Coming soon",
+        description: comingSoon.map((feature) => feature.message).join(" "),
+        tone: "warning",
+      });
+      return;
+    }
     // Switching on is a promise that it can run. The server already refuses
     // over blank fields; an account nobody ever connected fails just as
     // certainly, one step later, so it is refused here — where the Connect
@@ -1116,6 +1135,7 @@ export default function WorkflowDetailPage() {
     <div className="flex flex-col gap-4">
       <Header
         wf={wf}
+        comingSoon={comingSoon}
         connectedTools={connections.every((connection) => connection.status === "connected") ? connections : []}
         active={active}
         dirty={dirty}
@@ -1139,6 +1159,16 @@ export default function WorkflowDetailPage() {
         onToggleChat={() => setChatOpen((o) => !o)}
         onDelete={() => void destroy()}
       />
+
+      {comingSoon.length > 0 && (
+        <div data-workflow-notice="coming-soon" className="flex min-w-0 items-center gap-2 border-b border-warning-border/70 py-2 text-[12px]">
+          <Icon name="info" size={13} className="flex-none text-warning" />
+          <div className="min-w-0 flex-1 text-ink-muted">
+            <span className="font-semibold text-ink">Coming soon — </span>
+            {comingSoon.map((feature) => feature.label).join(", ")}. This workflow is saved, but it can’t be activated or run yet.
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-center">
         <div className="flex gap-1 rounded-full bg-inset p-1">
@@ -1470,15 +1500,22 @@ function ModuleLibrary({ onPick, onClose }: { onPick: (block: PaletteBlock) => v
           <button
             key={block.id}
             type="button"
-            draggable
+            disabled={Boolean(block.comingSoon)}
+            aria-disabled={Boolean(block.comingSoon)}
+            title={block.comingSoon?.message}
+            draggable={!block.comingSoon}
             onDragStart={(event) => {
+              if (block.comingSoon) return;
               event.dataTransfer.effectAllowed = "copy";
               event.dataTransfer.setData("application/x-zidaneai-module", block.id);
             }}
             onClick={() => onPick(block)}
-            className="rounded-[10px] border border-line bg-card p-2.5 text-left transition-colors hover:border-brand hover:bg-brand-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+            className="rounded-[10px] border border-line bg-card p-2.5 text-left transition-colors hover:border-brand hover:bg-brand-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:border-line disabled:hover:bg-card"
           >
-            <span className="block text-[12.5px] font-semibold text-ink">{block.label}</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[12.5px] font-semibold text-ink">{block.label}</span>
+              {block.comingSoon && <Badge tone="warning" className="px-2 py-0 text-[10.5px]">Coming soon</Badge>}
+            </span>
             <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-ink-subtle">{block.desc}</span>
           </button>
         ))}
@@ -1493,6 +1530,7 @@ function ModuleLibrary({ onPick, onClose }: { onPick: (block: PaletteBlock) => v
 
 function Header({
   wf,
+  comingSoon,
   connectedTools,
   active,
   dirty,
@@ -1517,6 +1555,7 @@ function Header({
   onDelete,
 }: {
   wf: WorkflowDetail | null;
+  comingSoon: ReturnType<typeof comingSoonFeaturesForGraph>;
   connectedTools: AppConnection[];
   active: boolean;
   dirty: boolean;
@@ -1564,6 +1603,7 @@ function Header({
               className="min-w-[12ch] max-w-[calc(100%-60px)] truncate rounded-[8px] bg-transparent px-1.5 py-0.5 text-[16px] font-semibold text-ink outline-none transition-colors [field-sizing:content] hover:bg-inset focus:bg-inset"
             />
             <ConnectedAppIcons connections={connectedTools} />
+            {comingSoon.length > 0 && <Badge tone="warning" className="flex-none whitespace-nowrap">Coming soon</Badge>}
           </div>
           <div className="truncate px-1.5 text-[12.5px] text-ink-subtle">
             {wf?.trigger ? triggerLine(wf.trigger) : wf?.desc}
@@ -1599,7 +1639,7 @@ function Header({
           >
             <span className="max-md:sr-only">Ask AI</span>
           </Button>
-          <Button aria-label="Run" variant="secondary" size="sm" icon="play" loading={runningNow} onClick={onTest}>
+          <Button aria-label="Run" variant="secondary" size="sm" icon="play" loading={runningNow} disabled={comingSoon.length > 0} title={comingSoon[0]?.message} onClick={onTest}>
             <span className="max-md:sr-only">Run</span>
           </Button>
           <Button
@@ -1649,16 +1689,16 @@ function Header({
       <div className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-2.5">
         <Switch
           checked={active}
-          disabled={togglingActive}
+          disabled={togglingActive || (comingSoon.length > 0 && !active)}
           onChange={onToggleActive}
           label={
             <span
               className={cn(
                 "text-[12.5px] font-semibold",
-                active ? "text-success" : "text-ink-muted",
+                comingSoon.length ? "text-warning" : active ? "text-success" : "text-ink-muted",
               )}
             >
-              {active ? "Running" : "Paused"}
+              {comingSoon.length ? "Coming soon" : active ? "Running" : "Paused"}
             </span>
           }
         />

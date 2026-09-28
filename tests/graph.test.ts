@@ -5,6 +5,7 @@ import { findCycle } from "@/lib/workflows/graph";
 import { repairRefs, stripPlaceholders } from "@/lib/workflows/repair";
 import { BuildError, gapCount, missingSetup, setupGaps, validateGraph } from "@/lib/workflows/validate";
 import { TEMPLATES } from "@/lib/workflows/templates";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 import type { WorkflowGraph } from "@/lib/workflows/types";
 
 /** Structural rules the engine and the editor both depend on. */
@@ -46,9 +47,18 @@ test("an acyclic graph reports no cycle", () => {
   );
 });
 
-test("every shipped template still validates", () => {
+test("every shipped template is either runnable or clearly marked Coming soon", () => {
   for (const template of TEMPLATES) {
-    assert.doesNotThrow(() => validateGraph(template.graph), `template '${template.id}'`);
+    const unavailable = comingSoonFeaturesForGraph(template.graph);
+    if (unavailable.length) {
+      assert.throws(
+        () => validateGraph(template.graph),
+        (error: Error) => error instanceof BuildError && error.message.includes(unavailable[0].message),
+        `template '${template.id}' must be blocked by its Coming soon capability`,
+      );
+    } else {
+      assert.doesNotThrow(() => validateGraph(template.graph), `template '${template.id}'`);
+    }
   }
 });
 

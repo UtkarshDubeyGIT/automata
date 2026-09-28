@@ -108,6 +108,9 @@ export async function receiveWorkflowWebhook(req: NextRequest, id: string, token
   if (claim.refused?.reason === "insufficient_credits") {
     return NextResponse.json({ error: "Not enough credits" }, { status: 402 });
   }
+  if (claim.refused?.reason === "coming_soon") {
+    return NextResponse.json({ error: claim.error, code: "coming_soon" }, { status: 409 });
+  }
   if (claim.refused) return NextResponse.json({ error: claim.error }, { status: 502 });
 
   // A queued run would otherwise wait for the next fifteen-minute beat. Start

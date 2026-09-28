@@ -118,6 +118,36 @@ test("a real target is polled, with the values the user set", async () => {
   assert.equal(state().lastError, undefined);
 });
 
+test("a blocked workflow is skipped before polling its app-event provider", async () => {
+  const graph: WorkflowGraph = {
+    start: "trigger",
+    steps: {
+      trigger: {
+        type: "app_event_trigger",
+        event: "NEW_GITHUB_ISSUE",
+        interval_minutes: 60,
+        watch_owner: "vercel",
+        watch_repo: "next.js",
+        next: "blocked_action",
+      },
+      blocked_action: {
+        type: "app_action",
+        toolkit: "metaads",
+        tool: "METAADS_GET_INSIGHTS",
+        next: null,
+      },
+    },
+  };
+  reset(graph);
+
+  await sweep("2026-08-27T10:00:00Z");
+
+  assert.equal(calls.length, 0, "the source app must not be polled for a workflow that cannot run");
+  assert.equal(db.table("workflow_runs").length, 0);
+  assert.equal(db.table("credit_ledger").filter((row) => row.reason === "workflow_run").length, 0);
+  assert.match(state().lastError ?? "", /Meta Ads workflow actions are coming soon/i);
+});
+
 test("a failed poll does not baseline the cursor", async () => {
   reset(githubGraph({ watch_owner: "vercel", watch_repo: "next.js" }));
   reply = { successful: false, error: '{"message":"Not Found","status":"404"}' };

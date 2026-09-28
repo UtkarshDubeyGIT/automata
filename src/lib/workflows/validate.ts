@@ -27,6 +27,7 @@ import {
 } from "./registry";
 import { repairRefs } from "./repair";
 import type { StepDef, WorkflowGraph } from "./types";
+import { comingSoonForStep } from "./availability";
 
 /**
  * Graph validation — the single gate every graph passes through, whether it
@@ -94,6 +95,8 @@ export function validateGraph(graph: WorkflowGraph): void {
         `'${title(node, nodeId)}' is a trigger but isn't the first step — a workflow has exactly one trigger`,
       );
     }
+    const comingSoon = comingSoonForStep(node);
+    if (comingSoon) throw new BuildError(comingSoon.message);
     validateConfig(nodeId, node);
     validateApprovalEdges(nodeId, node);
 

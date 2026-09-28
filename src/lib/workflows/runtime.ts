@@ -9,6 +9,7 @@ import type { RunLog, RunResult, RunStatus, WorkflowGraph } from "./types";
 import { queueWorkflowReminder } from "@/lib/whatsapp/service";
 import { notifyWorkspace } from "@/lib/notifications/service";
 import { pollFirecrawlJob } from "@/lib/integrations/firecrawl";
+import { comingSoonFeaturesForGraph } from "./availability";
 
 /**
  * Deep Workflow Execution Runtime.
@@ -84,7 +85,9 @@ export interface ClaimResult {
   /** True when an identical trigger had already claimed this run. */
   duplicate: boolean;
   /** Set when the run was settled before doing anything. */
-  refused?: { reason: "insufficient_credits" | "charge_failed"; balance: number; cost: number };
+  refused?:
+    | { reason: "insufficient_credits" | "charge_failed"; balance: number; cost: number }
+    | { reason: "coming_soon"; message: string };
 }
 
 export async function claimRun(opts: ClaimOptions): Promise<ClaimResult> {
@@ -92,6 +95,17 @@ export async function claimRun(opts: ClaimOptions): Promise<ClaimResult> {
 
   // Repair references ONCE here and store what we repaired.
   const graph = repairRefs(opts.graph).graph;
+  const unavailable = comingSoonFeaturesForGraph(graph);
+  if (unavailable.length) {
+    const message = unavailable.map((feature) => feature.message).join(" ");
+    return {
+      runId: "",
+      status: "failed",
+      error: message,
+      duplicate: false,
+      refused: { reason: "coming_soon", message },
+    };
+  }
   const log: RunLog = {
     v: 1,
     journal: [],
@@ -212,6 +226,18 @@ export async function claimForDriving(
  * Drive an already-claimed, already-charged run to its next state.
  */
 export async function driveRun(admin: DbClient, run: ClaimedRun): Promise<RunResult> {
+  const unavailable = comingSoonFeaturesForGraph(run.graph);
+  if (unavailable.length) {
+    const message = unavailable.map((feature) => feature.message).join(" ");
+    await settle(admin, run.id, "failed", message);
+    // Runs queued before this gate may already have been charged. Their empty
+    // journal means the existing clean-failure refund is safe and no provider
+    // step or failure alert should run.
+    await refundIfClean(admin, run.id, run.workspaceId, run.graph);
+    await updateWorkflowStats(admin, run.workflowId);
+    return { runId: run.id, status: "failed", error: message };
+  }
+
   const log: RunLog = { ...run.log, attempts: (run.log.attempts ?? 0) + 1 };
 
   await admin

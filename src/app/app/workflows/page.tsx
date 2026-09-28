@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/form";
@@ -25,6 +26,7 @@ import { appList, ConnectApps, useAppConnections } from "@/components/connect-ap
 import { BrandGap, useBrandReadiness } from "@/components/brand-readiness";
 import { TEMPLATES, type WorkflowTemplate } from "@/lib/workflows/templates";
 import type { ApprovalPreview as ApprovalPreviewData } from "@/lib/workflows/types";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 import { ApprovalPreview } from "./approval-preview";
 import { BuilderChat, type ChatSuggestion } from "./builder-chat";
 import { WorkflowLogo } from "./workflow-logo";
@@ -371,6 +373,11 @@ function WorkflowsContent() {
     openChat = false,
     skipConnectionCheck = false,
   ) {
+    const unavailable = comingSoonFeaturesForGraph(template.graph);
+    if (unavailable.length) {
+      toast({ title: "Coming soon", description: unavailable.map((feature) => feature.message).join(" "), tone: "warning" });
+      return;
+    }
     if (creatingRef.current || createdHref) return;
     creatingRef.current = true;
     setCreating(template.id);
@@ -427,6 +434,10 @@ function WorkflowsContent() {
    */
   async function updateActive(wf: WorkflowListItem, next: boolean) {
     if (busy[wf.id]) return;
+    if (next && wf.comingSoon?.length) {
+      toast({ title: "Coming soon", description: wf.comingSoon.map((feature) => feature.message).join(" "), tone: "warning" });
+      return;
+    }
     startBusy(wf.id, "toggle");
     try {
       const res = await fetch(`/api/workflows/${wf.id}`, {
@@ -519,7 +530,8 @@ function WorkflowsContent() {
   }
 
   /** Run a failed automation once more, from the attention card. */
-  async function runAgain(wf: { id: string; name: string }) {
+  async function runAgain(wf: WorkflowListItem) {
+    if (wf.comingSoon?.length) return;
     if (busy[wf.id]) return;
     startBusy(wf.id, "run");
     try {
@@ -736,15 +748,20 @@ function WorkflowsContent() {
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {TEMPLATES.filter((template) => template.id !== MANUAL_TEMPLATE.id).map((t) => (
-                <button
+              {TEMPLATES.filter((template) => template.id !== MANUAL_TEMPLATE.id).map((t) => {
+                const unavailable = comingSoonFeaturesForGraph(t.graph);
+                const blocked = unavailable.length > 0;
+                return <button
                   key={t.id}
-                  disabled={creationLocked}
+                  disabled={creationLocked || blocked}
+                  aria-disabled={creationLocked || blocked}
+                  title={unavailable.map((feature) => feature.message).join(" ") || undefined}
                   onClick={() => void startTemplate(t)}
                   className="group flex flex-col gap-2.5 rounded-card border border-line bg-card p-4 text-left shadow-xs transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-brand-border hover:shadow-md disabled:pointer-events-none disabled:opacity-60"
                 >
                   <span className="flex items-center gap-2">
                     <WorkflowLogo logo={t.app ?? null} />
+                    {blocked && <Badge tone="warning" className="whitespace-nowrap">Coming soon</Badge>}
                     {creating === t.id && (
                       <Icon name="refresh" size={14} className="animate-spin text-ink-subtle" />
                     )}
@@ -755,12 +772,12 @@ function WorkflowsContent() {
                   <span className="flex-1 text-[13px] leading-snug text-ink-subtle">
                     {t.description}
                   </span>
-                  <span className="flex items-center gap-1.5 text-[13px] font-semibold text-brand opacity-0 transition-opacity group-hover:opacity-100">
-                    Use this
-                    <Icon name="arrow-right" size={14} />
+                  <span className={cn("flex items-center gap-1.5 text-[13px] font-semibold transition-opacity", blocked ? "text-warning" : "text-brand opacity-0 group-hover:opacity-100")}>
+                    {blocked ? "Unavailable for now" : "Use this"}
+                    {!blocked && <Icon name="arrow-right" size={14} />}
                   </span>
-                </button>
-              ))}
+                </button>;
+              })}
             </div>
           </div>
         </div>
@@ -1275,13 +1292,22 @@ function WorkflowCard({
         <Toggle
           on={wf.active}
           busy={busy}
+          disabled={!wf.active && Boolean(wf.comingSoon?.length)}
           label={wf.active ? `Pause ${wf.name}` : `Switch ${wf.name} on`}
           onClick={onToggle}
         />
       </div>
 
       <div className="pointer-events-none relative mt-4 flex items-center gap-3 border-t border-line pt-3.5 text-[12.5px] text-ink-subtle">
-        {reason ? (
+        {wf.comingSoon?.length ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-warning-surface px-2.5 py-1 text-[11.5px] font-semibold text-warning"
+            title={wf.comingSoon.map((feature) => feature.message).join(" ")}
+          >
+            <Icon name="info" size={12} />
+            Coming soon
+          </span>
+        ) : reason ? (
           <span
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold",
@@ -1320,11 +1346,13 @@ function WorkflowCard({
 function Toggle({
   on,
   busy,
+  disabled = false,
   label,
   onClick,
 }: {
   on: boolean;
   busy: boolean;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
@@ -1334,13 +1362,13 @@ function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={label}
-      disabled={busy}
+      disabled={busy || disabled}
       onClick={onClick}
       className={cn(
         "pointer-events-auto relative h-[21px] w-9 flex-none rounded-full transition-colors duration-200",
         "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
         on ? "bg-success" : "bg-line-strong",
-        busy && "opacity-60",
+        (busy || disabled) && "opacity-60",
       )}
     >
       <span

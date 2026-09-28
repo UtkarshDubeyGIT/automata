@@ -13,6 +13,7 @@ import { setupNotice } from "@/lib/setup-notice";
 import { liveWrites } from "@/lib/workflows/validate";
 import { createAdminClient } from "@/lib/supabase/server";
 import { recordWorkflowBuildEvent } from "@/lib/workflows/diagnostics";
+import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
 
 /**
  * GET  — list the workspace's automations, enriched with run history
@@ -213,6 +214,13 @@ async function saveWorkflow(ctx: SaveContext, body: CreateWorkflowBody, creation
   try {
     validateGraph(config.graph);
   } catch (err) {
+    const unavailable = comingSoonFeaturesForGraph(config.graph);
+    if (unavailable.length) {
+      return NextResponse.json(
+        { error: unavailable.map((feature) => feature.message).join(" "), code: "coming_soon", comingSoon: unavailable },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 

@@ -12,6 +12,7 @@ import { BuildError, validateGraph } from "./validate";
 import type { ToolSpec } from "./registry";
 import type { StepDef, WorkflowConfig, WorkflowGraph } from "./types";
 import { setupNotice } from "@/lib/setup-notice";
+import { COMING_SOON_AI_POLICY } from "./availability";
 
 /**
  * Chat-to-build — TypeScript port of relay_poc/builder.py.
@@ -157,6 +158,8 @@ ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS (use these exact tool slugs in app_action steps; do NOT invent slugs; READ actions produce data for later steps, WRITE actions perform an action; [external/visible] actions affect other people -> consider approval):
 ${toolCatalog}
+
+${COMING_SOON_AI_POLICY}
 
 IMPORTANT: Any angle-bracket label shown inside catalog documentation (for example <ai>, <trigger>, or <id>) is explanatory text, never a real step id. Do not copy it into the JSON. Choose a real snake_case id from the steps you create for every {{steps.…}} reference. Action argument examples intentionally use empty strings; fill them with a literal supplied by the user or a reference to an earlier step.
 
@@ -619,6 +622,8 @@ ${triggersForPrompt()}
 
 AVAILABLE APP ACTIONS:
 ${toolCatalog}
+
+${COMING_SOON_AI_POLICY}
 
 EDIT RULES:
 1. Output ONLY the complete, corrected workflow JSON in the SAME shape you were given:

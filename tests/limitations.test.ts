@@ -8,17 +8,16 @@ import type { StepDef, WorkflowGraph } from "@/lib/workflows/types";
 /**
  * The small print an automation used to keep to itself.
  *
- * Every case here is a graph that VALIDATES and has NO setup gaps — that is
- * the point. The editor already had two ways to speak (this can't be saved,
- * this field is blank) and neither of them can say "this is fine and it still
- * won't do what you think", so nothing did.
+ * These cases cover provider caveats that remain useful after a graph passes
+ * validation. The Coming soon Meta Ads case is the exception: its settings
+ * guidance remains ready for when the capability returns.
  */
 
 function graphOf(steps: WorkflowGraph["steps"], start: string): WorkflowGraph {
   return { start, steps } as WorkflowGraph;
 }
 
-/** These are claims about WORKING automations, so prove they are working. */
+/** For capabilities that are currently available, prove the graph is runnable. */
 function assertClean(graph: WorkflowGraph): void {
   validateGraph(graph);
   assert.deepEqual(setupGaps(graph), {}, "fixture should have no setup gaps");
@@ -249,7 +248,7 @@ test("a WhatsApp template wired to an AI step is told the wording is fixed", () 
   );
 });
 
-test("a step leaning on a setting made elsewhere says which setting", () => {
+test("a Meta Ads step keeps its settings guidance behind the Coming soon gate", () => {
   // object_id is required by Meta and autofilled from the workspace's saved ad
   // account, which is why it is not a setup gap. A workspace that never saved
   // one gets a step that looks complete and fails on its first run.
@@ -266,7 +265,8 @@ test("a step leaning on a setting made elsewhere says which setting", () => {
     },
     "daily",
   );
-  assertClean(graph);
+  assert.throws(() => validateGraph(graph), /Meta Ads workflow actions are coming soon/i);
+  assert.deepEqual(setupGaps(graph), {}, "the autofilled account is not a step setup gap");
 
   const [limit] = limitations(graph).filter((l) => l.stepId === "read");
   assert.match(limit.detail, /Settings → Paid channels/);

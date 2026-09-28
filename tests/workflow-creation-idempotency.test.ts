@@ -70,3 +70,18 @@ test("workflow POST retries with the same nonce return the same workflow", async
   assert.equal(retryBody.duplicate, true);
   assert.equal(routeDb.table("workflows").length, 1);
 });
+
+test("workflow POST rejects a coming-soon template before creating a row", async () => {
+  routeDb.replace("workflows", []);
+  const response = await POST(new Request("http://growthos.test/api/workflows", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template: "rolling-meta-ads-report-slack" }),
+  }));
+  const body = (await response.json()) as { error?: string; code?: string };
+
+  assert.equal(response.status, 409);
+  assert.equal(body.code, "coming_soon");
+  assert.match(body.error ?? "", /Meta Ads workflow actions are coming soon/i);
+  assert.equal(routeDb.table("workflows").length, 0);
+});

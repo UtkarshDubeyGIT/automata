@@ -40,6 +40,8 @@ export interface Workflow {
   runs: number;
   success: string;
   groups: WorkflowGroup[];
+  /** Run/build capabilities this saved graph is waiting for. */
+  comingSoon?: { id: string; label: string; message: string }[];
   /** How this workflow starts — drives the header strip on the editor. */
   trigger?: {
     kind: "event" | "schedule" | "webhook" | "manual";

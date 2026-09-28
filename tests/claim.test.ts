@@ -24,7 +24,7 @@ mock.module("@/lib/supabase/server", {
   },
 });
 
-const { claimRun, claimForDriving, scheduleKey, manualKey } = await import("@/lib/workflows/claim");
+const { claimRun, claimForDriving, driveRun, RUN_COST, scheduleKey, manualKey } = await import("@/lib/workflows/claim");
 const { drainRuns } = await import("@/lib/workflows/drain");
 const { getBalance } = await import("@/lib/credits");
 
@@ -132,6 +132,74 @@ test("a claim with an empty balance settles the row failed, not queued", async (
   assert.equal(row.status, "failed");
   // And the refused debit was reversed, so the balance is back where it was.
   assert.equal(await getBalance(WORKSPACE), 0);
+});
+
+test("a Coming soon workflow is refused before a run row or credit charge is created", async () => {
+  const blocked: WorkflowGraph = {
+    start: "trigger",
+    steps: {
+      trigger: { type: "manual_trigger_input", next: "report" },
+      report: { type: "app_action", toolkit: "metaads", tool: "METAADS_GET_INSIGHTS", next: null },
+    },
+  };
+  reset(blocked);
+
+  const claim = await claimRun({
+    admin: db,
+    workflowId: WORKFLOW,
+    workspaceId: WORKSPACE,
+    graph: blocked,
+    idempotencyKey: manualKey("coming-soon"),
+    mode: "enqueue",
+  });
+
+  assert.equal(claim.refused?.reason, "coming_soon");
+  assert.match(claim.error ?? "", /Meta Ads workflow actions are coming soon/i);
+  assert.equal(claim.runId, "");
+  assert.equal(db.table("workflow_runs").length, 0);
+  assert.equal(db.table("credit_ledger").filter((r) => r.reason === "workflow_run").length, 0);
+  assert.equal(await getBalance(WORKSPACE), 100);
+});
+
+test("a legacy queued Coming soon run is failed and refunded without driving its graph", async () => {
+  const blocked: WorkflowGraph = {
+    start: "trigger",
+    steps: {
+      trigger: { type: "manual_trigger_input", next: "report" },
+      report: { type: "app_action", toolkit: "metaads", tool: "METAADS_GET_INSIGHTS", next: null },
+    },
+  };
+  reset(blocked);
+  const runId = "legacy-queued-run";
+  db.seed("workflow_runs", {
+    id: runId,
+    workflow_id: WORKFLOW,
+    status: "queued",
+    idempotency_key: "legacy",
+    graph: blocked,
+    log: { v: 1, journal: [], context: { steps: {}, input: {}, runStartedAt: new Date().toISOString() } },
+  });
+  db.seed("credit_ledger", {
+    workspace_id: WORKSPACE,
+    delta: -RUN_COST,
+    reason: "workflow_run",
+    reference_id: WORKFLOW,
+    idem_key: `workflow_run:${runId}`,
+  });
+
+  const result = await driveRun(db, {
+    id: runId,
+    workflowId: WORKFLOW,
+    workspaceId: WORKSPACE,
+    graph: blocked,
+    log: { v: 1, journal: [], context: { steps: {}, input: {}, runStartedAt: new Date().toISOString() } },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.error ?? "", /Meta Ads workflow actions are coming soon/i);
+  assert.equal(db.table("workflow_runs")[0].status, "failed");
+  assert.equal(db.table("credit_ledger").filter((row) => row.reason === "refund").length, 1);
+  assert.equal(await getBalance(WORKSPACE), 100);
 });
 
 test("a queued run replays against the graph it was claimed with", async () => {
