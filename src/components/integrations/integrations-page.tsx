@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
@@ -487,8 +486,6 @@ export default function IntegrationsPage() {
     }
   }
 
-  const connectedChannels = CHANNELS.filter((c) => status[c.id] === "connected").length;
-
   function ChannelCard(ch: (typeof CHANNELS)[number]) {
     const state = status[ch.id];
     const method = channelMethod(ch.id, ch.managedAuth, ownApps, keyOffer);
@@ -579,16 +576,7 @@ export default function IntegrationsPage() {
     <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
         title="Integrations"
-        subtitle="Connect your channels and tools."
       />
-
-      <div className="flex items-center gap-2 rounded-control border border-brand-border bg-brand-subtle px-4 py-3 text-[13px] text-brand">
-        <Icon name="zap" size={16} />
-        <span>
-          Connected channels power your automations and let Automata publish on your behalf.
-          <span className="ml-1 font-semibold">{connectedChannels} of {CHANNELS.length} channels live.</span>
-        </span>
-      </div>
 
       {/* Connected + custom — what's already yours */}
       <section className="flex min-w-0 flex-col gap-3">
