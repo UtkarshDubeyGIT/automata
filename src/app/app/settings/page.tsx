@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Field, Input, Textarea, Select } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/tabs";
 import { Avatar } from "@/components/ui/avatar";
@@ -369,24 +370,17 @@ export default function SettingsPage() {
         <Card className="min-w-0 p-4 sm:p-6">
           <CardHeader
             title="Channel data"
-            subtitle="Account identifiers available to your connected workflows."
+            subtitle="Account IDs used by Google Ads and Google Analytics report workflows."
             icon={<Icon name="gauge" size={18} />}
           />
           <div className="mt-6 grid min-w-0 max-w-xl grid-cols-1 gap-4">
-            <Field
-              label="Meta ad account id" htmlFor="settings-metaAdAccountId"
-              hint="Found in Meta Ads Manager, e.g. act_1234567890 (the act_ prefix is optional)."
-            >
-              <Input
-                id="settings-metaAdAccountId" value={settings.metaAdAccountId}
-                disabled={loading || !!loadError}
-                placeholder="act_1234567890"
-                onChange={(e) => set("metaAdAccountId", e.target.value)}
-              />
-            </Field>
+            <div className="flex items-center justify-between rounded-lg border border-line px-4 py-3">
+              <span className="text-[14px] font-medium text-ink">Meta Ads</span>
+              <Badge tone="warning">Coming soon</Badge>
+            </div>
             <Field
               label="Google Ads customer id" htmlFor="settings-googleAdsCustomerId"
-              hint="The 10-digit id at the top of your Google Ads account. Only needed if you manage more than one."
+              hint="Enter the 10-digit ID for the account report workflows should use, or set it on the workflow step."
             >
               <Input
                 id="settings-googleAdsCustomerId" value={settings.googleAdsCustomerId}
@@ -397,7 +391,7 @@ export default function SettingsPage() {
             </Field>
             <Field
               label="Google Analytics property id" htmlFor="settings-ga4PropertyId"
-              hint="Admin → Property settings, e.g. 123456789. Only needed if your Google account has more than one property."
+              hint="Find this under Admin → Property settings. You can also set the property ID on the workflow step."
             >
               <Input
                 id="settings-ga4PropertyId" value={settings.ga4PropertyId}
@@ -406,25 +400,11 @@ export default function SettingsPage() {
                 onChange={(e) => set("ga4PropertyId", e.target.value)}
               />
             </Field>
-            <Field
-              label="LinkedIn organization id" htmlFor="settings-linkedinOrganizationId"
-              hint="The numeric organization id from your LinkedIn company page URL. Required to sync company followers."
-            >
-              <Input
-                id="settings-linkedinOrganizationId" value={settings.linkedinOrganizationId}
-                disabled={loading || !!loadError}
-                inputMode="numeric"
-                placeholder="123456789"
-                onChange={(e) => set("linkedinOrganizationId", e.target.value)}
-              />
-            </Field>
           </div>
-          {/* Only Meta's id is mandatory. The other two are tie-breakers: both
-              APIs CAN list what the login can reach, but an agency login
-              reaches other people's businesses, so we ask rather than pick. */}
           <p className="mt-4 flex max-w-xl items-start gap-2 text-[12.5px] leading-relaxed text-ink-subtle">
             <Icon name="info" size={14} className="mt-0.5 flex-none" />
-            These identifiers select the account your automations should use. Connect the corresponding app in Integrations to authorize access.
+            These IDs prefill report workflows when an ID is left blank on the workflow step. Connect Google Ads
+            and Google Analytics in Integrations to authorize access.
           </p>
           <div className="mt-6">
             <Button
@@ -432,10 +412,8 @@ export default function SettingsPage() {
               disabled={loading || !!loadError}
               onClick={() =>
                 save([
-                  "metaAdAccountId",
                   "googleAdsCustomerId",
                   "ga4PropertyId",
-                  "linkedinOrganizationId",
                 ])
               }
             >
