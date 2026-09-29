@@ -27,7 +27,14 @@ export async function generateConversationTitle(prompt: string): Promise<string>
       },
       { role: "user", content: prompt.slice(0, 1600) },
     ],
-    { model: env.openaiTitleModel, maxTokens: 32, temperature: 0.2, timeoutMs: 8_000, maxRetries: 0 },
+    {
+      model: env.openaiTitleModel,
+      maxTokens: 32,
+      temperature: 0.2,
+      timeoutMs: 8_000,
+      maxRetries: 0,
+      reasoningEffort: "minimal",
+    },
   );
 
   return normalizeConversationTitle(title) || fallbackConversationTitle(prompt);
@@ -56,6 +63,7 @@ export async function chat(
     json?: boolean;
     model?: string;
     maxRetries?: number;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high";
     /**
      * Per-request ceiling. The SDK's default is ten minutes, which is fine for
      * a user waiting on a page and wrong for anything running inside a claimed
@@ -92,7 +100,7 @@ export async function chat(
           // effort low for these extraction/generation tasks (quality comes from
           // the prompt + research, not deep reasoning) and add token headroom.
           max_completion_tokens: maxTokens + 1024,
-          reasoning_effort: "low" as const,
+          reasoning_effort: opts?.reasoningEffort ?? "low",
         }
       : { max_tokens: maxTokens, temperature: opts?.temperature ?? 0.8 }),
   }, opts ? { timeout: opts.timeoutMs, maxRetries: opts.maxRetries } : undefined);
