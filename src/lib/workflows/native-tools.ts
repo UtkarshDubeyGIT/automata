@@ -199,7 +199,7 @@ export async function executeNativeTool(
 
     case "GOOGLEBUSINESS_GET_REVIEWS": {
       const limit = Number(args.limit ?? args.page_size ?? 20);
-      const res = await listReviews(workspaceId, Number.isFinite(limit) ? limit : 20);
+      const res = await listReviews(workspaceId, Number.isFinite(limit) ? limit : 20, String(args.location ?? "") || undefined);
       if ("error" in res) return failure(res.error);
       const reviews = toRecords(res.reviews);
       return {
@@ -222,7 +222,7 @@ export async function executeNativeTool(
       const reviewId = String(args.review_id ?? args.reviewId ?? "").trim();
       const comment = String(args.comment ?? args.reply ?? args.text ?? "").trim();
       if (!reviewId) return failure("review_id is required to reply to a review.");
-      const res = await replyToReview(workspaceId, reviewId, comment);
+      const res = await replyToReview(workspaceId, reviewId, comment, String(args.location ?? "") || undefined);
       if ("error" in res) return failure(res.error);
       return { successful: true, data: { review_id: reviewId, replied: true } };
     }

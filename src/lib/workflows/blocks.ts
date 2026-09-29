@@ -207,23 +207,11 @@ export const NODE_TYPES: Record<StepType, NodeTypeSpec> = {
     trigger: true,
     purpose:
       "The manual start of the workflow — the user runs it on demand. Use when no app event fits.",
-    config: { fields: "list of input field names the user provides at run time" },
+    config: {},
     routing: ["next"],
     defaults: { fields: [] },
-    fields: [
-      ...TITLE_FIELDS,
-      {
-        key: "fields",
-        label: "Input fields",
-        kind: "list",
-        hint: "Optional extras collected at run time. Steps read them as {{steps.<id>.input.<field>}}.",
-        placeholder: "topic",
-      },
-    ],
-    summary: (s) => {
-      const fields = Array.isArray(s.fields) ? (s.fields as string[]) : [];
-      return fields.length ? `Collects: ${fields.join(", ")}` : "Starts when you press Run";
-    },
+    fields: TITLE_FIELDS,
+    summary: () => "Starts when you press Run",
     outputs: (s) => {
       const fields = Array.isArray(s.fields) ? (s.fields as string[]) : [];
       return fields.map((f) => ({ path: `input.${f}`, label: f }));

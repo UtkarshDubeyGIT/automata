@@ -36,6 +36,9 @@ import type { StepDef, WorkflowGraph } from "@/lib/workflows/types";
 import { StepTile } from "./canvas";
 import { WhatsAppNodeStatus } from "./whatsapp-node-status";
 import { comingSoonForStep } from "@/lib/workflows/availability";
+import { actionResourceEntries, triggerResource } from "@/lib/workflows/resources";
+import { ResourcePicker } from "./resource-picker";
+import { argumentOptions, optionalChoiceKeys, type ArgumentOption } from "@/lib/workflows/argument-options";
 
 /**
  * Step inspector — the right-hand panel of the visual builder.
@@ -160,7 +163,21 @@ export function Inspector(props: InspectorProps) {
                   ? [<GithubRepoField key="github-repo" step={step} onPatch={props.onPatch} />]
                   : [];
               }
-              const toolSpec = step.type === "app_action" ? getTool(String(step.tool ?? "")) : undefined;
+              const watchResource = step.type === "app_event_trigger"
+                ? triggerResource(String(step.event ?? ""), f.key)
+                : undefined;
+              if (watchResource) {
+                return [<ResourcePicker
+                  key={f.key}
+                  binding={watchResource}
+                  label={f.label}
+                  value={String(step[f.key] ?? "")}
+                  required={f.required}
+                  parent={watchResource.kind === "linear_project" ? String(step.watch_team_id ?? "") : ""}
+                  onChange={(value) => props.onPatch({ [f.key]: value })}
+                />];
+              }
+              const toolSpec = step.type === "app_action" ? getTool(String(step.tool ?? ""), step.tool_spec) : undefined;
               const hasRepoArgs = isGithub && (
                 step.type === "app_event_trigger" ||
                 (toolSpec ? (toolSpec.required.includes("owner") || toolSpec.required.includes("repo") || toolSpec.argHint.includes('"owner"') || toolSpec.argHint.includes('"repo"')) : false)
@@ -191,6 +208,9 @@ export function Inspector(props: InspectorProps) {
                 ...(hasRepoArgs ? GITHUB_REPO_ARGS : []),
                 ...googleSheetKeys,
                 ...(hasVikunjaProject ? ["project_id"] : []),
+                ...(toolSpec?.required ?? []),
+                ...actionResourceEntries(String(step.tool ?? ""), toolSpec, (step.arguments as Record<string, unknown>) ?? {}).map(([key]) => key),
+                ...(toolSpec ? optionalChoiceKeys(toolSpec) : []),
               ];
               const field =
                 f.kind === "cases" ? (
@@ -198,14 +218,47 @@ export function Inspector(props: InspectorProps) {
                 ) : f.kind === "schedule" ? (
                   <ScheduleField key={f.key} step={step} onPatch={props.onPatch} />
                 ) : step.type === "app_action" && f.key === "arguments" ? (
-                  <ActionArgumentsField
-                    key={f.key}
-                    graph={graph}
-                    stepId={stepId}
-                    step={step}
-                    hiddenKeys={hiddenKeys}
-                    onChange={(arguments_) => props.onPatch({ arguments: arguments_ })}
-                  />
+                  <div key={f.key} className="flex flex-col gap-4">
+                    <ActionArgumentsField
+                      graph={graph}
+                      stepId={stepId}
+                      step={step}
+                      hiddenKeys={[
+                        ...(hasRepoArgs ? GITHUB_REPO_ARGS : []),
+                        ...googleSheetKeys,
+                        ...(hasVikunjaProject ? ["project_id"] : []),
+                      ]}
+                      onChange={(arguments_) => props.onPatch({ arguments: arguments_ })}
+                    />
+                    <details className="rounded-card border border-line p-3">
+                      <summary className="cursor-pointer text-[12.5px] font-medium text-ink-muted">Advanced parameters</summary>
+                      <div className="pt-3">
+                        {toolSpec && optionalChoiceKeys(toolSpec).map((key) => <ArgumentChoiceField
+                          key={key}
+                          argumentKey={key}
+                          value={((step.arguments as Record<string, unknown>) ?? {})[key]}
+                          options={argumentOptions(toolSpec, key)}
+                          choices={dataChoices(graph, stepId)}
+                          onChange={(next) => props.onPatch({ arguments: { ...((step.arguments as Record<string, unknown>) ?? {}), [key]: next } })}
+                        />)}
+                        <StepField
+                          field={f}
+                          graph={graph}
+                          stepId={stepId}
+                          value={step.arguments}
+                          hiddenKeys={hiddenKeys}
+                          onChange={(arguments_) => props.onPatch({ arguments: arguments_ })}
+                        />
+                      </div>
+                    </details>
+                  </div>
+                ) : step.type === "social_post" && f.key === "options" ? (
+                  String(step.platform) === "reddit"
+                    ? <RedditPostOptions key={f.key} graph={graph} stepId={stepId} step={step} onPatch={props.onPatch} />
+                    : <details key={f.key} className="rounded-card border border-line p-3">
+                        <summary className="cursor-pointer text-[12.5px] font-medium text-ink-muted">Advanced options</summary>
+                        <div className="pt-3"><StepField field={f} graph={graph} stepId={stepId} value={step.options} onChange={(value) => props.onPatch({ options: value })} /></div>
+                      </details>
                 ) : (
                   <StepField
                     key={f.key}
@@ -1104,49 +1157,40 @@ interface SlackUserOption {
   isBot?: boolean;
 }
 
-interface SlackChannelOption {
-  id: string;
-  name: string;
-  private?: boolean;
-}
-
 function SlackChannelField({ step, onPatch }: { step: StepDef; onPatch: (patch: Record<string, unknown>) => void }) {
-  const [channels, setChannels] = useState<SlackChannelOption[] | null>(null);
-  const [failed, setFailed] = useState(false);
   const options = (step.options as Record<string, unknown>) ?? {};
-  const selected = String(options.channel ?? "");
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/integrations/slack/channels")
-      .then(async (res) => {
-        if (!res.ok) throw new Error();
-        return res.json() as Promise<{ channels?: SlackChannelOption[] }>;
-      })
-      .then((data) => alive && setChannels(data.channels ?? []))
-      .catch(() => alive && setFailed(true));
-    return () => { alive = false; };
-  }, []);
-
   return (
-    <Field label={<span>Channel <span className="text-[11px] font-normal text-ink-subtle">required</span></span>}
-      hint="Private channels appear only when the Slack app has access."
-      error={failed ? "Couldn't load Slack channels. Reconnect Slack and try again." : undefined}>
-      <Select value={selected} onChange={(event) => {
-        const next: Record<string, unknown> = { ...options, channel: event.target.value };
+    <ResourcePicker
+      binding={{ kind: "slack_channel" }}
+      label="Channel"
+      required
+      value={String(options.channel ?? "")}
+      onChange={(value) => {
+        const next: Record<string, unknown> = { ...options, channel: value };
         delete next.dmUser;
         delete next.dm_user;
         onPatch({ options: next });
-      }}>
-        <option value="">{channels ? "Choose a channel…" : "Loading channels…"}</option>
-        {(channels ?? []).map((channel) => (
-          <option key={channel.id} value={channel.id}>
-            {channel.private ? "Private: " : "#"}{channel.name}
-          </option>
-        ))}
-      </Select>
-    </Field>
+      }}
+    />
   );
+}
+
+function RedditPostOptions({ graph, stepId, step, onPatch }: {
+  graph: WorkflowGraph;
+  stepId: string;
+  step: StepDef;
+  onPatch: (patch: Record<string, unknown>) => void;
+}) {
+  const options = (step.options as Record<string, unknown>) ?? {};
+  const write = (key: string, value: string) => onPatch({ options: { ...options, [key]: value } });
+  return <div className="flex flex-col gap-3">
+    <Field label="Community" hint="The subreddit to post in.">
+      <Input value={String(options.subreddit ?? "")} placeholder="For example: smallbusiness" onChange={(event) => write("subreddit", event.target.value)} />
+    </Field>
+    <Field label="Post title">
+      <TemplateInput graph={graph} stepId={stepId} templated value={String(options.title ?? "")} placeholder="Give this post a title" onChange={(value) => write("title", value)} />
+    </Field>
+  </div>;
 }
 
 export function SlackDmField({
@@ -1211,7 +1255,8 @@ export function SlackDmField({
     setFailed(false);
     try {
       const res = await fetch("/api/integrations/slack/users");
-      const data = (await res.json()) as { users?: SlackUserOption[] };
+      const data = (await res.json()) as { users?: SlackUserOption[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Could not load Slack users.");
       setUsers(data.users ?? []);
     } catch {
       setFailed(true);
@@ -1345,6 +1390,10 @@ export function SlackDmField({
           </div>
         )}
       </div>
+      {failed && <div className="flex gap-3 text-[12px] font-medium text-brand">
+        <button type="button" onClick={() => void toggle()}>Retry</button>
+        <a href="/app/integrations?q=slack">Connect Slack</a>
+      </div>}
     </Field>
   );
 }
@@ -1479,7 +1528,8 @@ function GithubRepoField({
     setFailed(false);
     try {
       const res = await fetch("/api/integrations/github/repos");
-      const data = (await res.json()) as { repos?: GithubRepoOption[] };
+      const data = (await res.json()) as { repos?: GithubRepoOption[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Could not load GitHub repositories.");
       setRepos(data.repos ?? []);
     } catch {
       setFailed(true);
@@ -1600,6 +1650,10 @@ function GithubRepoField({
           </div>
         )}
       </div>
+      {failed && <div className="flex gap-3 text-[12px] font-medium text-brand">
+        <button type="button" onClick={() => void toggle()}>Retry</button>
+        <a href="/app/integrations?q=github">Connect GitHub</a>
+      </div>}
     </Field>
   );
 }
@@ -1643,6 +1697,7 @@ function GoogleSheetsDestinationField({
   const [spreadsheets, setSpreadsheets] = useState<GoogleSpreadsheetOption[] | null>(null);
   const [sheetResult, setSheetResult] = useState<{ spreadsheetId: string; items: GoogleSheetOption[] } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [retrySheets, setRetrySheets] = useState(0);
   const sheets = sheetResult?.spreadsheetId === spreadsheetId ? sheetResult.items : null;
   const loadingSpreadsheets = spreadsheets === null;
   const loadingSheets = !!spreadsheetId && needsSheet && sheets === null;
@@ -1666,7 +1721,7 @@ function GoogleSheetsDestinationField({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [retrySheets]);
 
   useEffect(() => {
     if (!spreadsheetId || !needsSheet) return;
@@ -1688,7 +1743,7 @@ function GoogleSheetsDestinationField({
     return () => {
       alive = false;
     };
-  }, [needsSheet, spreadsheetId]);
+  }, [needsSheet, spreadsheetId, retrySheets]);
 
   function write(next: Record<string, unknown>) {
     onPatch({ arguments: { ...args, ...next } });
@@ -1720,29 +1775,28 @@ function GoogleSheetsDestinationField({
       </div>
 
       <div className="flex flex-col gap-3">
-        <Field label="Spreadsheet" error={failed ? "Couldn't load Google Sheets. You can enter the ID below." : undefined}>
+        <Field label="Spreadsheet" error={failed ? "Couldn't load Google Sheets." : undefined}>
           {loadingSpreadsheets ? (
             <div className="flex h-10 items-center gap-2 rounded-control border border-line bg-card px-3.5 text-[13px] text-ink-subtle">
               <Icon name="refresh" size={14} className="animate-spin" /> Loading spreadsheets…
             </div>
-          ) : hasSpreadsheetChoices ? (
+          ) : (
             <Select value={spreadsheetId} onChange={(event) => chooseSpreadsheet(event.target.value)}>
               <option value="">Choose a spreadsheet…</option>
               {spreadsheetId && !spreadsheets?.some((item) => item.id === spreadsheetId) && (
-                <option value={spreadsheetId}>Current spreadsheet</option>
+                <option value={spreadsheetId}>Saved spreadsheet unavailable</option>
               )}
               {spreadsheets?.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
             </Select>
-          ) : (
-            <Input
-              value={spreadsheetId}
-              placeholder="Paste the spreadsheet ID"
-              onChange={(event) => chooseSpreadsheet(event.target.value)}
-            />
           )}
         </Field>
+        {failed && <div className="flex gap-3 text-[12px] font-medium text-brand">
+          <button type="button" onClick={() => { setFailed(false); setSpreadsheets(null); setSheetResult(null); setRetrySheets((n) => n + 1); }}>Retry</button>
+          <a href="/app/integrations?q=googlesheets">Connect Google Sheets</a>
+        </div>}
+        {!loadingSpreadsheets && !failed && !hasSpreadsheetChoices && <p className="text-[12px] text-ink-subtle">No spreadsheets found in this account.</p>}
 
         {needsSheet && spreadsheetId && (
           <Field label="Sheet">
@@ -1750,25 +1804,20 @@ function GoogleSheetsDestinationField({
               <div className="flex h-10 items-center gap-2 rounded-control border border-line bg-card px-3.5 text-[13px] text-ink-subtle">
                 <Icon name="refresh" size={14} className="animate-spin" /> Loading sheets…
               </div>
-            ) : hasSheetChoices ? (
+            ) : (
               <Select value={selectedSheet} onChange={(event) => chooseSheet(event.target.value)}>
                 <option value="">Choose a sheet…</option>
                 {selectedSheet && !sheets?.some((item) => item.title === selectedSheet) && (
-                  <option value={selectedSheet}>{selectedSheet}</option>
+                  <option value={selectedSheet}>Saved sheet unavailable: {selectedSheet}</option>
                 )}
                 {sheets?.map((item) => (
                   <option key={item.id} value={item.title}>{item.title}</option>
                 ))}
               </Select>
-            ) : (
-              <Input
-                value={selectedSheet}
-                placeholder="Enter the sheet name"
-                onChange={(event) => chooseSheet(event.target.value)}
-              />
             )}
           </Field>
         )}
+        {needsSheet && spreadsheetId && !loadingSheets && !failed && !hasSheetChoices && <p className="text-[12px] text-ink-subtle">No sheets found in this spreadsheet.</p>}
       </div>
     </div>
   );
@@ -1997,6 +2046,7 @@ function VikunjaProjectField({
   const [projects, setProjects] = useState<Array<{ id: number; title: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [retryProjects, setRetryProjects] = useState(0);
   const arguments_ = (step.arguments as Record<string, unknown>) ?? {};
   const selected = String(arguments_.project_id ?? "");
 
@@ -2015,7 +2065,7 @@ function VikunjaProjectField({
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [retryProjects]);
 
   return (
     <Field label="Vikunja project" hint={error || "Choose the fixed project where this automation creates tasks."}>
@@ -2027,9 +2077,13 @@ function VikunjaProjectField({
         })}
       >
         <option value="">{loading ? "Loading Vikunja projects…" : "Choose a Vikunja project"}</option>
+        {selected && !projects.some((project) => String(project.id) === selected) && <option value={selected}>Saved project unavailable</option>}
         {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
       </Select>
-      {error ? <a href="/app/integrations?q=vikunja" className="text-[12px] font-medium text-brand hover:underline">Connect Vikunja</a> : null}
+      {error && <div className="flex gap-3 text-[12px] font-medium text-brand">
+        <button type="button" onClick={() => { setError(""); setLoading(true); setRetryProjects((n) => n + 1); }}>Retry</button>
+        <a href="/app/integrations?q=vikunja">Connect Vikunja</a>
+      </div>}
     </Field>
   );
 }
@@ -2052,8 +2106,10 @@ function ActionArgumentsField({
   const value = (step.arguments as Record<string, unknown>) ?? {};
   if (!tool) return null;
   const examples = argumentExamples(tool.argHint);
-  const required = tool.required.filter((key) => !hiddenKeys.includes(key));
-  if (required.length === 0) return null;
+  const resources = actionResourceEntries(String(step.tool ?? ""), tool, value).filter(([key]) => !hiddenKeys.includes(key));
+  const resourceKeys = new Set(resources.map(([key]) => key));
+  const required = tool.required.filter((key) => !hiddenKeys.includes(key) && !resourceKeys.has(key));
+  if (required.length === 0 && resources.length === 0) return null;
   const choices = dataChoices(graph, stepId);
 
   function setArgument(key: string, next: unknown) {
@@ -2066,6 +2122,15 @@ function ActionArgumentsField({
         <div className="text-[13px] font-semibold text-ink">What should this action use?</div>
         <div className="mt-0.5 text-[11.5px] text-ink-subtle">Choose existing workflow data whenever it is available.</div>
       </div>
+      {resources.map(([key, binding]) => <ResourcePicker
+        key={key}
+        binding={binding}
+        label={humanArgumentLabel(key)}
+        value={String(value[key] ?? "")}
+        required={tool.required.includes(key)}
+        workflowChoices={choices.map((choice) => ({ value: choice.ref, label: `${choice.step} — ${choice.label}` }))}
+        onChange={(next) => setArgument(key, next)}
+      />)}
       {required.map((key) =>
         tool.app === "googlesheets" && key === "values" ? (
           <SheetValuesField
@@ -2080,6 +2145,7 @@ function ActionArgumentsField({
             argumentKey={key}
             value={value[key]}
             example={examples[key]}
+            options={argumentOptions(tool, key)}
             choices={choices}
             onChange={(next) => setArgument(key, next)}
           />
@@ -2089,16 +2155,50 @@ function ActionArgumentsField({
   );
 }
 
+function ArgumentChoiceField({
+  argumentKey,
+  value,
+  options,
+  choices,
+  onChange,
+}: {
+  argumentKey: string;
+  value: unknown;
+  options: ArgumentOption[];
+  choices: DataChoice[];
+  onChange: (value: unknown) => void;
+}) {
+  const selected = value === undefined || value === null ? "" : String(value);
+  const known = options.some((option) => String(option.value) === selected) || choices.some((choice) => choice.ref === selected);
+  return <Field label={humanArgumentLabel(argumentKey)}>
+    <Select value={selected} onChange={(event) => {
+      const next = event.target.value;
+      if (!next) { onChange(undefined); return; }
+      const literal = options.find((option) => String(option.value) === next);
+      onChange(literal ? literal.value : next);
+    }}>
+      <option value="">Choose…</option>
+      {selected && !known && <option value={selected}>Saved value: {selected}</option>}
+      {options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}
+      {choices.length > 0 && <optgroup label="From earlier step">
+        {choices.map((choice) => <option key={choice.ref} value={choice.ref}>{choice.step} — {choice.label}</option>)}
+      </optgroup>}
+    </Select>
+  </Field>;
+}
+
 function ArgumentValueField({
   argumentKey,
   value,
   example,
+  options,
   choices,
   onChange,
 }: {
   argumentKey: string;
   value: unknown;
   example: unknown;
+  options: ArgumentOption[];
   choices: DataChoice[];
   onChange: (value: unknown) => void;
 }) {
@@ -2115,6 +2215,8 @@ function ArgumentValueField({
       : isEmail
         ? "name@company.com"
         : `Enter ${label.toLowerCase()}`;
+
+  if (options.length > 0) return <ArgumentChoiceField argumentKey={argumentKey} value={value} options={options} choices={choices} onChange={onChange} />;
 
   if (typeof example === "boolean" && usefulChoices.length === 0) {
     return (

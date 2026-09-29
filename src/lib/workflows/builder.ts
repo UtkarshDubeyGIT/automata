@@ -191,10 +191,10 @@ RULES:
    - otherwise "manual_trigger_input".
    Give the trigger a natural title like "New Google Review" or "Every Monday 9am".
    For app_event_trigger, steps reference the event via {{steps.<trigger_id>.event.<field>}}
-   (only the listed event fields). For manual_trigger_input, runs may start with EMPTY
+   (only the listed event fields). For manual_trigger_input, runs start with EMPTY
    input, so ai_step instructions must be self-sufficient — bake the concrete
-   topic/details from the user's request into the instruction text itself. NEVER make
-   an instruction depend on a manual input field being filled (fields are optional extras).
+   topic/details from the user's request into the instruction text itself. NEVER create
+   manual input fields or make an instruction depend on one being filled.
 3f. SCHEDULES: SET WHAT WAS ASKED FOR, NEVER SOMETHING NEARBY. schedule_trigger
    has cadence, every, weekdays, hour and start, and between them they cover
    every time-defined routine. Map the request like this:
@@ -814,12 +814,12 @@ function fallbackGraph(): WorkflowGraph {
   return {
     start: "start",
     steps: {
-      start: { type: "manual_trigger_input", title: "Run manually", stage: "Trigger", fields: ["text"], next: "process" },
+      start: { type: "manual_trigger_input", title: "Run manually", stage: "Trigger", fields: [], next: "process" },
       process: {
         type: "ai_step",
-        title: "Summarize the input",
+        title: "Write a status update",
         stage: "Process",
-        instruction: "Summarize the input text in one sentence.",
+        instruction: "Write a short, friendly one-sentence status update saying this workflow ran successfully.",
         output: "text",
         next: "review",
       },

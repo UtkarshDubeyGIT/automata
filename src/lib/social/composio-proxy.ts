@@ -56,19 +56,33 @@ export async function connectedAccountId(
   toolkit: string,
   fetcher: typeof fetch = fetch,
 ): Promise<string | null> {
+  return (await connectedAccountIds(entityId, toolkit, fetcher))[0] ?? null;
+}
+
+/** Active accounts are enumerated so a picker can refuse ambiguous connections. */
+export async function connectedAccountIds(
+  entityId: string,
+  toolkit: string,
+  fetcher: typeof fetch = fetch,
+  strict = false,
+): Promise<string[]> {
   const qs = new URLSearchParams({ user_ids: entityId, limit: "100" });
   const res = await fetcher(`${COMPOSIO_V3}/connected_accounts?${qs}`, {
     headers: { "x-api-key": env.composioKey },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    if (strict) throw new Error(`Could not check the ${toolkit} connection.`);
+    return [];
+  }
 
   const body = (await res.json().catch(() => ({}))) as {
     items?: { id?: string; status?: string; toolkit?: { slug?: string } }[];
   };
-  const active = (body.items ?? []).find(
+  if (strict && !Array.isArray(body.items)) throw new Error(`Could not read the ${toolkit} connection list.`);
+  const active = (body.items ?? []).filter(
     (account) => account.status === "ACTIVE" && account.toolkit?.slug === toolkit,
   );
-  return active?.id ?? null;
+  return active.flatMap((account) => account.id ? [account.id] : []);
 }
 
 export interface ProxyRequest {

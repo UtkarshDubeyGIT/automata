@@ -46,7 +46,8 @@ test("inspector exposes Slack channel configuration and variable-enabled message
   assert.match(inspector, /function SlackDmField/);
   assert.match(inspector, /function SlackStepFields/);
   assert.match(inspector, /function SlackChannelField/);
-  assert.match(inspector, /\/api\/integrations\/slack\/channels/);
+  assert.match(inspector, /ResourcePicker/);
+  assert.match(inspector, /kind: "slack_channel"/);
   assert.match(inspector, /<TemplateInput/);
   assert.match(inspector, /Message/);
 });

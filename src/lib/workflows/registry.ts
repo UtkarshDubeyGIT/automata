@@ -315,6 +315,8 @@ export const TRIGGERS: Record<string, TriggerSpec> = {
     // Composio-backed triggers there is no real-time path to fall back from.
     // The tool is ours (`native-tools.ts`), not Composio's.
     pollTool: "GOOGLEBUSINESS_GET_REVIEWS",
+    watch: [{ key: "location", label: "Business location", hint: "Choose which connected location to watch." }],
+    pollArgs: (watch) => ({ ...(watch.location ? { location: watch.location } : {}), limit: 20 }),
     event: {
       review_id: "unique id of the review",
       reviewer: "display name of the customer",
@@ -649,7 +651,7 @@ export const TRIGGERS: Record<string, TriggerSpec> = {
         placeholder: "project id",
       },
     ],
-    pollArgs: (w) => ({ first: 20, ...(w.project_id ? { project_id: w.project_id } : {}) }),
+    pollArgs: (w) => ({ first: 20, ...(w.team_id ? { team_id: w.team_id } : {}), ...(w.project_id ? { project_id: w.project_id } : {}) }),
     mapRecord: (rec) => {
       const state = (rec.state ?? {}) as Record<string, unknown>;
       return {

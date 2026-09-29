@@ -392,6 +392,59 @@ export type BusinessProfileState =
   /** `detail` carries Google's own words when it said something useful. */
   | { ok: false; reason: BusinessProfileFailure; detail?: string };
 
+export interface BusinessLocation {
+  name: string;
+  title: string;
+  account: string;
+}
+
+/** Every accessible listing, rather than the first one stored at connect time. */
+export async function businessLocations(workspaceId: string): Promise<BusinessLocation[]> {
+  if (!businessProfileConfigured) throw new Error("Google Business Profile is not set up on this deployment yet.");
+  const tokens = await readCredential<StoredTokens>(workspaceId, PROVIDER);
+  if (!tokens?.refreshToken) throw new Error("Connect Google Business Profile to choose a location.");
+  const token = await accessTokenFor(workspaceId, tokens);
+  if (!token) throw new Error("Reconnect Google Business Profile to choose a location.");
+
+  const accounts: string[] = [];
+  let accountPage = "";
+  do {
+    const url = accountPage ? `${ACCOUNTS}/accounts?pageToken=${encodeURIComponent(accountPage)}` : `${ACCOUNTS}/accounts`;
+    const body = await call<{ accounts?: { name?: string }[]; nextPageToken?: string }>(token, url);
+    accounts.push(...(body.accounts ?? []).map((account) => account.name ?? "").filter(Boolean));
+    accountPage = body.nextPageToken ?? "";
+    if (accounts.length > 500) throw new Error("Too many business accounts to list safely.");
+  } while (accountPage);
+
+  const found: BusinessLocation[] = [];
+  for (const account of accounts) {
+    let locationPage = "";
+    do {
+      const url = new URL(`${INFORMATION}/${account}/locations`);
+      url.searchParams.set("readMask", "name,title");
+      url.searchParams.set("pageSize", "100");
+      if (locationPage) url.searchParams.set("pageToken", locationPage);
+      const body = await call<{ locations?: { name?: string; title?: string }[]; nextPageToken?: string }>(token, url.toString());
+      found.push(...(body.locations ?? []).flatMap((location) =>
+        location.name ? [{ name: location.name, title: location.title ?? location.name, account }] : []));
+      locationPage = body.nextPageToken ?? "";
+      if (found.length > 5000) throw new Error("Too many business locations to list safely.");
+    } while (locationPage);
+  }
+  return found;
+}
+
+async function resolveSelectedState(workspaceId: string, selected?: string): Promise<BusinessProfileState> {
+  if (!selected) return resolveState(workspaceId);
+  const locations = await businessLocations(workspaceId);
+  const match = locations.find((location) => location.name === selected);
+  if (!match) throw new Error("The selected Google Business Profile location is not accessible to this workspace.");
+  const tokens = await readCredential<StoredTokens>(workspaceId, PROVIDER);
+  const token = tokens ? await accessTokenFor(workspaceId, tokens) : null;
+  if (!token) return { ok: false, reason: "expired" };
+  return { ok: true, token, account: match.account, location: match.name };
+}
+
 /**
  * Everything one call needs, resolved once.
  *
@@ -443,8 +496,9 @@ export async function resolveState(workspaceId: string): Promise<BusinessProfile
 export async function listReviews(
   workspaceId: string,
   limit = 20,
+  location?: string,
 ): Promise<{ reviews: BusinessReview[] } | { error: string }> {
-  const state = await resolveState(workspaceId);
+  const state = await resolveSelectedState(workspaceId, location);
   if (!state.ok) return { error: stateMessage(state.reason, state.detail) };
 
   const body = await call<{ reviews?: RawReview[] }>(
@@ -465,8 +519,9 @@ export async function replyToReview(
   workspaceId: string,
   reviewId: string,
   comment: string,
+  location?: string,
 ): Promise<{ ok: true } | { error: string }> {
-  const state = await resolveState(workspaceId);
+  const state = await resolveSelectedState(workspaceId, location);
   if (!state.ok) return { error: stateMessage(state.reason, state.detail) };
 
   const text = comment.trim();
@@ -532,11 +587,8 @@ export async function runPerformanceReport(
   workspaceId: string,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const state = await resolveState(workspaceId);
+  const state = await resolveSelectedState(workspaceId, String(args.location ?? "") || undefined);
   if (!state.ok) return { complete: false, error: stateMessage(state.reason, state.detail) };
-  if (args.location && String(args.location) !== state.location) {
-    throw new Error("The selected Google Business Profile location is not connected to this workspace.");
-  }
   const timeZone = reportScheduleTimeZone(args.time_zone);
   const referenceAt = reportReferenceDate(args.reference_at);
   const range = args.start_date && args.end_date

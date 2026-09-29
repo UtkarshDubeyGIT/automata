@@ -1032,22 +1032,30 @@ export interface CompanyPage {
  * `r_organization_admin` scope — a member connected through Composio's shared
  * app has no page access at all, and that is a normal state, not an error.
  */
-export async function linkedinCompanyPages(entityId: string): Promise<CompanyPage[]> {
-  if (!composioConfigured) return [];
+export async function linkedinCompanyPages(entityId: string, strict = false): Promise<CompanyPage[]> {
+  if (!composioConfigured) {
+    if (strict) throw new Error("LinkedIn is not configured.");
+    return [];
+  }
   try {
     const res = await execute("LINKEDIN_GET_COMPANY_INFO", entityId, {
       role: "ADMINISTRATOR",
       state: "APPROVED",
     });
-    if (!res.successful) return [];
-    const elements = (res.data as { elements?: unknown[] } | undefined)?.elements ?? [];
-    return elements.flatMap((el) => {
-      const row = el as { organization?: string; organizationalTarget?: string };
+    if (!res.successful) {
+      if (strict) throw new Error(res.error || "Could not list LinkedIn pages.");
+      return [];
+    }
+    const elements = (res.data as { elements?: unknown[] } | undefined)?.elements;
+    if (strict && !Array.isArray(elements)) throw new Error("LinkedIn returned an unreadable organization list.");
+    return (elements ?? []).flatMap((el) => {
+      const row = el as { organization?: string; organizationalTarget?: string; localizedName?: string; organizationName?: string };
       const urn = row.organization ?? row.organizationalTarget;
       const id = urn?.split(":").pop();
-      return id ? [{ id, name: id }] : [];
+      return id ? [{ id, name: row.localizedName ?? row.organizationName ?? id }] : [];
     });
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -1112,13 +1120,16 @@ async function resolveGithubRepoListTool(): Promise<string | null> {
  * editor's picker degrades to the plain owner/repo text fields it sits above,
  * it never blocks on this.
  */
-export async function githubRepositories(entityId: string): Promise<GithubRepo[]> {
-  if (!composioConfigured) return [];
+export async function githubRepositories(entityId: string, strict = false): Promise<GithubRepo[]> {
+  if (!composioConfigured) {
+    if (strict) throw new Error("Connect GitHub to choose a repository.");
+    return [];
+  }
   try {
     const slug = await resolveGithubRepoListTool();
-    if (!slug) return [];
+    if (!slug) throw new Error("Could not find GitHub's repository listing action.");
     const res = await execute(slug, entityId, { per_page: 100, sort: "updated" }, { retries: 1 });
-    if (!res.successful) return [];
+    if (!res.successful) throw new Error(res.error || "Could not load GitHub repositories.");
     // Live shape is `{ repositories, has_more_pages }`; `items` and a bare array
     // are the other forms this endpoint has returned. Accept all three.
     const data = res.data as { items?: unknown[]; repositories?: unknown[] } | unknown[] | undefined;
@@ -1141,7 +1152,8 @@ export async function githubRepositories(entityId: string): Promise<GithubRepo[]
       if (!owner || !name) return [];
         return [{ fullName: r.full_name ?? `${owner}/${name}`, owner, name, private: !!r.private }];
     });
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -1206,15 +1218,19 @@ async function resolveGoogleSheetsResourceTool(kind: "list" | "get"): Promise<st
 }
 
 /** Spreadsheets visible to the connected Google Sheets account. */
-export async function googleSpreadsheets(entityId: string): Promise<GoogleSpreadsheet[]> {
-  if (!composioConfigured) return DEFAULT_GOOGLE_SPREADSHEETS;
+export async function googleSpreadsheets(entityId: string, strict = false): Promise<GoogleSpreadsheet[]> {
+  if (!composioConfigured) {
+    if (strict) throw new Error("Connect Google Sheets to choose a spreadsheet.");
+    return DEFAULT_GOOGLE_SPREADSHEETS;
+  }
   try {
     const slug = await resolveGoogleSheetsResourceTool("list");
-    if (!slug) return [];
+    if (!slug) throw new Error("Could not find the Google Sheets listing action.");
     const res = await execute(slug, entityId, {}, { retries: 1 });
-    if (!res.successful) return [];
+    if (!res.successful) throw new Error(res.error || "Could not load Google Sheets.");
     return parseGoogleSpreadsheets(res.data);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -1223,15 +1239,20 @@ export async function googleSpreadsheets(entityId: string): Promise<GoogleSpread
 export async function googleSpreadsheetTabs(
   entityId: string,
   spreadsheetId: string,
+  strict = false,
 ): Promise<GoogleSheetTab[]> {
-  if (!composioConfigured) return DEFAULT_GOOGLE_SHEETS;
+  if (!composioConfigured) {
+    if (strict) throw new Error("Connect Google Sheets to choose a sheet.");
+    return DEFAULT_GOOGLE_SHEETS;
+  }
   try {
     const slug = await resolveGoogleSheetsResourceTool("get");
-    if (!slug) return [];
+    if (!slug) throw new Error("Could not find the Google Sheets metadata action.");
     const res = await execute(slug, entityId, { spreadsheet_id: spreadsheetId }, { retries: 1 });
-    if (!res.successful) return [];
+    if (!res.successful) throw new Error(res.error || "Could not load spreadsheet sheets.");
     return parseGoogleSheetTabs(res.data);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -1281,17 +1302,23 @@ const DEFAULT_SLACK_USERS: SlackUser[] = [
  * Users/members on the workspace's connected Slack account for direct messaging.
  * Degrades gracefully to simulated members when unconfigured.
  */
-export async function slackUsers(entityId: string): Promise<SlackUser[]> {
-  if (!composioConfigured) return DEFAULT_SLACK_USERS;
+export async function slackUsers(entityId: string, strict = false): Promise<SlackUser[]> {
+  if (!composioConfigured) {
+    if (strict) throw new Error("Connect Slack to choose a team member.");
+    return DEFAULT_SLACK_USERS;
+  }
   try {
     const slug = await resolveSlackUserListTool();
-    if (!slug) return DEFAULT_SLACK_USERS;
+    if (!slug) throw new Error("Could not find Slack's user listing action.");
     const res = await execute(slug, entityId, {}, { retries: 1 });
-    if (!res.successful) return DEFAULT_SLACK_USERS;
+    if (!res.successful) throw new Error(res.error || "Could not load Slack users.");
     const data = res.data as
       | { members?: unknown[]; users?: unknown[]; items?: unknown[] }
       | unknown[]
       | undefined;
+    if (strict && !Array.isArray(data) && ![
+      data?.members, data?.users, data?.items,
+    ].some(Array.isArray)) throw new Error("Slack returned an unreadable user list. Try again.");
     const list = Array.isArray(data)
       ? data
       : Array.isArray(data?.members)
@@ -1322,8 +1349,9 @@ export async function slackUsers(entityId: string): Promise<SlackUser[]> {
         },
       ];
     });
-    return parsed.length > 0 ? parsed : DEFAULT_SLACK_USERS;
-  } catch {
+    return parsed.length > 0 || strict ? parsed : DEFAULT_SLACK_USERS;
+  } catch (error) {
+    if (strict) throw error;
     return DEFAULT_SLACK_USERS;
   }
 }
@@ -1374,19 +1402,28 @@ const DEFAULT_SLACK_CHANNELS: SlackChannel[] = [
   { id: "G056LEADS", name: "leadership", private: true },
 ];
 
-/** Public and private channels visible to the workspace's connected Slack account. */
-export async function slackChannels(entityId: string): Promise<SlackChannel[]> {
-  if (!composioConfigured) return DEFAULT_SLACK_CHANNELS;
+/** One provider page of channels; the workflow picker exposes its cursor. */
+export async function slackChannelPage(entityId: string, cursor = "", strict = false): Promise<{ channels: SlackChannel[]; nextCursor: string | null }> {
+  if (!composioConfigured) {
+    if (strict) throw new Error("Slack is not configured.");
+    return { channels: DEFAULT_SLACK_CHANNELS, nextCursor: null };
+  }
   try {
     const slug = await resolveSlackChannelListTool();
-    if (!slug) return [];
+    if (!slug) {
+      if (strict) throw new Error("Could not find Slack's channel listing action.");
+      return { channels: [], nextCursor: null };
+    }
     const res = await execute(
       slug,
       entityId,
-      { limit: 200, types: "public_channel,private_channel", exclude_archived: true },
+      { limit: 200, types: "public_channel,private_channel", exclude_archived: true, ...(cursor ? { cursor } : {}) },
       { retries: 1 },
     );
-    if (!res.successful) return [];
+    if (!res.successful) {
+      if (strict) throw new Error(res.error || "Could not load Slack channels.");
+      return { channels: [], nextCursor: null };
+    }
     const data = res.data as
       | {
           channels?: unknown[];
@@ -1394,9 +1431,15 @@ export async function slackChannels(entityId: string): Promise<SlackChannel[]> {
           items?: unknown[];
           public_channels?: unknown[];
           private_channels?: unknown[];
+          next_cursor?: string;
+          nextCursor?: string;
+          response_metadata?: { next_cursor?: string };
         }
       | unknown[]
       | undefined;
+    if (strict && !Array.isArray(data) && ![
+      data?.channels, data?.conversations, data?.items, data?.public_channels, data?.private_channels,
+    ].some(Array.isArray)) throw new Error("Slack returned an unreadable channel list. Try again.");
     const list: { raw: unknown; privateHint?: boolean }[] = Array.isArray(data)
       ? data.map((raw) => ({ raw }))
       : [
@@ -1413,7 +1456,7 @@ export async function slackChannels(entityId: string): Promise<SlackChannel[]> {
             : []),
         ];
     const seen = new Set<string>();
-    return list.flatMap(({ raw, privateHint }) => {
+    const channels = list.flatMap(({ raw, privateHint }) => {
       const channel = raw as {
         id?: string;
         channel_id?: string;
@@ -1435,9 +1478,17 @@ export async function slackChannels(entityId: string): Promise<SlackChannel[]> {
         },
       ];
     });
-  } catch {
-    return [];
+    const nextCursor = Array.isArray(data) ? null : data?.response_metadata?.next_cursor ?? data?.next_cursor ?? data?.nextCursor ?? null;
+    return { channels, nextCursor: nextCursor || null };
+  } catch (error) {
+    if (strict) throw error;
+    return { channels: [], nextCursor: null };
   }
+}
+
+/** Public and private channels visible to the workspace's connected Slack account. */
+export async function slackChannels(entityId: string, strict = false): Promise<SlackChannel[]> {
+  return (await slackChannelPage(entityId, "", strict)).channels;
 }
 
 // ---------------------------------------------------------------------------
