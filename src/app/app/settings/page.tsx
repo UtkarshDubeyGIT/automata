@@ -13,7 +13,6 @@ import { useToast } from "@/components/ui/toast";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WhatsAppSettings } from "@/components/whatsapp-settings";
 import { NotificationSettings } from "@/components/notification-settings";
-import { BrandVoiceLearning } from "@/components/brand-voice-learning";
 import { PERSONAS, TONES } from "@/lib/onboarding/taxonomy";
 
 const TABS = [
@@ -315,7 +314,6 @@ export default function SettingsPage() {
               Save brand voice
             </Button>
           </div>
-          <BrandVoiceLearning website={settings.website} disabled={loading || !!loadError} />
         </Card>
       )}
 
