@@ -76,7 +76,15 @@ export async function POST(request: NextRequest) {
       const plan = planById(requestedPlan)?.id ?? "free";
       const active = new Set(["active", "trialing", "past_due"]).has(subscription.status);
       const periodEnd = subscription.items.data[0]?.current_period_end;
-      if (workspaceId) await saveSubscription(admin, workspaceId, {
+      const { data: current } = workspaceId
+        ? await admin.from("workspaces").select("subscription_status,stripe_subscription_id").eq("id", workspaceId).maybeSingle()
+        : { data: null };
+      // An old canceled subscription must not revoke a later courtesy grant or
+      // a different paid subscription. A new active subscription can take over.
+      const stale = current?.subscription_status === "invite_active"
+        ? !active || current.stripe_subscription_id === subscription.id
+        : Boolean(current?.stripe_subscription_id && current.stripe_subscription_id !== subscription.id);
+      if (workspaceId && !stale) await saveSubscription(admin, workspaceId, {
         stripe_customer_id: id(subscription.customer), stripe_subscription_id: subscription.id,
         status: subscription.status, plan: active ? plan : "free",
         current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,

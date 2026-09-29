@@ -29,9 +29,12 @@ const UNIQUE: Record<string, string[][]> = {
   message_deliveries: [["idempotency_key"], ["twilio_message_sid"]],
   workflow_build_events: [["workspace_id", "event_key", "event_type"]],
   workflow_report_deliveries: [["idempotency_key"]],
+  pro_access_requests: [["token_hash"]],
 };
 
 function violates(table: string, rows: Row[], candidate: Row): boolean {
+  if (table === "pro_access_requests" && candidate.status === "pending" &&
+      rows.some((r) => r.workspace_id === candidate.workspace_id && r.status === "pending")) return true;
   for (const columns of UNIQUE[table] ?? []) {
     // Partial indexes: a NULL in any column means the row is not indexed.
     if (columns.some((c) => candidate[c] == null)) continue;
@@ -143,6 +146,7 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
   private predicates: Predicate[] = [];
   private sort: { column: string; ascending: boolean } | null = null;
   private max: number | null = null;
+  private offset = 0;
   private shape: "many" | "single" | "maybe" = "many";
 
   constructor(
@@ -172,6 +176,14 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
     this.predicates.push((row) => row[column] != null && String(row[column]) < value);
     return this;
   }
+  lte(column: string, value: string) {
+    this.predicates.push((row) => row[column] != null && String(row[column]) <= value);
+    return this;
+  }
+  gte(column: string, value: string) {
+    this.predicates.push((row) => row[column] != null && String(row[column]) >= value);
+    return this;
+  }
   is(column: string, value: null | boolean) {
     this.predicates.push((row) => (value === null ? row[column] == null : row[column] === value));
     return this;
@@ -197,6 +209,11 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
     this.max = n;
     return this;
   }
+  range(from: number, to: number) {
+    this.offset = from;
+    this.max = to - from + 1;
+    return this;
+  }
   select() {
     return this;
   }
@@ -219,7 +236,7 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
         return ascending ? left.localeCompare(right) : right.localeCompare(left);
       });
     }
-    return this.max == null ? rows : rows.slice(0, this.max);
+    return this.max == null ? rows.slice(this.offset) : rows.slice(this.offset, this.offset + this.max);
   }
 
   private run(): { data: unknown; error: PgError | null } {
@@ -233,6 +250,10 @@ class Query implements PromiseLike<{ data: unknown; error: PgError | null }> {
           id: randomUUID(),
           created_at: new Date().toISOString(),
           started_at: new Date().toISOString(),
+          ...(this.table === "pro_access_requests" ? {
+            status: "pending", email_status: "pending", notification_status: "pending",
+            notification_attempts: 0, requested_at: new Date().toISOString(),
+          } : {}),
           ...row,
         };
         if (violates(this.table, rows, withDefaults)) {

@@ -235,21 +235,20 @@ export function ClassicLanding() {
         <div className="pricing-clouds" aria-hidden="true" />
         <header className="world-section-heading pricing-heading">
           <span className="section-capsule">PLANS</span>
-          <h2>pay for work that runs.</h2>
-          <p>Flow controls are free. App, API, and AI modules show their credit cost clearly.</p>
-          <div className="billing-toggle"><span>monthly</span><span>yearly</span><em>save 20%</em></div>
+          <h2>start free. request more room.</h2>
+          <p>Pro is currently invite only: approved workspaces receive 30 complimentary days and 10,000 credits once.</p>
         </header>
         <div className="world-pricing-grid">
           {Object.values(PLANS).map((plan) => (
             <article className={`world-price-window ${plan.id === "pro" ? "popular" : ""}`} key={plan.id}>
-              {plan.id === "pro" && <span className="popular-label">most useful</span>}
+              {plan.id === "pro" && <span className="popular-label">invite only</span>}
               <div className="mini-window-bar"><i /><i /><i /><span>{plan.name.toLowerCase()}.plan</span></div>
               <div className="world-price-body">
                 <h3>{plan.name.toLowerCase()}</h3>
                 <p>{plan.id === "free" ? "learn what should move." : "for teams finding their rhythm."}</p>
-                <div className="world-price"><b>${plan.monthlyPrice}</b><span>/ month</span></div>
-                <small>{plan.monthlyCredits.toLocaleString()} credits included</small>
-                <Link className={plan.id === "pro" ? "aqua-button" : "glass-button"} href="/signup">{plan.id === "free" ? "start free" : `get ${plan.name.toLowerCase()}`}</Link>
+                <div className="world-price"><b>{plan.id === "pro" ? "Complimentary" : `$${plan.monthlyPrice}`}</b>{plan.id === "pro" ? null : <span>/ month</span>}</div>
+                <small>{plan.monthlyCredits.toLocaleString()} {plan.id === "pro" ? "credits once with approval" : "credits included"}</small>
+                <Link className={plan.id === "pro" ? "aqua-button" : "glass-button"} href={plan.id === "pro" ? "/app/billing" : "/signup"}>{plan.id === "free" ? "start free" : "request pro access"}</Link>
                 <hr />
                 <ul>
                   <li><Check size={15} />{plan.activeWorkflowLimit ?? "Unlimited"} active automations</li>

@@ -285,8 +285,8 @@ export function SpaceLanding() {
         <div className={styles.horizon} />
         <div className="mx-auto max-w-2xl pt-20 text-center">
           <p className={`${styles.eyebrow} justify-center`}>Built to earn its place</p>
-          <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>Pay for work <em>you no longer have to do.</em></h2>
-          <p className="mt-5 text-[16px] leading-[1.65] text-[var(--ink-muted)]">Flow controls are free. Connected-app, API, and AI work shows its credit cost before it runs, so you know exactly what an agent is doing and what it costs.</p>
+          <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>Start free. <em>Request more room.</em></h2>
+          <p className="mt-5 text-[16px] leading-[1.65] text-[var(--ink-muted)]">Pro is currently invite only. Approved workspaces receive 30 complimentary days and 10,000 credits once. No payment is collected.</p>
         </div>
         <div className="mx-auto mt-14 grid max-w-3xl gap-4 md:grid-cols-2">
           {plans.map((plan) => {
@@ -295,15 +295,15 @@ export function SpaceLanding() {
               <article key={plan.id} className={`${styles.card} ${popular ? styles.popular : ""} flex flex-col p-7`}>
                 <div className="flex items-center justify-between">
                   <h3 className="font-display text-[20px] font-semibold tracking-[-0.02em] text-white">{plan.name}</h3>
-                  {popular && <span className="rounded-full border border-white/20 px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-white">most useful</span>}
+                  {popular && <span className="rounded-full border border-white/20 px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-white">invite only</span>}
                 </div>
                 <p className="mt-1.5 text-[14px] text-[var(--ink-muted)]">{planTaglines[plan.id]}</p>
                 <div className="mt-7 flex items-baseline gap-1.5">
-                  <span className="font-display text-[44px] font-semibold tracking-[-0.04em] text-white">${plan.monthlyPrice}</span>
-                  <span className="text-[14px] text-[var(--ink-subtle)]">/ month</span>
+                  <span className={`font-display font-semibold tracking-[-0.04em] text-white ${popular ? "text-[clamp(27px,3vw,40px)]" : "text-[44px]"}`}>{popular ? "Complimentary" : `$${plan.monthlyPrice}`}</span>
+                  {popular ? null : <span className="text-[14px] text-[var(--ink-subtle)]">/ month</span>}
                 </div>
-                <p className="mt-1 font-mono text-[12px] text-[var(--ink-subtle)]">{plan.monthlyCredits.toLocaleString()} credits included</p>
-                <Link className={`${popular ? styles.primary : styles.ghost} mt-7`} href="/signup">{plan.id === "free" ? "Start free" : `Get ${plan.name}`}</Link>
+                <p className="mt-1 font-mono text-[12px] text-[var(--ink-subtle)]">{plan.monthlyCredits.toLocaleString()} {popular ? "credits once with approval" : "credits included"}</p>
+                <Link className={`${popular ? styles.primary : styles.ghost} mt-7`} href={popular ? "/app/billing" : "/signup"}>{popular ? "Request Pro access" : "Start free"}</Link>
                 <ul className="mt-7 grid gap-3 text-[14px] text-[var(--ink-muted)]">
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.activeWorkflowLimit ?? "Unlimited"} active automations</li>
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.retentionDays}-day run history</li>

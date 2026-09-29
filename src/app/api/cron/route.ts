@@ -12,6 +12,7 @@ import { setupNotice } from "@/lib/setup-notice";
 import { sweepVideos } from "@/lib/video/advance";
 import { purgeWorkflowBuildEvents } from "@/lib/workflows/diagnostics";
 import { expireReportDeliveries } from "@/lib/workflows/report-delivery";
+import { maintainProAccess } from "@/lib/billing/pro-access";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -62,6 +63,11 @@ export async function POST(req: NextRequest) {
       await expireReportDeliveries(db);
     } catch (err) {
       console.error("[cron] report delivery expiry failed:", err);
+    }
+    try {
+      await maintainProAccess();
+    } catch (err) {
+      console.error("[cron] Pro access maintenance failed:", err);
     }
   }
 

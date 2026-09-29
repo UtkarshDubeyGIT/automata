@@ -32,5 +32,6 @@ test("the billing endpoint returns the same live balance when Stripe is unavaila
   assert.equal(body.credits, 75);
   assert.equal(body.hasCustomerPortal, false);
   assert.deepEqual(body.invoices, []);
-  assert.deepEqual(body.spend, { periodLabel: "Last 30 days", total: 0, refunded: 0, categories: [] });
+  assert.deepEqual(body.spend, { periodLabel: "Last 30 days", total: 0, refunded: 0, categories: [], workflows: [], standalone: [] });
+  assert.deepEqual(body.history, []);
 });

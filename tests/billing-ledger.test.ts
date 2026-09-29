@@ -48,3 +48,40 @@ test("a retired Team price grants the Pro allowance after the tier is removed", 
   assert.equal((await POST(request())).status, 200);
   assert.equal(await getBalance("workspace-1"), 10_000);
 });
+
+test("a delayed cancellation does not revoke courtesy Pro access", async () => {
+  db.replace("billing_events", []);
+  db.replace("workspaces", [{ id: "workspace-1", plan: "pro", subscription_status: "invite_active", stripe_subscription_id: "sub_old" }]);
+  event = { id: "evt_old_cancel", type: "customer.subscription.deleted", data: { object: {
+    id: "sub_old", customer: "cus_old", status: "canceled", metadata: { workspace_id: "workspace-1", plan: "pro" },
+    items: { data: [{ price: { id: "price_pro" } }] },
+  } } };
+  assert.equal((await POST(request())).status, 200);
+  assert.equal(db.table("workspaces")[0].plan, "pro");
+  assert.equal(db.table("workspaces")[0].subscription_status, "invite_active");
+  event = { id: "evt_old_active_late", type: "customer.subscription.updated", data: { object: {
+    id: "sub_old", customer: "cus_old", status: "active", metadata: { workspace_id: "workspace-1", plan: "pro" },
+    items: { data: [{ price: { id: "price_pro" } }] },
+  } } };
+  assert.equal((await POST(request())).status, 200);
+  assert.equal(db.table("workspaces")[0].subscription_status, "invite_active");
+});
+
+test("a new paid subscription takes over courtesy access and ignores the old subscription", async () => {
+  db.replace("billing_events", []);
+  db.replace("workspaces", [{ id: "workspace-1", plan: "pro", subscription_status: "invite_active", stripe_subscription_id: "sub_old" }]);
+  event = { id: "evt_new_paid", type: "customer.subscription.updated", data: { object: {
+    id: "sub_new", customer: "cus_new", status: "active", metadata: { workspace_id: "workspace-1", plan: "pro" },
+    items: { data: [{ price: { id: "price_pro" } }] },
+  } } };
+  assert.equal((await POST(request())).status, 200);
+  assert.equal(db.table("workspaces")[0].subscription_status, "active");
+  assert.equal(db.table("workspaces")[0].stripe_subscription_id, "sub_new");
+  event = { id: "evt_old_cancel_late", type: "customer.subscription.deleted", data: { object: {
+    id: "sub_old", customer: "cus_old", status: "canceled", metadata: { workspace_id: "workspace-1", plan: "pro" },
+    items: { data: [{ price: { id: "price_pro" } }] },
+  } } };
+  assert.equal((await POST(request())).status, 200);
+  assert.equal(db.table("workspaces")[0].subscription_status, "active");
+  assert.equal(db.table("workspaces")[0].stripe_subscription_id, "sub_new");
+});

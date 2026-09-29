@@ -71,7 +71,7 @@ export const BILLING_PLANS: BillingPlan[] = Object.values(PLANS).map((plan) => (
   credits: plan.monthlyCredits,
   highlighted: plan.id === "pro",
   features: [
-    `${plan.monthlyCredits.toLocaleString("en-US")} ${plan.monthlyPrice === 0 ? "credits to start" : "credits / month"}`,
+    `${plan.monthlyCredits.toLocaleString("en-US")} ${plan.id === "free" ? "credits to start" : "credits once with approval"}`,
     plan.activeWorkflowLimit === null ? "Unlimited active workflows" : `${plan.activeWorkflowLimit} active workflows`,
     `${plan.retentionDays} days of run history`,
   ],
