@@ -21,6 +21,7 @@ import { appList, ConnectApps, useAppConnections } from "@/components/connect-ap
 import { BrandGap, useBrandReadiness } from "@/components/brand-readiness";
 import { pollWorkflowBuild, requestWorkflowBuild } from "@/lib/workflows/build-request";
 import { requestWorkflowCreation } from "@/lib/workflows/create-request";
+import { fallbackConversationTitle, normalizeConversationTitle } from "@/lib/ai/conversation-title";
 
 /**
  * Shared AI chat panel — the third way to build, alongside the template
@@ -127,6 +128,7 @@ export function BuilderChat({
   const { toast } = useToast();
   const { refresh: refreshCredits } = useCredits();
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [conversationTitle, setConversationTitle] = useState("New conversation");
   const [input, setInput] = useState("");
   const [building, setBuilding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -174,6 +176,27 @@ export function BuilderChat({
       const seq = ++seqRef.current;
       buildingRef.current = true;
       setMessages((prev) => [...prev, { role: "user", text: t }]);
+      if (messages.length === 0) {
+        void (async () => {
+          let title = fallbackConversationTitle(t);
+          try {
+            const res = await fetch("/api/workflows/title", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: t }),
+              signal: AbortSignal.timeout(10_000),
+            });
+            if (!res.ok) throw new Error("Title request failed");
+            const data = (await res.json()) as { title?: unknown };
+            if (typeof data?.title === "string") {
+              title = normalizeConversationTitle(data.title) || title;
+            }
+          } catch {
+            // Keep the local title for a failed, timed-out, or unreadable response.
+          }
+          if (seq === seqRef.current) setConversationTitle(title);
+        })();
+      }
       setInput("");
       setBuilding(true);
       const fail = (message: string) => {
@@ -378,6 +401,7 @@ export function BuilderChat({
     seqRef.current++;
     buildingRef.current = false;
     setMessages([]);
+    setConversationTitle("New conversation");
     setInput("");
     setBuilding(false);
     setSaving(false);
@@ -457,8 +481,10 @@ export function BuilderChat({
   /** The transcript — identical in both variants, only its frame differs. */
   const conversation = (
     <>
-      <div className="flex items-center justify-between border-b border-line px-5 py-3">
-        <span className="text-[13px] font-semibold text-ink">New conversation</span>
+      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink" title={conversationTitle}>
+          {conversationTitle}
+        </span>
         <Button
           variant="ghost"
           size="sm"

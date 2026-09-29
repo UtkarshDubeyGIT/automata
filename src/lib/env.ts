@@ -21,6 +21,7 @@ export const env = {
   openaiKey: pub("OPENAI_API_KEY"),
   openaiModel: pub("OPENAI_MODEL") || pub("OPENAI_TEXT_MODEL") || "gpt-5.6-terra",
   openaiTrendsModel: pub("OPENAI_TRENDS_MODEL") || pub("OPENAI_MODEL") || "gpt-5.5",
+  openaiTitleModel: pub("OPENAI_TITLE_MODEL") || "gpt-4.1-nano",
 
   // ---- Stripe (billing) ----
   stripeSecret: pub("STRIPE_SECRET_KEY"),
