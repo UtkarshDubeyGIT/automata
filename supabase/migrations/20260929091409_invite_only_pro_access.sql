@@ -37,16 +37,39 @@ grant usage on schema private to authenticated;
 
 create or replace function private.is_workspace_member(target_workspace uuid)
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select (select auth.uid()) is not null and exists (
-    select 1 from public.workspace_members membership
-    where membership.workspace_id = target_workspace
-      and membership.user_id = (select auth.uid())
+declare
+  v_user uuid := auth.uid();
+  v_member boolean;
+begin
+  if v_user is null then
+    return false;
+  end if;
+
+  -- The membership table exists in the current schema, but older compatible
+  -- deployments only have an owner on workspaces. Dynamic SQL avoids resolving
+  -- the absent table while installing this function on those deployments.
+  if pg_catalog.to_regclass('public.workspace_members') is not null then
+    execute 'select exists (
+      select 1 from public.workspace_members membership
+      where membership.workspace_id = $1 and membership.user_id = $2
+    )' into v_member using target_workspace, v_user;
+    return coalesce(v_member, false);
+  end if;
+
+  return exists (
+    select 1 from public.workspaces workspace
+    where workspace.id = target_workspace
+      and (
+        pg_catalog.to_jsonb(workspace)->>'owner_id' = v_user::text
+        or pg_catalog.to_jsonb(workspace)->>'created_by' = v_user::text
+      )
   );
+end;
 $$;
 revoke all on function private.is_workspace_member(uuid) from public, anon, authenticated;
 grant execute on function private.is_workspace_member(uuid) to authenticated;

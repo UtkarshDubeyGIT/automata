@@ -48,7 +48,7 @@ test("authorization helpers are private and public tables receive explicit grant
   assert.match(sql, /revoke all on public\.workspace_secrets from anon, authenticated/i);
 });
 
-test("invite-only Pro migration bootstraps its private RLS helper", async () => {
+test("invite-only Pro migration supports legacy schemas without workspace_members", async () => {
   const sql = await readFile(new URL(
     "../supabase/migrations/20260929091409_invite_only_pro_access.sql",
     import.meta.url,
@@ -57,7 +57,10 @@ test("invite-only Pro migration bootstraps its private RLS helper", async () => 
   const helper = sql.indexOf("create or replace function private.is_workspace_member");
   const policy = sql.indexOf("create policy pro_access_workspace_read");
   assert.ok(schema >= 0 && schema < helper && helper < policy);
-  assert.match(sql, /security definer\s+set search_path = ''/i);
+  assert.match(sql, /language plpgsql\s+stable\s+security definer\s+set search_path = ''/i);
+  assert.match(sql, /to_regclass\('public\.workspace_members'\)/i);
+  assert.match(sql, /to_jsonb\(workspace\)->>'owner_id'/i);
+  assert.match(sql, /to_jsonb\(workspace\)->>'created_by'/i);
   assert.match(sql, /grant execute on function private\.is_workspace_member\(uuid\) to authenticated/i);
 });
 
