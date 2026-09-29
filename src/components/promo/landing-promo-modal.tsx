@@ -9,9 +9,10 @@ import { hasSeen, LANDING_PROMO_KEY, markSeen, WELCOME_BONUS_CREDITS } from "@/l
 import { ConfettiBurst } from "./confetti";
 import styles from "./landing-promo-modal.module.css";
 
-// Let visitors orient themselves before the celebration takes over the page.
-// Confetti mounts from the same `open` state, so it appears at this moment too.
-const OPEN_DELAY_MS = 4_500;
+// Wait until visitors have had time to read and have scrolled into the page.
+// Confetti mounts from the same `open` state, so it appears with the dialog.
+const OPEN_DELAY_MS = 20_000;
+const SCROLL_THRESHOLD = 0.25;
 
 /**
  * First-visit teaser on the landing page. The "seen" flag is written the
@@ -26,11 +27,39 @@ export function LandingPromoModal() {
 
   React.useEffect(() => {
     if (hasSeen(LANDING_PROMO_KEY)) return;
-    const id = window.setTimeout(() => {
+    let delayElapsed = false;
+    let scrolledEnough = false;
+    let opened = false;
+
+    const checkScroll = () => {
+      const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollableHeight > 0 && window.scrollY / scrollableHeight >= SCROLL_THRESHOLD) {
+        scrolledEnough = true;
+        window.removeEventListener("scroll", checkScroll);
+        maybeOpen();
+      }
+    };
+
+    const maybeOpen = () => {
+      if (opened || !delayElapsed || !scrolledEnough) return;
+      opened = true;
       markSeen(LANDING_PROMO_KEY);
       setOpen(true);
+      window.removeEventListener("scroll", checkScroll);
+    };
+
+    checkScroll();
+    if (!scrolledEnough) window.addEventListener("scroll", checkScroll, { passive: true });
+
+    const id = window.setTimeout(() => {
+      delayElapsed = true;
+      maybeOpen();
     }, OPEN_DELAY_MS);
-    return () => window.clearTimeout(id);
+
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("scroll", checkScroll);
+    };
   }, []);
 
   const close = React.useCallback(() => setOpen(false), []);

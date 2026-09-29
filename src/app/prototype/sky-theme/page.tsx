@@ -22,7 +22,10 @@ import {
 import { PrototypeSwitcher } from "@/components/prototype-switcher";
 import styles from "./sky-theme.module.css";
 
-export const metadata: Metadata = { title: "Dashboard Design Preview" };
+export const metadata: Metadata = {
+  title: "Dashboard Design Preview",
+  robots: { index: false, follow: false },
+};
 
 // PROTOTYPE: Three full-shell sky-blue directions, switchable with ?variant=A|B|C.
 const variants = [

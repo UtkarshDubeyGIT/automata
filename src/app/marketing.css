@@ -273,7 +273,7 @@ body:has(.marketing-shell) {
   .auth-signup-page .auth-switch { margin-top: 16px; }
   .auth-signup-page > .auth-legal { margin-top: 10px; }
 }
-.legal-page { min-height: 100vh; background: #f1f2ee; padding: 32px max(25px, 7vw) 80px; }.legal-page > a { color: #212733; }.legal-page article { max-width: 710px; margin: 80px auto 0; }.legal-page article > span { color: #7f8891; text-transform: uppercase; letter-spacing: .1em; font: 700 9px ui-monospace, monospace; }.legal-page h1 { font-size: clamp(44px, 8vw, 78px); letter-spacing: -.065em; margin: 16px 0 35px; }.legal-page h2 { font-size: 18px; margin-top: 30px; }.legal-page p { color: #626b72; font-size: 13px; line-height: 1.8; }.legal-page article > a { display: inline-flex; margin-top: 30px; color: var(--blue); font-size: 11px; font-weight: 750; }
+.legal-page { min-height: 100vh; background: #f1f2ee; padding: 32px max(25px, 7vw) 80px; }.legal-page > a { color: #212733; }.legal-page article { max-width: 710px; margin: 80px auto 0; }.legal-page article > span { color: #66717a; text-transform: uppercase; letter-spacing: .1em; font: 700 12px/1.5 ui-monospace, monospace; }.legal-page h1 { font-size: clamp(44px, 8vw, 78px); letter-spacing: -.065em; margin: 16px 0 35px; }.legal-page h2 { font-size: 20px; margin-top: 30px; }.legal-page p { color: #515a62; font-size: 15px; line-height: 1.75; }.legal-page article > a { display: inline-flex; margin-top: 30px; color: var(--blue); font-size: 14px; font-weight: 750; }
 @media (max-width: 520px) { .auth-card { padding: 27px 21px; }.auth-brand { left: 20px; }.auth-foot { display: none; } }
 
 

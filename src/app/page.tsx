@@ -1,14 +1,32 @@
 import type { Metadata } from "next";
 
-import { SpaceLanding } from "@/components/landing-space/space-landing";
+import { SpaceLanding, questions } from "@/components/landing-space/space-landing";
 import { BRAND } from "@/config/brand";
-import { pageTitle } from "@/lib/page-titles";
+import { SITE_URL } from "@/config/seo";
+
+const pageTitle = "AI workflow automation for operators and developers";
+const pageDescription = "Automata helps solo operators, developers, and small teams connect their tools, describe recurring work, and build AI-assisted workflows with review before consequential actions.";
 
 export const metadata: Metadata = {
-  title: pageTitle("AI Workflow Automation Builder"),
-  description: "Automata is a visual automation workspace for AI-assisted workflows that connect your tools, run repetitive work, and keep consequential actions reviewable.",
-  alternates: {
-    canonical: "/",
+  // The homepage is in the same segment as the root layout, so Next.js does
+  // not apply the root title template to it.
+  title: `${pageTitle} | ${BRAND.name}`,
+  description: pageDescription,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: `${SITE_URL}/`,
+    siteName: BRAND.name,
+    title: `${pageTitle} | ${BRAND.name}`,
+    description: pageDescription,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Automata AI workflow automation for operators and developers" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${pageTitle} | ${BRAND.name}`,
+    description: pageDescription,
+    images: ["/opengraph-image"],
   },
 };
 
@@ -17,10 +35,12 @@ const jsonLd = {
   "@graph": [
     {
       "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#software`,
       name: BRAND.name,
+      url: SITE_URL,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
-      description: "Automata is a visual automation workspace that connects tools, runs repetitive work, and keeps consequential actions reviewable.",
+      description: pageDescription,
       featureList: [
         "AI-assisted workflow building from plain language",
         "Connected-tool automations and templates",
@@ -30,44 +50,15 @@ const jsonLd = {
     },
     {
       "@type": "FAQPage",
-      mainEntity: [
-        {
-          "@type": "Question",
-          name: "What can I delegate to an AI agent?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Automata can research, synthesize, and draft with live context from connected tools before routing a useful result to the next workflow step.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Can the agent make decisions on its own?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "You set the boundaries for what an agent can handle, where it can send results, and which decisions require your review.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Will Automata take actions without asking me?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "AI-created workflows place an approval before every external write by default, and you can adjust that per step when a routine has earned your trust.",
-          },
-        },
-      ],
+      mainEntity: questions.map(({ q, a }) => ({
+        "@type": "Question",
+        name: q,
+        acceptedAnswer: { "@type": "Answer", text: a },
+      })),
     },
   ],
 };
 
-/**
- * Landing page mock: the space-themed direction drawn from the sign-in panel.
- *
- * To switch back to the previous landing, swap the import for
- * `ClassicLanding` from "@/components/landing-classic". Both stay side by
- * side until one is chosen; the classic one is viewable at
- * /prototype/landing-classic in the meantime.
- */
 export default function LandingPage() {
   return (
     <>

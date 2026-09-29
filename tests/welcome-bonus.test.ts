@@ -95,9 +95,12 @@ test("the in-app dialog carries the promised copy and is mounted for new users o
   assert.match(workspace, /select\("id, name, plan, created_at"\)/);
 });
 
-test("the landing offer waits 4.5 seconds before a decorated celebration", () => {
+test("the landing offer waits for 20 seconds and a quarter-page scroll", () => {
   const modal = readFileSync("src/components/promo/landing-promo-modal.tsx", "utf8");
-  assert.match(modal, /const OPEN_DELAY_MS = 4_500/);
+  assert.match(modal, /const OPEN_DELAY_MS = 20_000/);
+  assert.match(modal, /const SCROLL_THRESHOLD = 0\.25/);
+  assert.match(modal, /delayElapsed \|\| !scrolledEnough/);
+  assert.match(modal, /scrollableHeight > 0 && window\.scrollY \/ scrollableHeight >= SCROLL_THRESHOLD/);
   assert.match(modal, /ConfettiBurst/);
   assert.match(modal, /markSeen\(LANDING_PROMO_KEY\)/);
   assert.match(modal, /href="\/signup"/);

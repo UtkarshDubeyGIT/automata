@@ -24,7 +24,7 @@ body:has(.page) {
   --line-strong: rgba(255, 255, 255, 0.14);
   --ink: #f4f4f7;
   --ink-muted: #a3a3ad;
-  --ink-subtle: #70707a;
+  --ink-subtle: #8c8c96;
   --attention: #f2b357;
   --live: #5fd39a;
   position: relative;
@@ -92,7 +92,7 @@ body:has(.page) {
   align-items: center;
   gap: 10px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 13px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-subtle);
@@ -282,7 +282,7 @@ body:has(.page) {
 .routeStop small {
   display: block;
   margin-top: 1px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink-subtle);
 }
 .routeDone {
@@ -476,7 +476,7 @@ body:has(.page) {
 }
 .faq summary span {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-subtle);
 }
 .faq summary i {

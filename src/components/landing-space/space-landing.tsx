@@ -36,17 +36,17 @@ const pains = [
   {
     quote: "I know the outcome. I don't want to draw every box.",
     title: "Start with the work, not the workflow.",
-    body: "Tell Automata the result you need and the tools involved. The AI builder turns that intent into a draft you can inspect, instead of making you spend an afternoon wiring triggers, fields, and fallback paths.",
+    body: "Describe the result and the tools involved. The AI builder drafts a workflow you can inspect, without making you wire every trigger and field by hand.",
   },
   {
     quote: "Most of our work needs judgment, not another if/then.",
     title: "Give the messy middle to an agent.",
-    body: "Automata can pull context from your tools, research, summarize, and draft the next action. Your workflow becomes more than data moving from A to B.",
+    body: "Give an agent context from your tools so it can research, summarize, and draft before the workflow moves on.",
   },
   {
     quote: "We have better things to do than maintain every automation.",
     title: "Keep the outcome. Lose the upkeep.",
-    body: "When the process changes, tell the AI builder what changed. It reshapes the route, while run history and approvals make every step easy to trust.",
+    body: "When a process changes, describe what changed. Update the route and use run history and approvals to understand each run.",
   },
 ];
 
@@ -59,7 +59,7 @@ const steps = [
   {
     n: "02",
     title: "Let the AI builder map it",
-    body: "Automata selects the trigger, connected tools, AI work, and approvals, then turns your request into a workflow you can inspect and refine.",
+    body: "Automata chooses the trigger, connected tools, AI steps, and approvals, then gives you a workflow to inspect and refine.",
   },
   {
     n: "03",
@@ -74,34 +74,34 @@ const proofs = [
   { icon: PauseCircle, title: "Improve without rebuilding", body: "Every run is traceable, so a better instruction or route is simple to change." },
 ];
 
-const questions = [
+export const questions = [
   {
     q: "What can I delegate to an AI agent?",
-    a: "Give it work that needs context before it needs action: research a company, qualify an inbound lead, turn meeting notes into tasks, assemble a weekly brief, or draft the next message. It can use live context from your connected tools to research, synthesize, and draft before handing a useful result to the next step.",
+    a: "Delegate work that needs context before action: research a company, qualify a lead, turn meeting notes into tasks, or draft a message. An agent can use live context from connected tools, then pass its result to the next workflow step.",
   },
   {
     q: "How is this different from a standard automation?",
-    a: "A standard automation follows the same fixed path every time. Automata adds AI steps when the work needs interpretation: it can read the situation, turn unstructured information into something useful, and route the result into a dependable workflow.",
+    a: "A standard automation follows a fixed path. Automata can add AI steps to interpret information and route the result through a dependable workflow.",
   },
   {
     q: "Can the agent make decisions on its own?",
-    a: "It can classify, summarize, and route work using the context you provide. You set your boundaries: define what it can handle, where it can send a result, and which decisions should come back to you.",
+    a: "It can classify, summarize, and route work using the context you provide. You decide what it can handle, where results go, and which decisions need your review.",
   },
   {
     q: "Will it take actions without asking me?",
-    a: "Not unless you tell it to. AI-created workflows place an approval before every external write by default. You can relax that per step once a routine has earned your trust.",
+    a: "AI-created workflows put an approval before every external write by default. You can change that for individual steps when you are ready.",
   },
   {
     q: "Do I need an engineer to set this up?",
-    a: "No. Start by describing a job and outcome in plain language. Automata creates a working draft you can inspect, while the canvas, webhooks, and HTTP modules are there only when you want to shape the details.",
+    a: "No. Describe a job and its outcome in plain language. Automata creates a draft to inspect; the canvas and technical modules are available when you want more control.",
   },
   {
     q: "Does “run once” use real data?",
-    a: "Yes, on purpose. Test runs use your connected accounts and live payloads so what you review is what will happen. Before a write, Automata shows a preflight so a test cannot quietly change production.",
+    a: "Yes. Test runs use your connected accounts and live payloads. Automata shows a preflight before a write so a test does not quietly change production data.",
   },
   {
     q: "What happens when a run fails at 3am?",
-    a: "The run is recorded with the exact input and the step that failed. Retries are automatic for transient errors. Anything that needs a human waits in Needs attention until you get to it.",
+    a: "Run history records the input and failed step. Automata retries temporary errors; anything needing a person waits in Needs attention.",
   },
 ];
 
@@ -121,6 +121,10 @@ function Brand() {
 
 export function SpaceLanding() {
   const plans = Object.values(PLANS);
+  const supportDomain = BRAND.supportEmail.split("@")[1] ?? "";
+  const hasPublicSupportEmail =
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(BRAND.supportEmail) &&
+    !/\.(?:local|internal)$/i.test(supportDomain);
 
   return (
     <main className={styles.page}>
@@ -152,16 +156,19 @@ export function SpaceLanding() {
           mask="linear-gradient(to bottom, #000 0%, #000 60%, rgba(0,0,0,0.4) 85%, transparent 100%)"
           className="opacity-60 lg:opacity-100"
         />
-        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:pb-36 lg:pt-20">
+        <div className="relative z-10 mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-10 lg:grid-cols-[1.4fr_0.8fr] lg:items-center lg:pb-36 lg:pt-20">
           <div>
-            <h1 className={`${styles.display} ${styles.rise} text-[clamp(44px,6.4vw,80px)]`}>
+            <h1 className={`${styles.display} ${styles.rise} text-[clamp(38px,7vw,52px)] lg:text-[clamp(44px,3.4vw,50px)]`}>
               Describe the outcome.<br /><em>Automata builds the work.</em>
             </h1>
+            <p className={`${styles.rise} mt-6 max-w-xl text-[17px] leading-[1.65] text-[var(--ink-muted)]`}>
+              Automata is an AI workflow automation builder for solo operators, developers, and small teams. Connect your tools, describe the work, and review consequential actions before they run.
+            </p>
             <div className={`${styles.rise} mt-9 flex flex-wrap items-center gap-3`}>
               <Link className={styles.primary} href="/signup">Put an agent to work <ArrowRight size={17} /></Link>
-              <Link className={styles.ghost} href="/app/workflows/daily-pipeline-digest"><Play size={15} fill="currentColor" /> See the AI builder</Link>
+              <Link className={styles.ghost} href="#how"><Play size={15} fill="currentColor" /> See how the AI builder works</Link>
             </div>
-            <ul className={`${styles.rise} mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-[var(--ink-subtle)]`}>
+            <ul className={`${styles.rise} mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-[var(--ink-subtle)]`}>
               <li className="inline-flex items-center gap-2"><Check size={13} /> Start from an outcome, not a canvas</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> AI builder drafts the workflow</li>
               <li className="inline-flex items-center gap-2"><Check size={13} /> Approvals where you decide</li>
@@ -181,7 +188,7 @@ export function SpaceLanding() {
       <section className="relative mx-auto w-full max-w-6xl px-6 py-24" id="why">
         <div className="max-w-2xl">
           <p className={styles.eyebrow}>Why Automata</p>
-          <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>The workflow should be <em>the easy part.</em></h2>
+          <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>Let Automata handle recurring work <em>across your tools.</em></h2>
         </div>
         <div className="mt-14 grid gap-5 md:grid-cols-3">
           {pains.map((pain) => (
@@ -203,8 +210,8 @@ export function SpaceLanding() {
         <div className="grid gap-12 pt-20 lg:grid-cols-[0.8fr_1.2fr]">
           <div>
             <p className={styles.eyebrow}>From intent to action</p>
-            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>You set the direction. <em>Automata builds the route.</em></h2>
-            <p className="mt-6 max-w-md text-[16px] leading-[1.65] text-[var(--ink-muted)]">You do not have to learn a visual editor before work can move. Start with the goal; the AI builder gives you a working route to inspect, adjust, and trust.</p>
+            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>From a plain language request <em>to a workflow you can inspect.</em></h2>
+            <p className="mt-6 max-w-md text-[16px] leading-[1.65] text-[var(--ink-muted)]">Describe the goal and the tools involved. The AI builder creates a draft you can review and adjust before it runs.</p>
             <Link className={`${styles.ghost} mt-8`} href="/signup">Tell the AI builder what to do <ArrowRight size={15} /></Link>
           </div>
           <ol className="grid gap-4">
@@ -231,8 +238,8 @@ export function SpaceLanding() {
         <div className="relative z-10 mx-auto w-full max-w-6xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <p className={`${styles.eyebrow} justify-center`}>Autonomy on your terms</p>
-            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>Give agents context. <em>Keep the call.</em></h2>
-            <p className="mt-6 text-[16.5px] leading-[1.65] text-[var(--ink-muted)]">An agent can do far more when it understands the work around it. {BRAND.name} gives it live context from your tools, while you keep control of consequential actions, approvals, and every run that matters.</p>
+            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.6vw,56px)]`}>Give agents context. <em>Set their limits.</em></h2>
+            <p className="mt-6 text-[16.5px] leading-[1.65] text-[var(--ink-muted)]">{BRAND.name} gives agents context from your tools. You choose which actions need approval and can review every run.</p>
           </div>
           <div className="mt-14 grid gap-4 md:grid-cols-3">
             {proofs.map(({ icon: Icon, title, body }) => (
@@ -252,8 +259,8 @@ export function SpaceLanding() {
         <div className="flex flex-col gap-6 pt-20 md:flex-row md:items-end md:justify-between">
           <div className="max-w-xl">
             <p className={styles.eyebrow}>Start with a result</p>
-            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>Skip the blank canvas. <em>Start in motion.</em></h2>
-            <p className="mt-5 text-[16px] leading-[1.65] text-[var(--ink-muted)]">Choose a proven starting point, tell the AI builder what is different for your team, and make it yours without reconstructing the route from scratch.</p>
+            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>Start with a template <em>you can make your own.</em></h2>
+            <p className="mt-5 text-[16px] leading-[1.65] text-[var(--ink-muted)]">Choose a starting point, describe what should change, and adjust the workflow for your needs.</p>
           </div>
           <Link className={`${styles.ghost} self-start md:self-auto`} href="/app/templates">See agent-ready starts <ArrowRight size={15} /></Link>
         </div>
@@ -270,7 +277,7 @@ export function SpaceLanding() {
                 </div>
                 <h3 className="mt-6 font-display text-[17px] font-semibold tracking-[-0.015em] text-white">{template.name}</h3>
                 <p className="mt-2 line-clamp-3 text-[14px] leading-[1.6] text-[var(--ink-muted)]">{template.description}</p>
-                <footer className="mt-auto flex items-center justify-between pt-6 font-mono text-[11.5px] text-[var(--ink-subtle)]">
+                <footer className="mt-auto flex items-center justify-between pt-6 font-mono text-[13px] text-[var(--ink-subtle)]">
                   <span>{template.setupMinutes ?? 4} min setup</span>
                   <ArrowRight size={14} />
                 </footer>
@@ -295,14 +302,14 @@ export function SpaceLanding() {
               <article key={plan.id} className={`${styles.card} ${popular ? styles.popular : ""} flex flex-col p-7`}>
                 <div className="flex items-center justify-between">
                   <h3 className="font-display text-[20px] font-semibold tracking-[-0.02em] text-white">{plan.name}</h3>
-                  {popular && <span className="rounded-full border border-white/20 px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-white">invite only</span>}
+                  {popular && <span className="rounded-full border border-white/20 px-2.5 py-1 font-mono text-[12px] uppercase tracking-[0.12em] text-white">invite only</span>}
                 </div>
                 <p className="mt-1.5 text-[14px] text-[var(--ink-muted)]">{planTaglines[plan.id]}</p>
                 <div className="mt-7 flex items-baseline gap-1.5">
                   <span className={`font-display font-semibold tracking-[-0.04em] text-white ${popular ? "text-[clamp(27px,3vw,40px)]" : "text-[44px]"}`}>{popular ? "Complimentary" : `$${plan.monthlyPrice}`}</span>
                   {popular ? null : <span className="text-[14px] text-[var(--ink-subtle)]">/ month</span>}
                 </div>
-                <p className="mt-1 font-mono text-[12px] text-[var(--ink-subtle)]">{plan.monthlyCredits.toLocaleString()} {popular ? "credits once with approval" : "credits included"}</p>
+                <p className="mt-1 font-mono text-[13px] text-[var(--ink-subtle)]">{plan.monthlyCredits.toLocaleString()} {popular ? "credits once with approval" : "credits included"}</p>
                 <Link className={`${popular ? styles.primary : styles.ghost} mt-7`} href={popular ? "/app/billing" : "/signup"}>{popular ? "Request Pro access" : "Start free"}</Link>
                 <ul className="mt-7 grid gap-3 text-[14px] text-[var(--ink-muted)]">
                   <li className="flex items-center gap-2.5"><Check size={14} className="text-white" /> {plan.activeWorkflowLimit ?? "Unlimited"} active automations</li>
@@ -321,7 +328,7 @@ export function SpaceLanding() {
         <div className="grid gap-12 pt-20 lg:grid-cols-[0.7fr_1.3fr]">
           <div>
             <p className={styles.eyebrow}>Before you delegate</p>
-            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>Questions before you give <em>an agent the keys.</em></h2>
+            <h2 className={`${styles.display} mt-5 text-[clamp(34px,4.2vw,52px)]`}>Common questions about <em>AI workflow automation.</em></h2>
             <p className="mt-5 max-w-sm text-[16px] leading-[1.65] text-[var(--ink-muted)]">What to delegate, how the agent gets context, and where you stay in control.</p>
           </div>
           <div className={styles.faq}>
@@ -356,14 +363,14 @@ export function SpaceLanding() {
       {/* ---- Footer ------------------------------------------------------- */}
       <footer className="relative mx-auto w-full max-w-6xl px-6 pb-10">
         <div className={styles.horizon} />
-        <div className="grid gap-10 pt-12 text-[14px] text-[var(--ink-muted)] md:grid-cols-4">
+        <div className={`grid gap-10 pt-12 text-[14px] text-[var(--ink-muted)] ${hasPublicSupportEmail ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
           <div className="flex flex-col gap-3"><b className="text-white">Product</b><a href="#how">AI builder</a><a href="#templates">Starting points</a><a href="#pricing">Pricing</a><Link href="/signup">Try it</Link></div>
-          <div className="flex flex-col gap-3"><b className="text-white">Resources</b><a href="#faq">Questions</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href={`mailto:${BRAND.supportEmail}`}>Support</a></div>
-          <div className="flex flex-col gap-3"><b className="text-white">Connect</b><a href={`mailto:${BRAND.supportEmail}`}>Email</a><span className="text-[var(--ink-subtle)]">Changelog soon</span><span className="text-[var(--ink-subtle)]">Community soon</span></div>
+          <div className="flex flex-col gap-3"><b className="text-white">Resources</b><a href="#faq">Questions</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link>{hasPublicSupportEmail && <a href={`mailto:${BRAND.supportEmail}`}>Support</a>}</div>
+          {hasPublicSupportEmail && <div className="flex flex-col gap-3"><b className="text-white">Connect</b><a href={`mailto:${BRAND.supportEmail}`}>Email</a></div>}
           <div><b className="text-white">The short version</b><p className="mt-3 leading-[1.6]">Define the outcome. Automata builds a trusted path to it.</p></div>
         </div>
         <div className="mt-16 overflow-hidden" aria-hidden="true"><div className={styles.wordmark}>{BRAND.name.toLowerCase()}</div></div>
-        <small className="mt-6 block text-[12.5px] text-[var(--ink-subtle)]">© 2026 {BRAND.name}. Built for teams who want outcomes, not workflows.</small>
+        <small className="mt-6 block text-[13px] text-[var(--ink-subtle)]">© 2026 {BRAND.name}. Built for teams who want outcomes, not workflows.</small>
       </footer>
     </main>
   );

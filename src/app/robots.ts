@@ -7,7 +7,9 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/app/", "/onboarding/", "/workflows/", "/integrations/", "/api/", "/auth/"],
+      // HTML routes carry a noindex directive so crawlers can see it. Keep
+      // machine endpoints and token URLs out of crawler discovery.
+      disallow: ["/api/", "/auth/", "/hooks/"],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
   };

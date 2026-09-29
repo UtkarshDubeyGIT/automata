@@ -1,0 +1,11 @@
+# Automata
+
+Automata is an AI workflow automation builder for solo operators, developers, and small teams. It connects work across online tools and turns plain language instructions into workflows that people can inspect and adjust.
+
+Agents can use context from connected tools to research, summarize, classify, and draft. Automata supports human approval before consequential external actions, along with run history and preflight previews.
+
+## Public pages
+
+- Home: https://automata.doubtbuddy.com
+- Privacy policy: https://automata.doubtbuddy.com/privacy
+- Terms of service: https://automata.doubtbuddy.com/terms

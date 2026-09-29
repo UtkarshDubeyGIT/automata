@@ -19,22 +19,6 @@ export const metadata: Metadata = {
     template: `%s | ${BRAND.name}`,
   },
   description: BRAND.description,
-  alternates: {
-    canonical: "/",
-  },
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "/",
-    siteName: BRAND.name,
-    title: `${BRAND.name} — ${BRAND.tagline}`,
-    description: BRAND.description,
-  },
-  twitter: {
-    card: "summary",
-    title: `${BRAND.name} — ${BRAND.tagline}`,
-    description: BRAND.description,
-  },
   robots: {
     index: true,
     follow: true,
