@@ -14,9 +14,9 @@ import { useToast } from "@/components/ui/toast";
  * was harmless while nothing produced notifications; it stops being harmless
  * the moment failures start sending email.
  *
- * Self-contained, like WhatsAppSettings beside it, rather than folded into the
- * page's shared settings state: this is a different table, keyed per user
- * rather than per workspace, and /api/settings only accepts string fields.
+ * It stays self-contained rather than folded into the page's shared settings
+ * state: this is a different table, keyed per user rather than per workspace,
+ * and /api/settings only accepts string fields.
  */
 
 interface Prefs {

@@ -11,7 +11,6 @@ import { Avatar } from "@/components/ui/avatar";
 import { Icon } from "@/components/ui/icon";
 import { useToast } from "@/components/ui/toast";
 import { SignOutButton } from "@/components/sign-out-button";
-import { WhatsAppSettings } from "@/components/whatsapp-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { PERSONAS, TONES } from "@/lib/onboarding/taxonomy";
 
@@ -448,12 +447,9 @@ export default function SettingsPage() {
 
       {tab === "notifications" && (
         <Card className="min-w-0 p-4 sm:p-6">
-          <CardHeader title="Notifications" subtitle="Receive workflow approvals and reminders on WhatsApp." />
-          <div className="mt-6 flex max-w-2xl flex-col gap-8">
+          <CardHeader title="Notifications" subtitle="Choose where you receive workflow approvals and failure alerts." />
+          <div className="mt-6 max-w-2xl">
             <NotificationSettings />
-            <div className="border-t border-line pt-8">
-              <WhatsAppSettings />
-            </div>
           </div>
         </Card>
       )}

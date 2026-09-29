@@ -504,16 +504,18 @@ export default function IntegrationsPage() {
             {ch.description}
           </div>
         </div>
-        <div className="col-span-2 justify-self-end sm:contents">
-          <CardActions
-            state={state}
-            name={ch.name}
-            pending={pending === ch.id}
-            method={method}
-            onConnect={() => connect(ch.id, ch.name, method)}
-            onDisconnect={() => disconnect(ch.id, ch.name)}
-          />
-        </div>
+        {!comingSoon && (
+          <div className="col-span-2 justify-self-end sm:contents">
+            <CardActions
+              state={state}
+              name={ch.name}
+              pending={pending === ch.id}
+              method={method}
+              onConnect={() => connect(ch.id, ch.name, method)}
+              onDisconnect={() => disconnect(ch.id, ch.name)}
+            />
+          </div>
+        )}
       </Card>
     );
   }
@@ -550,24 +552,26 @@ export default function IntegrationsPage() {
             ) : null}
           </div>
         </div>
-        <div className="col-span-2 justify-self-end sm:contents">
-          {t.noAuth ? (
-            // `flex-none`: without it the badge is shrinkable and its
-            // label wraps to two lines on a narrow card.
-            <Badge className="flex-none whitespace-nowrap">No auth needed</Badge>
-          ) : (
-            <CardActions
-              state={state}
-              name={t.name}
-              pending={pending === t.slug}
-              method={method}
-              onConnect={() => connect(t.slug, t.name, method)}
-              onDisconnect={() => disconnect(t.slug, t.name)}
-              onManage={t.slug === "vikunja" ? () => setVikunjaOpen(true) : undefined}
-              connectLabel={t.slug === "vikunja" ? "Connect Vikunja" : undefined}
-            />
-          )}
-        </div>
+        {!comingSoon && (
+          <div className="col-span-2 justify-self-end sm:contents">
+            {t.noAuth ? (
+              // `flex-none`: without it the badge is shrinkable and its
+              // label wraps to two lines on a narrow card.
+              <Badge className="flex-none whitespace-nowrap">No auth needed</Badge>
+            ) : (
+              <CardActions
+                state={state}
+                name={t.name}
+                pending={pending === t.slug}
+                method={method}
+                onConnect={() => connect(t.slug, t.name, method)}
+                onDisconnect={() => disconnect(t.slug, t.name)}
+                onManage={t.slug === "vikunja" ? () => setVikunjaOpen(true) : undefined}
+                connectLabel={t.slug === "vikunja" ? "Connect Vikunja" : undefined}
+              />
+            )}
+          </div>
+        )}
       </Card>
     );
   }
