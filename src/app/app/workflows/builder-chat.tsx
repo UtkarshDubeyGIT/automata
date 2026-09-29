@@ -525,7 +525,7 @@ export function BuilderChat({
           <div className="flex gap-3">
             <AssistantAvatar busy />
             <div className="flex items-center gap-2 text-[14px] text-ink-subtle">
-              {mode === "edit" ? "Updating your workflow…" : "Designing your workflow…"}
+              {mode === "edit" ? "Updating your workflow…" : <WorkflowBuildStatus />}
             </div>
           </div>
         )}
@@ -645,16 +645,32 @@ export function BuilderChat({
 /** How long one hint holds, and how long it takes to cross-fade to the next. */
 const HINT_HOLD_MS = 6000;
 const HINT_FADE_MS = 400;
+const BUILD_STATUS_HOLD_MS = 2200;
+const BUILD_STATUS_FADE_MS = 300;
+
+const WORKFLOW_BUILD_MESSAGES = [
+  "Feeding in and feeding out of multiple lines",
+  "Checking your requirements",
+  "Checking integrations for this",
+  "Trying to triangulate your idea",
+  "Triangulating your workflow",
+  "Building automations",
+  "Just wait for a moment",
+  "Taking a bit",
+];
 
 /**
- * The hint currently on show, and whether it is faded in.
+ * The message currently on show, and whether it is faded in.
  *
- * Only runs while there is something to rotate and the box is still empty —
- * once someone is typing, their own text is the only thing that should move.
- * Reduced-motion holds the first hint instead of cycling: the animation is the
- * decoration, the examples are the content.
+ * Reduced-motion holds the first message instead of cycling: the animation
+ * is decorative, while the text remains available as ordinary content.
  */
-function useRotatingHint(items: string[], enabled: boolean) {
+function useRotatingHint(
+  items: readonly string[],
+  enabled: boolean,
+  holdMs = HINT_HOLD_MS,
+  fadeMs = HINT_FADE_MS,
+) {
   const [index, setIndex] = useState(0);
   const [shown, setShown] = useState(true);
   const [wasEnabled, setWasEnabled] = useState(enabled);
@@ -678,16 +694,47 @@ function useRotatingHint(items: string[], enabled: boolean) {
       fade = window.setTimeout(() => {
         setIndex((i) => (i + 1) % count);
         setShown(true);
-      }, HINT_FADE_MS);
-    }, HINT_HOLD_MS + HINT_FADE_MS);
+      }, fadeMs);
+    }, holdMs + fadeMs);
 
     return () => {
       window.clearInterval(cycle);
       if (fade !== undefined) window.clearTimeout(fade);
     };
-  }, [enabled, count]);
+  }, [enabled, count, holdMs, fadeMs]);
 
   return { text: items[index] ?? "", shown };
+}
+
+function WorkflowBuildStatus() {
+  const [entered, setEntered] = useState(false);
+  const message = useRotatingHint(
+    WORKFLOW_BUILD_MESSAGES,
+    true,
+    BUILD_STATUS_HOLD_MS,
+    BUILD_STATUS_FADE_MS,
+  );
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setEntered(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <>
+      <span role="status" className="sr-only">Building your workflow…</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "transition-opacity motion-reduce:transition-none",
+          message.shown && entered ? "opacity-100" : "opacity-0",
+        )}
+        style={{ transitionDuration: `${BUILD_STATUS_FADE_MS}ms` }}
+      >
+        {message.text}
+      </span>
+    </>
+  );
 }
 
 function PromptBox({
