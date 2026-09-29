@@ -181,7 +181,7 @@ export default function WorkflowDetailPage() {
   /** Keeps the first second of a manual run live even before its row reaches the client. */
   const [watchingRun, setWatchingRun] = useState(false);
   const [chatOpen, setChatOpen] = useState(searchParams.get("chat") === "1");
-  const [modulesOpen, setModulesOpen] = useState(true);
+  const [modulesOpen, setModulesOpen] = useState(false);
   const [replay, setReplay] = useState<Record<string, "done" | "failed"> | undefined>();
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
