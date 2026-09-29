@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { INTEGRATION_BY_SLUG } from "@/lib/integrations/catalog";
 import { toolkitLogo } from "@/lib/social/platforms";
@@ -11,10 +11,11 @@ const connectApps = readFileSync("src/components/connect-apps.tsx", "utf8");
 
 test("Vikunja is a permanent integration with its own icon", () => {
   assert.equal(INTEGRATION_BY_SLUG.get("vikunja")?.name, "Vikunja");
-  assert.match(toolkitLogo("vikunja"), /vikunja\.io/);
+  assert.equal(toolkitLogo("vikunja"), "/vikunja.png");
+  assert.equal(toolkitLogo("vikunja", "https://tasks.example.com/"), "/vikunja.png");
+  assert.ok(existsSync("public/vikunja.png"));
   assert.match(page, /vikunja:\s*\{/);
   assert.match(page, /Connect Vikunja/);
-  assert.equal(toolkitLogo("vikunja", "https://tasks.example.com/"), "https://tasks.example.com/images/icons/favicon.svg");
 });
 
 test("Google Business Profile uses the supplied local brand mark", () => {

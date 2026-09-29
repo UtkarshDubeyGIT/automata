@@ -108,8 +108,9 @@ export function toolkitLogo(slug: string, instanceUrl?: string): string {
     return "/google-business-profile.png";
   }
   if (normalized === "vikunja") {
-    const base = instanceUrl?.trim().replace(/\/+$/, "");
-    return base ? `${base}/images/icons/favicon.svg` : "https://vikunja.io/images/icons/favicon.svg";
+    // Keep Vikunja's mark stable across hosted and self-hosted instances.
+    void instanceUrl;
+    return "/vikunja.png";
   }
   return `https://logos.composio.dev/api/${normalized}`;
 }
