@@ -48,6 +48,19 @@ test("authorization helpers are private and public tables receive explicit grant
   assert.match(sql, /revoke all on public\.workspace_secrets from anon, authenticated/i);
 });
 
+test("invite-only Pro migration bootstraps its private RLS helper", async () => {
+  const sql = await readFile(new URL(
+    "../supabase/migrations/20260929091409_invite_only_pro_access.sql",
+    import.meta.url,
+  ), "utf8");
+  const schema = sql.indexOf("create schema if not exists private");
+  const helper = sql.indexOf("create or replace function private.is_workspace_member");
+  const policy = sql.indexOf("create policy pro_access_workspace_read");
+  assert.ok(schema >= 0 && schema < helper && helper < policy);
+  assert.match(sql, /security definer\s+set search_path = ''/i);
+  assert.match(sql, /grant execute on function private\.is_workspace_member\(uuid\) to authenticated/i);
+});
+
 test("run and billing idempotency are enforced by unique indexes", async () => {
   const sql = await migrationSql();
   assert.match(sql, /unique \(workflow_id, idempotency_key\)/i);

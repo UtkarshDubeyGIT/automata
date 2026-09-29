@@ -28,6 +28,29 @@ create index pro_access_notifications
 create index pro_access_expiry on public.pro_access_requests(access_expires_at)
   where status = 'approved' and expired_at is null;
 
+-- Older installations may have the Automata tables without the private
+-- authorization helpers used by their RLS policies. Keep this migration
+-- self-contained so the policy below can be installed on those databases too.
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+grant usage on schema private to authenticated;
+
+create or replace function private.is_workspace_member(target_workspace uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select (select auth.uid()) is not null and exists (
+    select 1 from public.workspace_members membership
+    where membership.workspace_id = target_workspace
+      and membership.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function private.is_workspace_member(uuid) from public, anon, authenticated;
+grant execute on function private.is_workspace_member(uuid) to authenticated;
+
 alter table public.pro_access_requests enable row level security;
 revoke all on public.pro_access_requests from public, anon, authenticated;
 grant select (id,workspace_id,requested_by,requester_email,workspace_name,status,email_status,notification_status,notification_attempts,notification_next_at,
