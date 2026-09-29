@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 
 import { SpaceLanding } from "@/components/landing-space/space-landing";
 import { BRAND } from "@/config/brand";
+import { pageTitle } from "@/lib/page-titles";
 
 export const metadata: Metadata = {
-  title: "AI workflow automation with human approval",
+  title: pageTitle("AI Workflow Automation Builder"),
   description: "Automata is a visual automation workspace for AI-assisted workflows that connect your tools, run repetitive work, and keep consequential actions reviewable.",
   alternates: {
     canonical: "/",

@@ -1,10 +1,13 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 
 import { NOTICE_COPY } from "@/lib/auth/errors";
 import { safeNext } from "@/lib/auth/redirects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 import { LoginForm } from "./login-form";
+
+export const metadata: Metadata = { title: "Sign In" };
 
 type LoginPageProps = { searchParams: Promise<{ next?: string; notice?: string }> };
 

@@ -1,10 +1,13 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 
 import { NOTICE_COPY } from "@/lib/auth/errors";
 import { safeNext } from "@/lib/auth/redirects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 import { SignupForm } from "./signup-form";
+
+export const metadata: Metadata = { title: "Create an Account" };
 
 type SignupPageProps = { searchParams: Promise<{ next?: string; notice?: string }> };
 

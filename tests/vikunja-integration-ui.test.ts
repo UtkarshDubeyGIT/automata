@@ -48,7 +48,7 @@ test("connecting Vikunja from a workflow panel updates the row that gates Save",
   assert.match(connectApps, /onConnected=\{\(\) => onConnected\(vikunja\)\}/);
   for (const file of [
     "src/app/app/workflows/builder-chat.tsx",
-    "src/app/app/workflows/page.tsx",
+    "src/app/app/workflows/workflows-client.tsx",
     "src/app/app/workflows/[id]/page.tsx",
   ]) {
     const source = readFileSync(file, "utf8");

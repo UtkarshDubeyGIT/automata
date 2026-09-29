@@ -40,6 +40,7 @@ import { requestRun } from "@/lib/workflows/run-request";
 import { BrandGap, useBrandReadiness } from "@/components/brand-readiness";
 import { needsBrandGrounding } from "@/lib/workflows/apps";
 import { comingSoonFeaturesForGraph } from "@/lib/workflows/availability";
+import { pageTitle } from "@/lib/page-titles";
 import type { WorkflowGraph } from "@/lib/workflows/types";
 import {
   adoptableAfterSave,
@@ -283,6 +284,14 @@ export default function WorkflowDetailPage() {
   useEffect(() => {
     savedNameRef.current = savedName;
   }, [savedName]);
+
+  useEffect(() => {
+    document.title = pageTitle("Workflow");
+  }, [workflowId]);
+
+  useEffect(() => {
+    if (savedName && wf?.id === workflowId) document.title = pageTitle(savedName);
+  }, [savedName, wf?.id, workflowId]);
 
   // Keep the "latest value" refs in step with state. They exist so an async
   // save can tell what changed while its request was in flight.

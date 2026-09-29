@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
@@ -11,6 +12,10 @@ import { CreditsProvider } from "@/components/ui/credits";
 import { ThemeProvider } from "@/components/theme";
 import { WelcomeBonusModal } from "@/components/promo/welcome-bonus-modal";
 import { isNewWorkspace } from "@/lib/promo/welcome-bonus";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 /**
  * The product shell: no sidebar, no topbar, just the page under two floating

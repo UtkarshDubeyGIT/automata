@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import {
   ArrowRight,
   Bell,
@@ -19,6 +21,8 @@ import {
 
 import { PrototypeSwitcher } from "@/components/prototype-switcher";
 import styles from "./sky-theme.module.css";
+
+export const metadata: Metadata = { title: "Dashboard Design Preview" };
 
 // PROTOTYPE: Three full-shell sky-blue directions, switchable with ?variant=A|B|C.
 const variants = [

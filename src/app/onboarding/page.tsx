@@ -1,7 +1,14 @@
+import type { Metadata } from "next";
+
 import { getWorkspaceContext, resolveRequestContext } from "@/lib/workspace";
 import type { BrandProfile } from "@/lib/brand";
 
 import { OnboardingFlow } from "./flow";
+
+export const metadata: Metadata = {
+  title: "Set Up Your Workspace",
+  robots: { index: false, follow: false },
+};
 
 /**
  * Loads whatever the workspace already knows so a resumed run reopens filled in

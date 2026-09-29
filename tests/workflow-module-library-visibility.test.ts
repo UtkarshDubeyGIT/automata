@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 test("modules appear only when the workflow editor was entered from creation", () => {
-  const listPage = readFileSync("src/app/app/workflows/page.tsx", "utf8");
+  const listPage = readFileSync("src/app/app/workflows/workflows-client.tsx", "utf8");
   const detailPage = readFileSync("src/app/app/workflows/[id]/page.tsx", "utf8");
 
   assert.match(listPage, /const href = `\/app\/workflows\/\$\{workflow\.id\}\?creating=1`/);

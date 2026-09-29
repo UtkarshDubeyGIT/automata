@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const listRoute = readFileSync("src/app/api/workflows/route.ts", "utf8");
-const listPage = readFileSync("src/app/app/workflows/page.tsx", "utf8");
+const listPage = readFileSync("src/app/app/workflows/workflows-client.tsx", "utf8");
 const editor = readFileSync("src/app/app/workflows/[id]/page.tsx", "utf8");
 const dialogPath = "src/components/workflow-activation-dialog.tsx";
 const dialog = existsSync(dialogPath) ? readFileSync(dialogPath, "utf8") : "";
